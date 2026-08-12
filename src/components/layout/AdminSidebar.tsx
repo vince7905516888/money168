@@ -3,14 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { useState } from "react";
 
-const navItems = [
+const topItems = [
   { href: "/admin/dashboard", label: "後台總覽", icon: "◎" },
-  { href: "/admin/users", label: "會員管理", icon: "◫" },
+];
+
+const settingsItems = [
+  { href: "/admin/users", label: "帳戶管理" },
+  { href: "/admin/settings/permissions", label: "權限管理" },
 ];
 
 export default function AdminSidebar({ userName }: { userName: string }) {
   const pathname = usePathname();
+  const isSettingsActive = settingsItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
+  const [settingsOpen, setSettingsOpen] = useState(isSettingsActive);
 
   return (
     <aside className="w-60 min-h-screen bg-slate-900 flex flex-col px-4 py-6 fixed left-0 top-0 z-20">
@@ -27,7 +34,7 @@ export default function AdminSidebar({ userName }: { userName: string }) {
 
       {/* Nav */}
       <nav className="flex-1 space-y-1">
-        {navItems.map((item) => {
+        {topItems.map((item) => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
@@ -44,6 +51,43 @@ export default function AdminSidebar({ userName }: { userName: string }) {
             </Link>
           );
         })}
+
+        {/* 系統設置 collapsible */}
+        <div>
+          <button
+            onClick={() => setSettingsOpen((o) => !o)}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              isSettingsActive ? "text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-base leading-none">⚙️</span>
+              系統設置
+            </div>
+            <span className={`text-xs transition-transform ${settingsOpen ? "rotate-90" : ""}`}>▶</span>
+          </button>
+          {settingsOpen && (
+            <div className="ml-4 mt-1 space-y-1">
+              {settingsItems.map((item) => {
+                const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                      active
+                        ? "bg-indigo-600 text-white font-medium"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    <span className="w-1 h-1 rounded-full bg-current opacity-60" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </nav>
 
       {/* User */}

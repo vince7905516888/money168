@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -12,14 +13,21 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const { isActive, role } = await req.json();
+  const { isActive, role, password } = await req.json();
+
+  const data: Record<string, unknown> = {};
+  if (isActive !== undefined) data.isActive = isActive;
+  if (role !== undefined) data.role = role;
+  if (password) {
+    if (password.length < 6) {
+      return NextResponse.json({ error: "密碼至少需要 6 個字元" }, { status: 400 });
+    }
+    data.password = await bcrypt.hash(password, 12);
+  }
 
   const updated = await prisma.user.update({
     where: { id },
-    data: {
-      ...(isActive !== undefined && { isActive }),
-      ...(role !== undefined && { role }),
-    },
+    data,
     select: {
       id: true,
       name: true,

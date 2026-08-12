@@ -95,6 +95,9 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
+  const [bankTotal, setBankTotal] = useState(0);
+  const [allIncome, setAllIncome] = useState(0);
+  const [allExpense, setAllExpense] = useState(0);
   const [form, setForm] = useState(EMPTY_FORM);
   const [transfer, setTransfer] = useState(EMPTY_TRANSFER);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("");
@@ -117,15 +120,24 @@ export default function TransactionsPage() {
     const params = new URLSearchParams();
     if (filter.type) params.set("type", filter.type);
     if (filter.month) params.set("month", filter.month);
-    const [txRes, catRes, bankRes] = await Promise.all([
+    const [txRes, catRes, bankRes, allTxRes, bankSumRes] = await Promise.all([
       fetch(`/api/transactions?${params}`),
       fetch("/api/categories"),
       fetch("/api/user-banks"),
+      fetch("/api/transactions?source=CASH"),
+      fetch("/api/banks/summary"),
     ]);
-    const [txData, catData, bankData] = await Promise.all([txRes.json(), catRes.json(), bankRes.json()]);
+    const [txData, catData, bankData, allTxData, bankSumData] = await Promise.all([
+      txRes.json(), catRes.json(), bankRes.json(), allTxRes.json(), bankSumRes.json(),
+    ]);
     setTransactions(Array.isArray(txData) ? txData : []);
     setCategories(Array.isArray(catData) ? catData : []);
     setUserBanks(Array.isArray(bankData) ? bankData : []);
+    const allTx: Transaction[] = Array.isArray(allTxData) ? allTxData : [];
+    setAllIncome(allTx.filter((t) => t.type === "INCOME").reduce((s, t) => s + t.amount, 0));
+    setAllExpense(allTx.filter((t) => t.type === "EXPENSE").reduce((s, t) => s + t.amount, 0));
+    const banks = Array.isArray(bankSumData) ? bankSumData : [];
+    setBankTotal(banks.reduce((s: number, b: { balance: number }) => s + b.balance, 0));
     setLoading(false);
   }, [filter]);
 
@@ -325,6 +337,22 @@ export default function TransactionsPage() {
           className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors">
           + 新增記錄
         </button>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">銀行總結餘</div>
+          <div className={`text-2xl font-bold mt-1 ${bankTotal >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(bankTotal)}</div>
+        </div>
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+          <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">總流入</div>
+          <div className="text-2xl font-bold text-emerald-600 mt-1">{fmt(allIncome)}</div>
+        </div>
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+          <div className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">總流出</div>
+          <div className="text-2xl font-bold text-red-500 mt-1">{fmt(allExpense)}</div>
+        </div>
       </div>
 
       {/* Filters */}
