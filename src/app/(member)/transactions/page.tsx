@@ -28,6 +28,14 @@ const BANK_NAMES = [
   "星展銀行", "渣打銀行", "中華郵政", "其他銀行",
 ];
 
+const THIRD_PARTY = [
+  "LINE Pay", "街口支付", "悠遊付", "Pi拍錢包",
+  "全盈+PAY", "Apple Pay", "Google Pay", "台灣Pay",
+  "橘子Pay", "一卡通Money", "其他",
+];
+
+type PaymentMethod = "" | "現金" | "銀行" | "第三方支付";
+
 const EMPTY_FORM = {
   title: "",
   amount: "",
@@ -45,6 +53,8 @@ export default function TransactionsPage() {
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [bankName, setBankName] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("");
+  const [paymentDetail, setPaymentDetail] = useState("");
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ type: "", month: "" });
 
@@ -75,26 +85,50 @@ export default function TransactionsPage() {
     setEditing(null);
     setForm(EMPTY_FORM);
     setBankName("");
+    setPaymentMethod("");
+    setPaymentDetail("");
     setShowModal(true);
   };
 
   const openEdit = (t: Transaction) => {
     setEditing(t);
     const isBankCat = t.category?.name === "銀行";
+    // parse payment info from note: "支付:現金", "支付:銀行:玉山銀行", "支付:第三方支付:LINE Pay"
+    const note = t.note ?? "";
+    let pm: PaymentMethod = "";
+    let pd = "";
+    let userNote = note;
+    if (note.startsWith("支付:")) {
+      const parts = note.split(":");
+      pm = parts[1] as PaymentMethod;
+      pd = parts[2] ?? "";
+      userNote = "";
+    }
     setForm({
       title: t.title,
       amount: String(t.amount),
       type: t.type,
       date: t.date.split("T")[0],
-      note: isBankCat ? "" : (t.note ?? ""),
+      note: isBankCat ? "" : userNote,
       categoryId: t.categoryId ?? "",
     });
-    setBankName(isBankCat ? (t.note ?? "") : "");
+    setBankName(isBankCat ? note : "");
+    setPaymentMethod(pm);
+    setPaymentDetail(pd);
     setShowModal(true);
   };
 
   const selectedCatName = categories.find((c) => c.id === form.categoryId)?.name;
   const isBank = selectedCatName === "銀行";
+
+  const buildNote = () => {
+    if (isBank) return bankName;
+    if (form.type === "EXPENSE" && paymentMethod) {
+      if (paymentMethod === "現金") return "支付:現金";
+      return `支付:${paymentMethod}:${paymentDetail}`;
+    }
+    return form.note;
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,7 +140,7 @@ export default function TransactionsPage() {
     await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, note: isBank ? bankName : form.note }),
+      body: JSON.stringify({ ...form, note: buildNote() }),
     });
 
     setSaving(false);
@@ -199,7 +233,7 @@ export default function TransactionsPage() {
                     <div className="text-sm font-medium text-slate-800">{t.title}</div>
                     <div className="text-xs text-slate-400">
                       {t.category?.name ?? "未分類"} · {new Date(t.date).toLocaleDateString("zh-TW")}
-                      {t.note && ` · ${t.note}`}
+                      {t.note && ` · ${t.note.startsWith("支付:") ? t.note.replace("支付:", "").replace(/:/g, " ") : t.note}`}
                     </div>
                   </div>
                 </div>
@@ -318,7 +352,54 @@ export default function TransactionsPage() {
                   </select>
                 </div>
               )}
-              {!isBank && (
+              {!isBank && form.type === "EXPENSE" && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">支付方式</label>
+                  <div className="flex gap-2 mb-2">
+                    {(["現金", "銀行", "第三方支付"] as PaymentMethod[]).map((pm) => (
+                      <button
+                        key={pm}
+                        type="button"
+                        onClick={() => { setPaymentMethod(pm); setPaymentDetail(""); }}
+                        className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                          paymentMethod === pm
+                            ? "bg-indigo-600 text-white"
+                            : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                        }`}
+                      >
+                        {pm === "現金" ? "💵 現金" : pm === "銀行" ? "🏦 銀行" : "📱 第三方支付"}
+                      </button>
+                    ))}
+                  </div>
+                  {paymentMethod === "銀行" && (
+                    <select
+                      required
+                      value={paymentDetail}
+                      onChange={(e) => setPaymentDetail(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                    >
+                      <option value="">請選擇銀行</option>
+                      {BANK_NAMES.map((b) => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  )}
+                  {paymentMethod === "第三方支付" && (
+                    <select
+                      required
+                      value={paymentDetail}
+                      onChange={(e) => setPaymentDetail(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                    >
+                      <option value="">請選擇支付平台</option>
+                      {THIRD_PARTY.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+              {!isBank && form.type === "INCOME" && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
                   <input
