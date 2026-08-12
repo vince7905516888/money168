@@ -31,14 +31,14 @@ export async function POST(req: NextRequest) {
     const defaultCategories = [
       { name: "薪資", type: "INCOME" as const, icon: "💰", color: "#22c55e" },
       { name: "投資", type: "INCOME" as const, icon: "📈", color: "#3b82f6" },
-      { name: "銀行利息", type: "INCOME" as const, icon: "🏦", color: "#0ea5e9" },
+      { name: "銀行", type: "INCOME" as const, icon: "🏦", color: "#0ea5e9" },
       { name: "其他收入", type: "INCOME" as const, icon: "💵", color: "#a855f7" },
       { name: "餐飲", type: "EXPENSE" as const, icon: "🍜", color: "#f97316" },
       { name: "交通", type: "EXPENSE" as const, icon: "🚗", color: "#6366f1" },
       { name: "購物", type: "EXPENSE" as const, icon: "🛍️", color: "#ec4899" },
       { name: "娛樂", type: "EXPENSE" as const, icon: "🎮", color: "#14b8a6" },
       { name: "醫療", type: "EXPENSE" as const, icon: "🏥", color: "#ef4444" },
-      { name: "銀行手續費", type: "EXPENSE" as const, icon: "🏦", color: "#0ea5e9" },
+      { name: "銀行", type: "EXPENSE" as const, icon: "🏦", color: "#0ea5e9" },
       { name: "其他支出", type: "EXPENSE" as const, icon: "📦", color: "#78716c" },
     ];
 

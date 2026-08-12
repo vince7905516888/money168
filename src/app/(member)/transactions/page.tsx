@@ -21,6 +21,13 @@ interface Transaction {
   categoryId?: string;
 }
 
+const BANK_NAMES = [
+  "台灣銀行", "合作金庫", "第一銀行", "華南銀行", "彰化銀行",
+  "兆豐銀行", "土地銀行", "國泰世華", "玉山銀行", "中國信託",
+  "台北富邦", "永豐銀行", "台新銀行", "遠東銀行", "上海商銀",
+  "星展銀行", "渣打銀行", "中華郵政", "其他銀行",
+];
+
 const EMPTY_FORM = {
   title: "",
   amount: "",
@@ -37,6 +44,7 @@ export default function TransactionsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [bankName, setBankName] = useState("");
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ type: "", month: "" });
 
@@ -66,21 +74,27 @@ export default function TransactionsPage() {
   const openAdd = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
+    setBankName("");
     setShowModal(true);
   };
 
   const openEdit = (t: Transaction) => {
     setEditing(t);
+    const isBankCat = t.category?.name === "銀行";
     setForm({
       title: t.title,
       amount: String(t.amount),
       type: t.type,
       date: t.date.split("T")[0],
-      note: t.note ?? "",
+      note: isBankCat ? "" : (t.note ?? ""),
       categoryId: t.categoryId ?? "",
     });
+    setBankName(isBankCat ? (t.note ?? "") : "");
     setShowModal(true);
   };
+
+  const selectedCatName = categories.find((c) => c.id === form.categoryId)?.name;
+  const isBank = selectedCatName === "銀行";
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,7 +106,7 @@ export default function TransactionsPage() {
     await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify({ ...form, note: isBank ? bankName : form.note }),
     });
 
     setSaving(false);
@@ -110,6 +124,7 @@ export default function TransactionsPage() {
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
 
   const filteredCats = categories.filter((c) => c.type === form.type);
+
 
   return (
     <div className="max-w-4xl">
@@ -287,15 +302,33 @@ export default function TransactionsPage() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
-                <input
-                  value={form.note}
-                  onChange={(e) => setForm({ ...form, note: e.target.value })}
-                  placeholder="備註..."
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
-                />
-              </div>
+              {isBank && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">銀行名稱</label>
+                  <select
+                    required
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                  >
+                    <option value="">請選擇銀行</option>
+                    {BANK_NAMES.map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {!isBank && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+                  <input
+                    value={form.note}
+                    onChange={(e) => setForm({ ...form, note: e.target.value })}
+                    placeholder="備註..."
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                  />
+                </div>
+              )}
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"

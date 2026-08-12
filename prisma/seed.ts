@@ -9,8 +9,8 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 const bankCategories = [
-  { name: "銀行利息", type: "INCOME" as const, icon: "🏦", color: "#0ea5e9" },
-  { name: "銀行手續費", type: "EXPENSE" as const, icon: "🏦", color: "#0ea5e9" },
+  { name: "銀行", type: "INCOME" as const, icon: "🏦", color: "#0ea5e9" },
+  { name: "銀行", type: "EXPENSE" as const, icon: "🏦", color: "#0ea5e9" },
 ];
 
 async function main() {
