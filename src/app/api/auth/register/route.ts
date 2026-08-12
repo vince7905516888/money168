@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       { name: "薪資", type: "INCOME" as const, icon: "💰", color: "#22c55e" },
       { name: "投資", type: "INCOME" as const, icon: "📈", color: "#3b82f6" },
       { name: "銀行", type: "INCOME" as const, icon: "🏦", color: "#0ea5e9" },
+      { name: "第三方", type: "INCOME" as const, icon: "📱", color: "#f59e0b" },
       { name: "其他收入", type: "INCOME" as const, icon: "💵", color: "#a855f7" },
       { name: "餐飲", type: "EXPENSE" as const, icon: "🍜", color: "#f97316" },
       { name: "交通", type: "EXPENSE" as const, icon: "🚗", color: "#6366f1" },
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
       { name: "醫療", type: "EXPENSE" as const, icon: "🏥", color: "#ef4444" },
       { name: "投資", type: "EXPENSE" as const, icon: "📊", color: "#6366f1" },
       { name: "銀行", type: "EXPENSE" as const, icon: "🏦", color: "#0ea5e9" },
+      { name: "第三方", type: "EXPENSE" as const, icon: "📱", color: "#f59e0b" },
       { name: "其他支出", type: "EXPENSE" as const, icon: "📦", color: "#78716c" },
     ];
 

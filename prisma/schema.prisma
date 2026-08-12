@@ -16,13 +16,24 @@ model User {
   isActive     Boolean       @default(true)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
-  transactions Transaction[]
-  categories   Category[]
-  userBanks    UserBank[]
-  investments  Investment[]
+  transactions   Transaction[]
+  categories     Category[]
+  userBanks      UserBank[]
+  userThirdParties UserThirdParty[]
+  investments    Investment[]
 }
 
 model UserBank {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, name])
+}
+
+model UserThirdParty {
   id        String   @id @default(cuid())
   name      String
   userId    String

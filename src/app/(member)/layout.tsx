@@ -1,6 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import MemberSidebar from "@/components/layout/MemberSidebar";
+import MainArea from "@/components/layout/MainArea";
+import { SidebarProvider } from "@/components/layout/SidebarContext";
 
 export default async function MemberLayout({
   children,
@@ -13,8 +15,10 @@ export default async function MemberLayout({
 
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <MemberSidebar userName={session.user.name} />
-      <main className="ml-60 flex-1 p-8">{children}</main>
+      <SidebarProvider storageKey="member-sidebar-collapsed">
+        <MemberSidebar userName={session.user.name} />
+        <MainArea>{children}</MainArea>
+      </SidebarProvider>
     </div>
   );
 }

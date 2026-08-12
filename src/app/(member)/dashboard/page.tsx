@@ -13,7 +13,7 @@ interface Transaction {
 }
 
 interface BankSummary {
-  bankName: string;
+  name: string;
   balance: number;
 }
 
@@ -103,10 +103,10 @@ export default function DashboardPage() {
               </div>
               <div className="divide-y divide-slate-50">
                 {banks.filter((b) => b.balance !== 0).map((b) => (
-                  <div key={b.bankName} className="flex items-center justify-between px-6 py-3.5">
+                  <div key={b.name} className="flex items-center justify-between px-6 py-3.5">
                     <div className="flex items-center gap-2">
                       <span className="text-base">🏦</span>
-                      <span className="text-sm font-medium text-slate-800">{b.bankName}</span>
+                      <span className="text-sm font-medium text-slate-800">{b.name}</span>
                     </div>
                     <span className={`text-sm font-semibold ${b.balance >= 0 ? "text-slate-700" : "text-red-500"}`}>
                       {fmt(b.balance)}

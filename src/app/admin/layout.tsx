@@ -1,6 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import AdminSidebar from "@/components/layout/AdminSidebar";
+import MainArea from "@/components/layout/MainArea";
+import { SidebarProvider } from "@/components/layout/SidebarContext";
 
 export default async function AdminLayout({
   children,
@@ -13,8 +15,10 @@ export default async function AdminLayout({
 
   return (
     <div className="flex min-h-screen bg-slate-900">
-      <AdminSidebar userName={session.user.name} />
-      <main className="ml-60 flex-1 p-8">{children}</main>
+      <SidebarProvider storageKey="admin-sidebar-collapsed">
+        <AdminSidebar userName={session.user.name} />
+        <MainArea>{children}</MainArea>
+      </SidebarProvider>
     </div>
   );
 }

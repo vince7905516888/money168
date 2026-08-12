@@ -12,6 +12,8 @@ const bankCategories = [
   { name: "銀行", type: "INCOME" as const, icon: "🏦", color: "#0ea5e9" },
   { name: "銀行", type: "EXPENSE" as const, icon: "🏦", color: "#0ea5e9" },
   { name: "投資", type: "EXPENSE" as const, icon: "📊", color: "#6366f1" },
+  { name: "第三方", type: "INCOME" as const, icon: "📱", color: "#f59e0b" },
+  { name: "第三方", type: "EXPENSE" as const, icon: "📱", color: "#f59e0b" },
 ];
 
 async function main() {

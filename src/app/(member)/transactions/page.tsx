@@ -26,6 +26,11 @@ interface UserBank {
   name: string;
 }
 
+interface UserThirdParty {
+  id: string;
+  name: string;
+}
+
 const DEFAULT_BANKS = [
   "台灣銀行", "合作金庫", "第一銀行", "華南銀行", "彰化銀行",
   "兆豐銀行", "土地銀行", "國泰世華", "玉山銀行", "中國信託",
@@ -33,13 +38,16 @@ const DEFAULT_BANKS = [
   "星展銀行", "渣打銀行", "中華郵政",
 ];
 
-const THIRD_PARTY = [
+const DEFAULT_THIRD_PARTY = [
   "LINE Pay", "街口支付", "悠遊付", "Pi拍錢包",
   "全盈+PAY", "Apple Pay", "Google Pay", "台灣Pay",
   "橘子Pay", "一卡通Money", "其他",
 ];
 
+const PAGE_SIZE = 20;
+
 type PaymentMethod = "" | "現金" | "銀行" | "第三方支付";
+type SelectorTarget = "category" | "payment" | "fromDetail" | "toDetail";
 
 const EMPTY_FORM = {
   title: "",
@@ -90,8 +98,10 @@ function displayTransferNote(note: string) {
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [total, setTotal] = useState(0);
   const [categories, setCategories] = useState<Category[]>([]);
   const [userBanks, setUserBanks] = useState<UserBank[]>([]);
+  const [userThirdParties, setUserThirdParties] = useState<UserThirdParty[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
@@ -103,42 +113,56 @@ export default function TransactionsPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("");
   const [paymentDetail, setPaymentDetail] = useState("");
   const [bankName, setBankName] = useState(""); // for 銀行 category
+  const [thirdPartyName, setThirdPartyName] = useState(""); // for 第三方 category
   const [saving, setSaving] = useState(false);
-  const [filter, setFilter] = useState({ type: "", month: "" });
+  const [filter, setFilter] = useState({ type: "", month: "recent2" });
+  const [page, setPage] = useState(1);
   const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD">("");
   // 申請新增銀行
   const [addBankInput, setAddBankInput] = useState("");
-  const [addBankTarget, setAddBankTarget] = useState<"category" | "payment" | "fromDetail" | "toDetail" | null>(null);
+  const [addBankTarget, setAddBankTarget] = useState<SelectorTarget | null>(null);
   const [addBankLoading, setAddBankLoading] = useState(false);
+  // 申請新增第三方
+  const [addTPInput, setAddTPInput] = useState("");
+  const [addTPTarget, setAddTPTarget] = useState<SelectorTarget | null>(null);
+  const [addTPLoading, setAddTPLoading] = useState(false);
 
   const now = new Date();
 
   const allBanks = [...DEFAULT_BANKS, ...userBanks.map((b) => b.name)];
+  const allThirdParties = [...DEFAULT_THIRD_PARTY, ...userThirdParties.map((t) => t.name)];
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (filter.type) params.set("type", filter.type);
-    if (filter.month) params.set("month", filter.month);
-    const [txRes, catRes, bankRes, allTxRes] = await Promise.all([
+    if (filter.month === "recent2") params.set("months", "2");
+    else if (filter.month) params.set("month", filter.month);
+    params.set("page", String(page));
+    params.set("pageSize", String(PAGE_SIZE));
+    const [txRes, catRes, bankRes, tpRes, allTxRes] = await Promise.all([
       fetch(`/api/transactions?${params}`),
       fetch("/api/categories"),
       fetch("/api/user-banks"),
+      fetch("/api/user-third-parties"),
       fetch("/api/transactions?source=CASH"),
     ]);
-    const [txData, catData, bankData, allTxData] = await Promise.all([
-      txRes.json(), catRes.json(), bankRes.json(), allTxRes.json(),
+    const [txData, catData, bankData, tpData, allTxData] = await Promise.all([
+      txRes.json(), catRes.json(), bankRes.json(), tpRes.json(), allTxRes.json(),
     ]);
-    setTransactions(Array.isArray(txData) ? txData : []);
+    setTransactions(Array.isArray(txData?.items) ? txData.items : []);
+    setTotal(typeof txData?.total === "number" ? txData.total : 0);
     setCategories(Array.isArray(catData) ? catData : []);
     setUserBanks(Array.isArray(bankData) ? bankData : []);
+    setUserThirdParties(Array.isArray(tpData) ? tpData : []);
     const allTx: Transaction[] = Array.isArray(allTxData) ? allTxData : [];
     setAllIncome(allTx.filter((t) => t.type === "INCOME").reduce((s, t) => s + t.amount, 0));
     setAllExpense(allTx.filter((t) => t.type === "EXPENSE").reduce((s, t) => s + t.amount, 0));
     setLoading(false);
-  }, [filter]);
+  }, [filter, page]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { setPage(1); }, [filter]);
 
   const resetForm = () => {
     setForm(EMPTY_FORM);
@@ -146,8 +170,11 @@ export default function TransactionsPage() {
     setPaymentMethod("");
     setPaymentDetail("");
     setBankName("");
+    setThirdPartyName("");
     setAddBankInput("");
     setAddBankTarget(null);
+    setAddTPInput("");
+    setAddTPTarget(null);
     setInvestmentType("");
   };
 
@@ -161,9 +188,11 @@ export default function TransactionsPage() {
       setTransfer(parseTransferNote(t.note ?? ""));
     } else {
       const isBankCat = t.category?.name === "銀行";
+      const isTPCat = t.category?.name === "第三方";
       const { pm, detail, rest } = parsePaymentNote(t.note ?? "");
-      setForm({ title: t.title, amount: String(t.amount), type: t.type, date: t.date.split("T")[0], note: isBankCat ? "" : rest, categoryId: t.categoryId ?? "" });
+      setForm({ title: t.title, amount: String(t.amount), type: t.type, date: t.date.split("T")[0], note: (isBankCat || isTPCat) ? "" : rest, categoryId: t.categoryId ?? "" });
       if (isBankCat) setBankName(t.note ?? "");
+      else if (isTPCat) setThirdPartyName(t.note ?? "");
       else { setPaymentMethod(pm); setPaymentDetail(detail); }
     }
     setShowModal(true);
@@ -171,11 +200,13 @@ export default function TransactionsPage() {
 
   const selectedCatName = categories.find((c) => c.id === form.categoryId)?.name;
   const isBank = selectedCatName === "銀行";
+  const isThirdPartyCat = selectedCatName === "第三方";
   const isInvestmentCat = selectedCatName === "投資" && form.type === "EXPENSE";
 
   const buildNote = () => {
     if (form.type === "TRANSFER") return buildTransferNote(transfer);
     if (isBank) return bankName;
+    if (isThirdPartyCat) return thirdPartyName;
     if (form.type === "EXPENSE" && paymentMethod) {
       if (paymentMethod === "現金") return "支付:現金";
       return `支付:${paymentMethod}:${paymentDetail}`;
@@ -214,6 +245,7 @@ export default function TransactionsPage() {
     }
     setSaving(false);
     setShowModal(false);
+    if (!editing) setPage(1);
     fetchAll();
   };
 
@@ -245,13 +277,35 @@ export default function TransactionsPage() {
     }
   };
 
+  const handleAddThirdParty = async (target: typeof addTPTarget) => {
+    if (!addTPInput.trim()) return;
+    setAddTPLoading(true);
+    const res = await fetch("/api/user-third-parties", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: addTPInput.trim() }),
+    });
+    setAddTPLoading(false);
+    if (res.ok) {
+      const tp = await res.json();
+      setUserThirdParties((prev) => [...prev, tp]);
+      if (target === "category") setThirdPartyName(tp.name);
+      else if (target === "payment") setPaymentDetail(tp.name);
+      else if (target === "fromDetail") setTransfer((t) => ({ ...t, fromDetail: tp.name }));
+      else if (target === "toDetail") setTransfer((t) => ({ ...t, toDetail: tp.name }));
+      setAddTPInput("");
+      setAddTPTarget(null);
+    }
+  };
+
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
 
   const filteredCats = categories.filter((c) => c.type === form.type);
+  const totalPages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
 
   // 可搜尋銀行選擇器（使用原生 datalist）
-  const BankSelector = ({ value, onChange, target }: { value: string; onChange: (v: string) => void; target: typeof addBankTarget }) => (
+  const BankSelector = ({ value, onChange, target }: { value: string; onChange: (v: string) => void; target: SelectorTarget }) => (
     <div>
       <input
         type="text"
@@ -285,13 +339,39 @@ export default function TransactionsPage() {
     </div>
   );
 
-  // 第三方選擇器
-  const ThirdPartySelector = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <select required value={value} onChange={(e) => onChange(e.target.value)}
-      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
-      <option value="">請選擇支付平台</option>
-      {THIRD_PARTY.map((t) => <option key={t} value={t}>{t}</option>)}
-    </select>
+  // 可搜尋第三方選擇器（跟銀行選擇器同樣做法：可搜尋、找不到可手動新增並存進資料庫）
+  const ThirdPartySelector = ({ value, onChange, target }: { value: string; onChange: (v: string) => void; target: SelectorTarget }) => (
+    <div>
+      <input
+        type="text"
+        list={`tplist-${target}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="搜尋或輸入第三方名稱"
+        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+      />
+      <datalist id={`tplist-${target}`}>
+        {allThirdParties.map((t) => <option key={t} value={t} />)}
+      </datalist>
+      {addTPTarget === target ? (
+        <div className="flex gap-2 mt-2">
+          <input value={addTPInput} onChange={(e) => setAddTPInput(e.target.value)}
+            placeholder="輸入第三方名稱"
+            className="flex-1 border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:border-indigo-400" />
+          <button type="button" onClick={() => handleAddThirdParty(target)} disabled={addTPLoading}
+            className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60">
+            {addTPLoading ? "..." : "新增"}
+          </button>
+          <button type="button" onClick={() => setAddTPTarget(null)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-500 hover:bg-slate-50">取消</button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setAddTPTarget(target)}
+          className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline">
+          + 找不到？申請新增第三方
+        </button>
+      )}
+    </div>
   );
 
   // 調帳端選擇器（from 或 to）
@@ -318,7 +398,7 @@ export default function TransactionsPage() {
         <BankSelector value={transfer[detailKey]} onChange={(v) => setTransfer((t) => ({ ...t, [detailKey]: v }))} target={detailKey} />
       )}
       {transfer[typeKey] === "第三方支付" && (
-        <ThirdPartySelector value={transfer[detailKey]} onChange={(v) => setTransfer((t) => ({ ...t, [detailKey]: v }))} />
+        <ThirdPartySelector value={transfer[detailKey]} onChange={(v) => setTransfer((t) => ({ ...t, [detailKey]: v }))} target={detailKey} />
       )}
     </div>
   );
@@ -352,6 +432,7 @@ export default function TransactionsPage() {
       <div className="flex gap-3 mb-6">
         <select value={filter.month} onChange={(e) => setFilter({ ...filter, month: e.target.value })}
           className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white">
+          <option value="recent2">近兩個月</option>
           <option value="">全部月份</option>
           {Array.from({ length: 6 }, (_, i) => {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -387,39 +468,64 @@ export default function TransactionsPage() {
             <button onClick={openAdd} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆記錄</button>
           </div>
         ) : (
-          <div className="divide-y divide-slate-50">
-            {transactions.map((t) => (
-              <div key={t.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
-                    style={{ backgroundColor: t.type === "TRANSFER" ? "#f0fdf4" : (t.category?.color ?? "#e2e8f0") + "20" }}>
-                    {t.type === "TRANSFER" ? "↔️" : (t.category?.icon ?? (t.type === "INCOME" ? "💰" : "💸"))}
+          <>
+            <div className="divide-y divide-slate-50">
+              {transactions.map((t) => (
+                <div key={t.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
+                      style={{ backgroundColor: t.type === "TRANSFER" ? "#f0fdf4" : (t.category?.color ?? "#e2e8f0") + "20" }}>
+                      {t.type === "TRANSFER" ? "↔️" : (t.category?.icon ?? (t.type === "INCOME" ? "💰" : "💸"))}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-slate-800">{t.title}</div>
+                      <div className="text-xs text-slate-400">
+                        {t.type === "TRANSFER"
+                          ? `調帳 · ${new Date(t.date).toLocaleDateString("zh-TW")} · ${displayTransferNote(t.note ?? "")}`
+                          : `${t.category?.name ?? "未分類"} · ${new Date(t.date).toLocaleDateString("zh-TW")}${t.note ? ` · ${t.note.startsWith("支付:") ? t.note.slice(3).replace(":", " ") : t.note}` : ""}`
+                        }
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">{t.title}</div>
-                    <div className="text-xs text-slate-400">
-                      {t.type === "TRANSFER"
-                        ? `調帳 · ${new Date(t.date).toLocaleDateString("zh-TW")} · ${displayTransferNote(t.note ?? "")}`
-                        : `${t.category?.name ?? "未分類"} · ${new Date(t.date).toLocaleDateString("zh-TW")}${t.note ? ` · ${t.note.startsWith("支付:") ? t.note.slice(3).replace(":", " ") : t.note}` : ""}`
-                      }
+                  <div className="flex items-center gap-4">
+                    <span className={`text-sm font-semibold ${
+                      t.type === "INCOME" ? "text-emerald-600" :
+                      t.type === "TRANSFER" ? "text-indigo-500" : "text-red-500"
+                    }`}>
+                      {t.type === "INCOME" ? "+" : t.type === "TRANSFER" ? "" : "-"}{fmt(t.amount)}
+                    </span>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
+                      <button onClick={() => handleDelete(t.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className={`text-sm font-semibold ${
-                    t.type === "INCOME" ? "text-emerald-600" :
-                    t.type === "TRANSFER" ? "text-indigo-500" : "text-red-500"
-                  }`}>
-                    {t.type === "INCOME" ? "+" : t.type === "TRANSFER" ? "" : "-"}{fmt(t.amount)}
-                  </span>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
-                    <button onClick={() => handleDelete(t.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
-                  </div>
+              ))}
+            </div>
+
+            {/* 分頁 */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-6 py-3.5 border-t border-slate-50">
+                <span className="text-xs text-slate-400">共 {total} 筆 · 第 {page} / {totalPages} 頁</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                    disabled={page <= 1}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    上一頁
+                  </button>
+                  <button
+                    onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+                    disabled={page >= totalPages}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    下一頁
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         ))}
       </div>
 
@@ -434,7 +540,7 @@ export default function TransactionsPage() {
               <div className="flex gap-2">
                 {(["EXPENSE", "INCOME", "TRANSFER"] as const).map((tp) => (
                   <button key={tp} type="button"
-                    onClick={() => { setForm({ ...EMPTY_FORM, type: tp, date: form.date }); setTransfer(EMPTY_TRANSFER); setPaymentMethod(""); setPaymentDetail(""); setBankName(""); }}
+                    onClick={() => { setForm({ ...EMPTY_FORM, type: tp, date: form.date }); setTransfer(EMPTY_TRANSFER); setPaymentMethod(""); setPaymentDetail(""); setBankName(""); setThirdPartyName(""); }}
                     className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
                       form.type === tp
                         ? tp === "INCOME" ? "bg-emerald-500 text-white"
@@ -508,6 +614,14 @@ export default function TransactionsPage() {
                     </div>
                   )}
 
+                  {/* 第三方分類：選第三方名稱 */}
+                  {isThirdPartyCat && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">第三方名稱</label>
+                      <ThirdPartySelector value={thirdPartyName} onChange={setThirdPartyName} target="category" />
+                    </div>
+                  )}
+
                   {/* 投資分類：選投資細項 */}
                   {isInvestmentCat && !editing && (
                     <div>
@@ -546,13 +660,13 @@ export default function TransactionsPage() {
                   )}
 
                   {/* 支出：支付方式 */}
-                  {!isBank && !isInvestmentCat && form.type === "EXPENSE" && (
+                  {!isBank && !isThirdPartyCat && !isInvestmentCat && form.type === "EXPENSE" && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">支付方式</label>
                       <div className="flex gap-2 mb-2">
                         {(["現金", "銀行", "第三方支付"] as PaymentMethod[]).map((pm) => (
                           <button key={pm} type="button"
-                            onClick={() => { setPaymentMethod(pm); setPaymentDetail(""); setAddBankTarget(null); }}
+                            onClick={() => { setPaymentMethod(pm); setPaymentDetail(""); setAddBankTarget(null); setAddTPTarget(null); }}
                             className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
                               paymentMethod === pm ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                             }`}>
@@ -564,13 +678,13 @@ export default function TransactionsPage() {
                         <BankSelector value={paymentDetail} onChange={setPaymentDetail} target="payment" />
                       )}
                       {paymentMethod === "第三方支付" && (
-                        <ThirdPartySelector value={paymentDetail} onChange={setPaymentDetail} />
+                        <ThirdPartySelector value={paymentDetail} onChange={setPaymentDetail} target="payment" />
                       )}
                     </div>
                   )}
 
                   {/* 收入：備註 */}
-                  {!isBank && !isInvestmentCat && form.type === "INCOME" && (
+                  {!isBank && !isThirdPartyCat && !isInvestmentCat && form.type === "INCOME" && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
                       <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })}
