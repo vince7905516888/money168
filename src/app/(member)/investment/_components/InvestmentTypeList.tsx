@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type InvestmentType = "STOCK" | "FUND" | "FOREX";
+type InvestmentType = "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD";
 
 interface Investment {
   id: string;

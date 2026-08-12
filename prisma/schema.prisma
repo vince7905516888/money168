@@ -79,6 +79,8 @@ enum InvestmentType {
   STOCK
   FUND
   FOREX
+  CRYPTO
+  GOLD
 }
 
 enum Role {

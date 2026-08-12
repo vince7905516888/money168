@@ -15,6 +15,8 @@ const investmentItems = [
   { href: "/investment/stock", label: "股票投資" },
   { href: "/investment/fund", label: "基金投資" },
   { href: "/investment/forex", label: "外匯投資" },
+  { href: "/investment/crypto", label: "虛擬貨幣" },
+  { href: "/investment/gold", label: "黃金投資" },
 ];
 
 export default function MemberSidebar({ userName }: { userName: string }) {
