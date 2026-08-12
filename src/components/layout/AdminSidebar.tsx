@@ -14,10 +14,16 @@ const settingsItems = [
   { href: "/admin/settings/permissions", label: "權限管理" },
 ];
 
+const configItems = [
+  { href: "/admin/config/fees", label: "手續費設定" },
+];
+
 export default function AdminSidebar({ userName }: { userName: string }) {
   const pathname = usePathname();
   const isSettingsActive = settingsItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
+  const isConfigActive = configItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
   const [settingsOpen, setSettingsOpen] = useState(isSettingsActive);
+  const [configOpen, setConfigOpen] = useState(isConfigActive);
 
   return (
     <aside className="w-60 min-h-screen bg-slate-900 flex flex-col px-4 py-6 fixed left-0 top-0 z-20">
@@ -69,6 +75,42 @@ export default function AdminSidebar({ userName }: { userName: string }) {
           {settingsOpen && (
             <div className="ml-4 mt-1 space-y-1">
               {settingsItems.map((item) => {
+                const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                      active
+                        ? "bg-indigo-600 text-white font-medium"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    <span className="w-1 h-1 rounded-full bg-current opacity-60" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {/* 設定 collapsible */}
+        <div>
+          <button
+            onClick={() => setConfigOpen((o) => !o)}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              isConfigActive ? "text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-base leading-none">🔧</span>
+              設定
+            </div>
+            <span className={`text-xs transition-transform ${configOpen ? "rotate-90" : ""}`}>▶</span>
+          </button>
+          {configOpen && (
+            <div className="ml-4 mt-1 space-y-1">
+              {configItems.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(item.href + "/");
                 return (
                   <Link

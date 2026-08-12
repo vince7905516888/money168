@@ -93,3 +93,14 @@ enum TransactionType {
   EXPENSE
   TRANSFER
 }
+
+model FeeSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  rate        Float    @default(0)
+  fixedAmount Float    @default(0)
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
