@@ -95,9 +95,9 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
-  const [bankTotal, setBankTotal] = useState(0);
   const [allIncome, setAllIncome] = useState(0);
   const [allExpense, setAllExpense] = useState(0);
+  const [showList, setShowList] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
   const [transfer, setTransfer] = useState(EMPTY_TRANSFER);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("");
@@ -120,15 +120,14 @@ export default function TransactionsPage() {
     const params = new URLSearchParams();
     if (filter.type) params.set("type", filter.type);
     if (filter.month) params.set("month", filter.month);
-    const [txRes, catRes, bankRes, allTxRes, bankSumRes] = await Promise.all([
+    const [txRes, catRes, bankRes, allTxRes] = await Promise.all([
       fetch(`/api/transactions?${params}`),
       fetch("/api/categories"),
       fetch("/api/user-banks"),
       fetch("/api/transactions?source=CASH"),
-      fetch("/api/banks/summary"),
     ]);
-    const [txData, catData, bankData, allTxData, bankSumData] = await Promise.all([
-      txRes.json(), catRes.json(), bankRes.json(), allTxRes.json(), bankSumRes.json(),
+    const [txData, catData, bankData, allTxData] = await Promise.all([
+      txRes.json(), catRes.json(), bankRes.json(), allTxRes.json(),
     ]);
     setTransactions(Array.isArray(txData) ? txData : []);
     setCategories(Array.isArray(catData) ? catData : []);
@@ -136,8 +135,6 @@ export default function TransactionsPage() {
     const allTx: Transaction[] = Array.isArray(allTxData) ? allTxData : [];
     setAllIncome(allTx.filter((t) => t.type === "INCOME").reduce((s, t) => s + t.amount, 0));
     setAllExpense(allTx.filter((t) => t.type === "EXPENSE").reduce((s, t) => s + t.amount, 0));
-    const banks = Array.isArray(bankSumData) ? bankSumData : [];
-    setBankTotal(banks.reduce((s: number, b: { balance: number }) => s + b.balance, 0));
     setLoading(false);
   }, [filter]);
 
@@ -340,11 +337,7 @@ export default function TransactionsPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">銀行總結餘</div>
-          <div className={`text-2xl font-bold mt-1 ${bankTotal >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(bankTotal)}</div>
-        </div>
+      <div className="grid grid-cols-2 gap-4 mb-6">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">總流入</div>
           <div className="text-2xl font-bold text-emerald-600 mt-1">{fmt(allIncome)}</div>
@@ -377,7 +370,16 @@ export default function TransactionsPage() {
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        {loading ? (
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-50">
+          <h2 className="font-semibold text-slate-900">收支明細</h2>
+          <button
+            onClick={() => setShowList((v) => !v)}
+            className="text-xs text-slate-400 hover:text-slate-600 px-2.5 py-1 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            {showList ? "隱藏" : "顯示"}
+          </button>
+        </div>
+        {showList && (loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
         ) : transactions.length === 0 ? (
           <div className="py-16 text-center">
@@ -418,7 +420,7 @@ export default function TransactionsPage() {
               </div>
             ))}
           </div>
-        )}
+        ))}
       </div>
 
       {/* Modal */}
