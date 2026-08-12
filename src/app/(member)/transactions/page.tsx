@@ -103,8 +103,6 @@ export default function TransactionsPage() {
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ type: "", month: "" });
   const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD">("");
-  const [bankSearch, setBankSearch] = useState<Record<string, string>>({});
-  const [bankOpen, setBankOpen] = useState<Record<string, boolean>>({});
   // 申請新增銀行
   const [addBankInput, setAddBankInput] = useState("");
   const [addBankTarget, setAddBankTarget] = useState<"category" | "payment" | "fromDetail" | "toDetail" | null>(null);
@@ -142,8 +140,6 @@ export default function TransactionsPage() {
     setAddBankInput("");
     setAddBankTarget(null);
     setInvestmentType("");
-    setBankSearch({});
-    setBankOpen({});
   };
 
   const openAdd = () => { setEditing(null); resetForm(); setShowModal(true); };
@@ -245,67 +241,40 @@ export default function TransactionsPage() {
 
   const filteredCats = categories.filter((c) => c.type === form.type);
 
-  // 可搜尋銀行選擇器
-  const BankSelector = ({ value, onChange, target }: { value: string; onChange: (v: string) => void; target: typeof addBankTarget }) => {
-    const key = target ?? "";
-    const search = bankSearch[key] ?? "";
-    const open = bankOpen[key] ?? false;
-    const filtered = allBanks.filter((b) =>
-      search ? b.toLowerCase().includes(search.toLowerCase()) : true
-    );
-    return (
-      <div>
-        <div className="relative">
-          <input
-            type="text"
-            value={open ? search : value}
-            onChange={(e) => {
-              setBankSearch((s) => ({ ...s, [key]: e.target.value }));
-              setBankOpen((o) => ({ ...o, [key]: true }));
-              onChange("");
-            }}
-            onFocus={() => {
-              setBankSearch((s) => ({ ...s, [key]: "" }));
-              setBankOpen((o) => ({ ...o, [key]: true }));
-            }}
-            onBlur={() => setTimeout(() => setBankOpen((o) => ({ ...o, [key]: false })), 150)}
-            placeholder={value || "搜尋或輸入銀行名稱"}
-            className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
-          />
-          {open && (
-            <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
-              {filtered.length > 0 ? filtered.map((b) => (
-                <div key={b} onMouseDown={() => { onChange(b); setBankOpen((o) => ({ ...o, [key]: false })); setBankSearch((s) => ({ ...s, [key]: "" })); }}
-                  className={`px-3.5 py-2.5 text-sm cursor-pointer transition-colors ${value === b ? "bg-indigo-50 text-indigo-700 font-medium" : "hover:bg-slate-50"}`}>
-                  {b}
-                </div>
-              )) : (
-                <div className="px-3.5 py-2.5 text-sm text-slate-400">找不到符合的銀行</div>
-              )}
-            </div>
-          )}
-        </div>
-        {addBankTarget === target ? (
-          <div className="flex gap-2 mt-2">
-            <input value={addBankInput} onChange={(e) => setAddBankInput(e.target.value)}
-              placeholder="輸入銀行名稱"
-              className="flex-1 border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:border-indigo-400" />
-            <button type="button" onClick={() => handleAddBank(target)} disabled={addBankLoading}
-              className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60">
-              {addBankLoading ? "..." : "新增"}
-            </button>
-            <button type="button" onClick={() => setAddBankTarget(null)}
-              className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-500 hover:bg-slate-50">取消</button>
-          </div>
-        ) : (
-          <button type="button" onClick={() => setAddBankTarget(target)}
-            className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline">
-            + 找不到？申請新增銀行
+  // 可搜尋銀行選擇器（使用原生 datalist）
+  const BankSelector = ({ value, onChange, target }: { value: string; onChange: (v: string) => void; target: typeof addBankTarget }) => (
+    <div>
+      <input
+        type="text"
+        list={`banklist-${target}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="搜尋或輸入銀行名稱"
+        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+      />
+      <datalist id={`banklist-${target}`}>
+        {allBanks.map((b) => <option key={b} value={b} />)}
+      </datalist>
+      {addBankTarget === target ? (
+        <div className="flex gap-2 mt-2">
+          <input value={addBankInput} onChange={(e) => setAddBankInput(e.target.value)}
+            placeholder="輸入銀行名稱"
+            className="flex-1 border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:border-indigo-400" />
+          <button type="button" onClick={() => handleAddBank(target)} disabled={addBankLoading}
+            className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60">
+            {addBankLoading ? "..." : "新增"}
           </button>
-        )}
-      </div>
-    );
-  };
+          <button type="button" onClick={() => setAddBankTarget(null)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-500 hover:bg-slate-50">取消</button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setAddBankTarget(target)}
+          className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline">
+          + 找不到？申請新增銀行
+        </button>
+      )}
+    </div>
+  );
 
   // 第三方選擇器
   const ThirdPartySelector = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
