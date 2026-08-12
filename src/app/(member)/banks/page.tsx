@@ -118,6 +118,14 @@ export default function BanksPage() {
   useEffect(() => { fetchAll(); }, []);
 
   const openModal = async () => {
+    setForm({ ...EMPTY_FORM, date: new Date().toLocaleDateString("sv-SE") });
+    setTransfer(EMPTY_TRANSFER);
+    setPaymentMethod("");
+    setPaymentDetail("");
+    setBankName("");
+    setInvestmentType("");
+    setAddBankInput("");
+    setAddBankTarget(null);
     setShowModal(true);
     const [catRes, bankRes] = await Promise.all([fetch("/api/categories"), fetch("/api/user-banks")]);
     const [catData, bankData] = await Promise.all([catRes.json(), bankRes.json()]);
@@ -126,7 +134,7 @@ export default function BanksPage() {
   };
 
   const resetForm = () => {
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, date: new Date().toLocaleDateString("sv-SE") });
     setTransfer(EMPTY_TRANSFER);
     setPaymentMethod("");
     setPaymentDetail("");
