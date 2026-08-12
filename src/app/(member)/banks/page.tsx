@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 interface BankSummary {
   name: string;
@@ -47,13 +48,19 @@ const THIRD_PARTY = [
   "橘子Pay", "一卡通Money", "其他",
 ];
 
+const PIE_COLORS = [
+  "#6366f1", "#0ea5e9", "#22c55e", "#f59e0b", "#ef4444",
+  "#8b5cf6", "#14b8a6", "#f97316", "#ec4899", "#64748b",
+];
+
 type PaymentMethod = "" | "現金" | "銀行" | "第三方支付";
+type SortKey = "balance_desc" | "balance_asc" | "name_asc";
 
 const EMPTY_FORM = {
   title: "",
   amount: "",
   type: "INCOME" as "INCOME" | "EXPENSE" | "TRANSFER",
-  date: new Date().toISOString().split("T")[0],
+  date: new Date().toLocaleDateString("sv-SE"),
   note: "",
   categoryId: "",
 };
@@ -88,6 +95,14 @@ export default function BanksPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
 
+  // 顯示/隱藏切換
+  const [showSummary, setShowSummary] = useState(true);
+  const [showRecords, setShowRecords] = useState(true);
+
+  // 排序
+  const [sortKey, setSortKey] = useState<SortKey>("balance_desc");
+
+  // 表單狀態
   const [categories, setCategories] = useState<Category[]>([]);
   const [userBanks, setUserBanks] = useState<UserBank[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -116,6 +131,20 @@ export default function BanksPage() {
   };
 
   useEffect(() => { fetchAll(); }, []);
+
+  // 過濾掉餘額為 0 的銀行，並排序
+  const sortedBanks = [...banks]
+    .filter((b) => b.balance !== 0)
+    .sort((a, b) => {
+      if (sortKey === "balance_desc") return b.balance - a.balance;
+      if (sortKey === "balance_asc") return a.balance - b.balance;
+      return a.name.localeCompare(b.name, "zh-TW");
+    });
+
+  // 圓餅圖資料（只取正餘額）
+  const pieData = sortedBanks
+    .filter((b) => b.balance > 0)
+    .map((b) => ({ name: b.name, value: b.balance }));
 
   const openModal = async () => {
     setForm({ ...EMPTY_FORM, date: new Date().toLocaleDateString("sv-SE") });
@@ -283,6 +312,18 @@ export default function BanksPage() {
   const totalIncome = banks.reduce((s, b) => s + b.income + b.transferIn, 0);
   const totalExpense = banks.reduce((s, b) => s + b.expense + b.transferOut, 0);
 
+  const SectionHeader = ({ title, show, onToggle, extra }: { title: string; show: boolean; onToggle: () => void; extra?: React.ReactNode }) => (
+    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-50 cursor-pointer select-none" onClick={onToggle}>
+      <h2 className="font-semibold text-slate-900">{title}</h2>
+      <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+        {extra}
+        <button onClick={onToggle} className="text-slate-400 hover:text-slate-600 text-sm font-medium transition-colors">
+          {show ? "▾ 收合" : "▸ 展開"}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-8">
@@ -297,7 +338,7 @@ export default function BanksPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">銀行總結餘</div>
           <div className={`text-2xl font-bold mt-1 ${totalBalance >= 0 ? "text-slate-900" : "text-red-500"}`}>
@@ -314,94 +355,150 @@ export default function BanksPage() {
         </div>
       </div>
 
-      {/* Bank summaries */}
-      {banks.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-slate-50">
-            <h2 className="font-semibold text-slate-900">各銀行明細</h2>
-          </div>
-          <div className="divide-y divide-slate-50">
-            {banks.map((bank) => (
-              <div key={bank.name} className="px-6 py-4 hover:bg-slate-50 transition-colors">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-sky-50 flex items-center justify-center text-base">🏦</div>
-                    <span className="text-sm font-semibold text-slate-800">{bank.name}</span>
-                  </div>
-                  <span className={`text-sm font-bold ${bank.balance >= 0 ? "text-slate-800" : "text-red-500"}`}>
-                    {fmt(bank.balance)}
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  <div className="bg-emerald-50 rounded-lg px-3 py-1.5">
-                    <div className="text-xs text-emerald-600 font-medium">收入</div>
-                    <div className="text-sm font-semibold text-emerald-700">{fmt(bank.income)}</div>
-                  </div>
-                  <div className="bg-red-50 rounded-lg px-3 py-1.5">
-                    <div className="text-xs text-red-500 font-medium">支出</div>
-                    <div className="text-sm font-semibold text-red-600">{fmt(bank.expense)}</div>
-                  </div>
-                  <div className="bg-indigo-50 rounded-lg px-3 py-1.5">
-                    <div className="text-xs text-indigo-500 font-medium">調帳流入</div>
-                    <div className="text-sm font-semibold text-indigo-600">{fmt(bank.transferIn)}</div>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg px-3 py-1.5">
-                    <div className="text-xs text-slate-500 font-medium">調帳流出</div>
-                    <div className="text-sm font-semibold text-slate-600">{fmt(bank.transferOut)}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* 各銀行明細 */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+        <SectionHeader
+          title="各銀行明細"
+          show={showSummary}
+          onToggle={() => setShowSummary((v) => !v)}
+          extra={
+            showSummary && sortedBanks.length > 0 ? (
+              <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}
+                className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-600 bg-white">
+                <option value="balance_desc">餘額由高到低</option>
+                <option value="balance_asc">餘額由低到高</option>
+                <option value="name_asc">名稱排序</option>
+              </select>
+            ) : undefined
+          }
+        />
 
-      {/* Records list */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-50">
-          <h2 className="font-semibold text-slate-900">銀行記錄</h2>
-        </div>
-        {loading ? (
-          <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
-        ) : records.length === 0 ? (
-          <div className="py-16 text-center text-slate-400 text-sm">
-            尚無銀行記錄<br />
-            <span className="text-xs mt-1 block">點擊右上角「+ 新增記錄」開始記帳</span>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-50">
-            {records.map((r) => (
-              <div key={r.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
-                    style={{ backgroundColor: r.type === "TRANSFER" ? "#eef2ff" : (r.category?.color ?? "#e2e8f0") + "20" }}>
-                    {r.type === "TRANSFER" ? "↔️" : (r.category?.icon ?? (r.type === "INCOME" ? "💰" : "💸"))}
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">{r.title}</div>
-                    <div className="text-xs text-slate-400">
-                      {r.type === "TRANSFER"
-                        ? `調帳 · ${new Date(r.date).toLocaleDateString("zh-TW")} · ${displayTransferNote(r.note ?? "")}`
-                        : `${r.category?.name ?? "未分類"} · ${new Date(r.date).toLocaleDateString("zh-TW")}${r.note ? ` · ${r.note.startsWith("支付:") ? r.note.slice(3).replace(":", " ") : r.note}` : ""}`
-                      }
+        {showSummary && (
+          loading ? (
+            <div className="py-10 text-center text-slate-400 text-sm">載入中...</div>
+          ) : sortedBanks.length === 0 ? (
+            <div className="py-10 text-center text-slate-400 text-sm">尚無銀行資料</div>
+          ) : (
+            <>
+              {/* 圓餅圖 */}
+              {pieData.length > 0 && (
+                <div className="px-6 py-4 border-b border-slate-50">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各銀行餘額比例</p>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={2}
+                        dataKey="value"
+                      >
+                        {pieData.map((_, index) => (
+                          <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: number) => [fmt(value), "餘額"]}
+                        contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: "13px" }}
+                      />
+                      <Legend
+                        formatter={(value) => <span className="text-xs text-slate-600">{value}</span>}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* 明細列表 */}
+              <div className="divide-y divide-slate-50">
+                {sortedBanks.map((bank, i) => (
+                  <div key={bank.name} className="px-6 py-4 hover:bg-slate-50 transition-colors">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-3 h-3 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                        <div className="w-9 h-9 rounded-xl bg-sky-50 flex items-center justify-center text-base">🏦</div>
+                        <span className="text-sm font-semibold text-slate-800">{bank.name}</span>
+                      </div>
+                      <span className={`text-sm font-bold ${bank.balance >= 0 ? "text-slate-800" : "text-red-500"}`}>
+                        {fmt(bank.balance)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 ml-12">
+                      <div className="bg-emerald-50 rounded-lg px-3 py-1.5">
+                        <div className="text-xs text-emerald-600 font-medium">收入</div>
+                        <div className="text-sm font-semibold text-emerald-700">{fmt(bank.income)}</div>
+                      </div>
+                      <div className="bg-red-50 rounded-lg px-3 py-1.5">
+                        <div className="text-xs text-red-500 font-medium">支出</div>
+                        <div className="text-sm font-semibold text-red-600">{fmt(bank.expense)}</div>
+                      </div>
+                      <div className="bg-indigo-50 rounded-lg px-3 py-1.5">
+                        <div className="text-xs text-indigo-500 font-medium">調帳流入</div>
+                        <div className="text-sm font-semibold text-indigo-600">{fmt(bank.transferIn)}</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg px-3 py-1.5">
+                        <div className="text-xs text-slate-500 font-medium">調帳流出</div>
+                        <div className="text-sm font-semibold text-slate-600">{fmt(bank.transferOut)}</div>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className={`text-sm font-semibold ${
-                    r.type === "INCOME" ? "text-emerald-600" :
-                    r.type === "TRANSFER" ? "text-indigo-500" : "text-red-500"
-                  }`}>
-                    {r.type === "INCOME" ? "+" : r.type === "TRANSFER" ? "" : "-"}{fmt(r.amount)}
-                  </span>
-                  <button onClick={() => handleDelete(r.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-all">
-                    刪除
-                  </button>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )
+        )}
+      </div>
+
+      {/* 銀行記錄 */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <SectionHeader title="銀行記錄" show={showRecords} onToggle={() => setShowRecords((v) => !v)} />
+
+        {showRecords && (
+          loading ? (
+            <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
+          ) : records.length === 0 ? (
+            <div className="py-16 text-center text-slate-400 text-sm">
+              尚無銀行記錄<br />
+              <span className="text-xs mt-1 block">點擊右上角「+ 新增記錄」開始記帳</span>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {records.map((r) => (
+                <div key={r.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
+                      style={{ backgroundColor: r.type === "TRANSFER" ? "#eef2ff" : (r.category?.color ?? "#e2e8f0") + "20" }}>
+                      {r.type === "TRANSFER" ? "↔️" : (r.category?.icon ?? (r.type === "INCOME" ? "💰" : "💸"))}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-slate-800">{r.title}</div>
+                      <div className="text-xs text-slate-400">
+                        {r.type === "TRANSFER"
+                          ? `調帳 · ${new Date(r.date).toLocaleDateString("zh-TW")} · ${displayTransferNote(r.note ?? "")}`
+                          : `${r.category?.name ?? "未分類"} · ${new Date(r.date).toLocaleDateString("zh-TW")}${r.note ? ` · ${r.note.startsWith("支付:") ? r.note.slice(3).replace(":", " ") : r.note}` : ""}`
+                        }
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className={`text-sm font-semibold ${
+                      r.type === "INCOME" ? "text-emerald-600" :
+                      r.type === "TRANSFER" ? "text-indigo-500" : "text-red-500"
+                    }`}>
+                      {r.type === "INCOME" ? "+" : r.type === "TRANSFER" ? "" : "-"}{fmt(r.amount)}
+                    </span>
+                    <button onClick={() => handleDelete(r.id)}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-all">
+                      刪除
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
         )}
       </div>
 
