@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       { name: "購物", type: "EXPENSE" as const, icon: "🛍️", color: "#ec4899" },
       { name: "娛樂", type: "EXPENSE" as const, icon: "🎮", color: "#14b8a6" },
       { name: "醫療", type: "EXPENSE" as const, icon: "🏥", color: "#ef4444" },
+      { name: "投資", type: "EXPENSE" as const, icon: "📊", color: "#6366f1" },
       { name: "銀行", type: "EXPENSE" as const, icon: "🏦", color: "#0ea5e9" },
       { name: "其他支出", type: "EXPENSE" as const, icon: "📦", color: "#78716c" },
     ];

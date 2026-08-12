@@ -102,6 +102,7 @@ export default function TransactionsPage() {
   const [bankName, setBankName] = useState(""); // for 銀行 category
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ type: "", month: "" });
+  const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "FUND" | "FOREX">("");
   // 申請新增銀行
   const [addBankInput, setAddBankInput] = useState("");
   const [addBankTarget, setAddBankTarget] = useState<"category" | "payment" | "fromDetail" | "toDetail" | null>(null);
@@ -138,6 +139,7 @@ export default function TransactionsPage() {
     setBankName("");
     setAddBankInput("");
     setAddBankTarget(null);
+    setInvestmentType("");
   };
 
   const openAdd = () => { setEditing(null); resetForm(); setShowModal(true); };
@@ -160,6 +162,7 @@ export default function TransactionsPage() {
 
   const selectedCatName = categories.find((c) => c.id === form.categoryId)?.name;
   const isBank = selectedCatName === "銀行";
+  const isInvestmentCat = selectedCatName === "投資" && form.type === "EXPENSE";
 
   const buildNote = () => {
     if (form.type === "TRANSFER") return buildTransferNote(transfer);
@@ -173,14 +176,33 @@ export default function TransactionsPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!editing && isInvestmentCat && !investmentType) {
+      alert("請選擇投資類別（股票、基金或外匯）");
+      return;
+    }
     setSaving(true);
     const url = editing ? `/api/transactions/${editing.id}` : "/api/transactions";
     const method = editing ? "PUT" : "POST";
-    await fetch(url, {
+    const res = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...form, note: buildNote() }),
     });
+    // 新增投資記錄：建立新的投資支出時同步到投資模組
+    if (!editing && isInvestmentCat && investmentType && res.ok) {
+      const txData = await res.json();
+      if (txData.id) {
+        await fetch("/api/investments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: investmentType,
+            amount: form.amount,
+            transactionId: txData.id,
+          }),
+        });
+      }
+    }
     setSaving(false);
     setShowModal(false);
     fetchAll();
@@ -459,8 +481,43 @@ export default function TransactionsPage() {
                     </div>
                   )}
 
+                  {/* 投資分類：選投資細項 */}
+                  {isInvestmentCat && !editing && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        投資類別 <span className="text-red-500">*</span>
+                      </label>
+                      <div className="flex gap-2">
+                        {([
+                          { value: "STOCK", label: "📈 股票" },
+                          { value: "FUND", label: "📦 基金" },
+                          { value: "FOREX", label: "💱 外匯" },
+                        ] as const).map(({ value, label }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setInvestmentType(value)}
+                            className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                              investmentType === value
+                                ? "bg-indigo-600 text-white"
+                                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1.5">選擇後將自動同步到對應的投資細項，詳情可至左側「投資」頁面編輯</p>
+                    </div>
+                  )}
+                  {isInvestmentCat && editing && (
+                    <p className="text-xs text-slate-400 bg-slate-50 rounded-lg px-3 py-2">
+                      投資詳細資料（名稱、代碼、數量）請至左側「投資」頁面進行編輯
+                    </p>
+                  )}
+
                   {/* 支出：支付方式 */}
-                  {!isBank && form.type === "EXPENSE" && (
+                  {!isBank && !isInvestmentCat && form.type === "EXPENSE" && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">支付方式</label>
                       <div className="flex gap-2 mb-2">
@@ -484,7 +541,7 @@ export default function TransactionsPage() {
                   )}
 
                   {/* 收入：備註 */}
-                  {!isBank && form.type === "INCOME" && (
+                  {!isBank && !isInvestmentCat && form.type === "INCOME" && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
                       <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })}

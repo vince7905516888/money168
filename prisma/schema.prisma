@@ -19,6 +19,7 @@ model User {
   transactions Transaction[]
   categories   Category[]
   userBanks    UserBank[]
+  investments  Investment[]
 }
 
 model UserBank {
@@ -56,6 +57,27 @@ model Transaction {
   category   Category?       @relation(fields: [categoryId], references: [id])
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
+}
+
+model Investment {
+  id            String         @id @default(cuid())
+  type          InvestmentType
+  name          String?
+  code          String?
+  amount        Float
+  quantity      Float?
+  note          String?
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactionId String?        @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+enum InvestmentType {
+  STOCK
+  FUND
+  FOREX
 }
 
 enum Role {

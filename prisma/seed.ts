@@ -11,6 +11,7 @@ const prisma = new PrismaClient({ adapter });
 const bankCategories = [
   { name: "銀行", type: "INCOME" as const, icon: "🏦", color: "#0ea5e9" },
   { name: "銀行", type: "EXPENSE" as const, icon: "🏦", color: "#0ea5e9" },
+  { name: "投資", type: "EXPENSE" as const, icon: "📊", color: "#6366f1" },
 ];
 
 async function main() {

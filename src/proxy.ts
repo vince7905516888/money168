@@ -9,6 +9,7 @@ export const config = {
     "/dashboard/:path*",
     "/transactions/:path*",
     "/reports/:path*",
+    "/investment/:path*",
     "/admin/:path*",
     "/login",
     "/register",

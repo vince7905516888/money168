@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { useState } from "react";
 
 const navItems = [
   { href: "/dashboard", label: "總覽", icon: "◎" },
@@ -10,8 +11,17 @@ const navItems = [
   { href: "/reports", label: "報表分析", icon: "▦" },
 ];
 
+const investmentItems = [
+  { href: "/investment/overview", label: "投資總攬" },
+  { href: "/investment/stock", label: "股票投資" },
+  { href: "/investment/fund", label: "基金投資" },
+  { href: "/investment/forex", label: "外匯投資" },
+];
+
 export default function MemberSidebar({ userName }: { userName: string }) {
   const pathname = usePathname();
+  const isInvestment = pathname.startsWith("/investment");
+  const [investOpen, setInvestOpen] = useState(isInvestment);
 
   return (
     <aside className="w-60 min-h-screen bg-white border-r border-slate-100 flex flex-col px-4 py-6 fixed left-0 top-0 z-20">
@@ -42,6 +52,42 @@ export default function MemberSidebar({ userName }: { userName: string }) {
             </Link>
           );
         })}
+
+        {/* 投資 section */}
+        <button
+          onClick={() => setInvestOpen((o) => !o)}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+            isInvestment
+              ? "bg-indigo-50 text-indigo-700"
+              : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+          }`}
+        >
+          <span className="text-base leading-none">📊</span>
+          <span className="flex-1 text-left">投資</span>
+          <span className="text-xs text-slate-400">{investOpen ? "▾" : "▸"}</span>
+        </button>
+
+        {investOpen && (
+          <div className="ml-4 space-y-0.5">
+            {investmentItems.map((item) => {
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all ${
+                    active
+                      ? "bg-indigo-50 text-indigo-700 font-medium"
+                      : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </nav>
 
       {/* User */}
