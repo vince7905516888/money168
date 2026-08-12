@@ -10,7 +10,8 @@ export async function GET(req: NextRequest) {
   const month = searchParams.get("month");
   const type = searchParams.get("type");
 
-  const where: Record<string, unknown> = { userId: session.user.id };
+  const source = searchParams.get("source") ?? "CASH";
+  const where: Record<string, unknown> = { userId: session.user.id, source };
   if (type && (type === "INCOME" || type === "EXPENSE" || type === "TRANSFER")) where.type = type;
   if (month) {
     const [year, m] = month.split("-").map(Number);
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
-  const { title, amount, type, date, note, categoryId } = await req.json();
+  const { title, amount, type, date, note, categoryId, source } = await req.json();
 
   if (!title || !amount || !type || !date) {
     return NextResponse.json({ error: "請填寫必要欄位" }, { status: 400 });
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest) {
       type,
       date: new Date(date),
       note,
+      source: source ?? "CASH",
       categoryId: categoryId || null,
       userId: session.user.id,
     },

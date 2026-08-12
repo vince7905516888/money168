@@ -51,6 +51,7 @@ model Transaction {
   type       TransactionType
   date       DateTime
   note       String?
+  source     String          @default("CASH")
   userId     String
   user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   categoryId String?

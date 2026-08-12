@@ -11,6 +11,16 @@ interface BankSummary {
   balance: number;
 }
 
+interface BankRecord {
+  id: string;
+  title: string;
+  amount: number;
+  type: "INCOME" | "EXPENSE" | "TRANSFER";
+  date: string;
+  note?: string;
+  category?: { name: string; icon?: string; color?: string };
+}
+
 interface Category {
   id: string;
   name: string;
@@ -42,7 +52,7 @@ type PaymentMethod = "" | "現金" | "銀行" | "第三方支付";
 const EMPTY_FORM = {
   title: "",
   amount: "",
-  type: "EXPENSE" as "INCOME" | "EXPENSE" | "TRANSFER",
+  type: "INCOME" as "INCOME" | "EXPENSE" | "TRANSFER",
   date: new Date().toISOString().split("T")[0],
   note: "",
   categoryId: "",
@@ -59,12 +69,25 @@ function buildTransferNote(t: typeof EMPTY_TRANSFER) {
   return `FROM:${t.fromType}:${t.fromDetail}|TO:${t.toType}:${t.toDetail}`;
 }
 
+function parseTransferNote(note: string) {
+  const match = note.match(/FROM:([^:]+):?([^|]*)\|TO:([^:]+):?(.*)/);
+  if (!match) return EMPTY_TRANSFER;
+  return { fromType: match[1] as PaymentMethod, fromDetail: match[2] ?? "", toType: match[3] as PaymentMethod, toDetail: match[4] ?? "" };
+}
+
+function displayTransferNote(note: string) {
+  const t = parseTransferNote(note);
+  const from = t.fromDetail ? `${t.fromType} (${t.fromDetail})` : t.fromType;
+  const to = t.toDetail ? `${t.toType} (${t.toDetail})` : t.toType;
+  return `${from} → ${to}`;
+}
+
 export default function BanksPage() {
   const [banks, setBanks] = useState<BankSummary[]>([]);
+  const [records, setRecords] = useState<BankRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
 
-  // 表單狀態
   const [categories, setCategories] = useState<Category[]>([]);
   const [userBanks, setUserBanks] = useState<UserBank[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -80,15 +103,19 @@ export default function BanksPage() {
 
   const allBanks = [...DEFAULT_BANKS, ...userBanks.map((b) => b.name)];
 
-  const fetchSummary = async () => {
+  const fetchAll = async () => {
     setLoading(true);
-    const res = await fetch("/api/banks/summary");
-    const data = await res.json();
-    setBanks(Array.isArray(data) ? data : []);
+    const [summaryRes, recordsRes] = await Promise.all([
+      fetch("/api/banks/summary"),
+      fetch("/api/transactions?source=BANK"),
+    ]);
+    const [summaryData, recordsData] = await Promise.all([summaryRes.json(), recordsRes.json()]);
+    setBanks(Array.isArray(summaryData) ? summaryData : []);
+    setRecords(Array.isArray(recordsData) ? recordsData : []);
     setLoading(false);
   };
 
-  useEffect(() => { fetchSummary(); }, []);
+  useEffect(() => { fetchAll(); }, []);
 
   const openModal = async () => {
     setShowModal(true);
@@ -136,7 +163,7 @@ export default function BanksPage() {
     const res = await fetch("/api/transactions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, note: buildNote() }),
+      body: JSON.stringify({ ...form, note: buildNote(), source: "BANK" }),
     });
     if (isInvestmentCat && investmentType && res.ok) {
       const txData = await res.json();
@@ -150,7 +177,13 @@ export default function BanksPage() {
     }
     setSaving(false);
     handleClose();
-    fetchSummary();
+    fetchAll();
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("確定要刪除這筆記錄？")) return;
+    await fetch(`/api/transactions/${id}`, { method: "DELETE" });
+    fetchAll();
   };
 
   const handleAddBank = async (target: typeof addBankTarget) => {
@@ -273,47 +306,38 @@ export default function BanksPage() {
         </div>
       </div>
 
-      {/* Bank list */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-50">
-          <h2 className="font-semibold text-slate-900">各銀行明細</h2>
-        </div>
-        {loading ? (
-          <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
-        ) : banks.length === 0 ? (
-          <div className="py-16 text-center text-slate-400 text-sm">
-            尚無銀行交易記錄<br />
-            <span className="text-xs mt-1 block">點擊右上角「+ 新增記錄」開始記帳</span>
+      {/* Bank summaries */}
+      {banks.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-slate-50">
+            <h2 className="font-semibold text-slate-900">各銀行明細</h2>
           </div>
-        ) : (
           <div className="divide-y divide-slate-50">
             {banks.map((bank) => (
-              <div key={bank.name} className="px-6 py-5 hover:bg-slate-50 transition-colors">
+              <div key={bank.name} className="px-6 py-4 hover:bg-slate-50 transition-colors">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center text-lg">
-                      🏦
-                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-sky-50 flex items-center justify-center text-base">🏦</div>
                     <span className="text-sm font-semibold text-slate-800">{bank.name}</span>
                   </div>
-                  <span className={`text-base font-bold ${bank.balance >= 0 ? "text-slate-800" : "text-red-500"}`}>
+                  <span className={`text-sm font-bold ${bank.balance >= 0 ? "text-slate-800" : "text-red-500"}`}>
                     {fmt(bank.balance)}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  <div className="bg-emerald-50 rounded-lg px-3 py-2">
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="bg-emerald-50 rounded-lg px-3 py-1.5">
                     <div className="text-xs text-emerald-600 font-medium">收入</div>
                     <div className="text-sm font-semibold text-emerald-700">{fmt(bank.income)}</div>
                   </div>
-                  <div className="bg-red-50 rounded-lg px-3 py-2">
+                  <div className="bg-red-50 rounded-lg px-3 py-1.5">
                     <div className="text-xs text-red-500 font-medium">支出</div>
                     <div className="text-sm font-semibold text-red-600">{fmt(bank.expense)}</div>
                   </div>
-                  <div className="bg-indigo-50 rounded-lg px-3 py-2">
+                  <div className="bg-indigo-50 rounded-lg px-3 py-1.5">
                     <div className="text-xs text-indigo-500 font-medium">調帳流入</div>
                     <div className="text-sm font-semibold text-indigo-600">{fmt(bank.transferIn)}</div>
                   </div>
-                  <div className="bg-slate-50 rounded-lg px-3 py-2">
+                  <div className="bg-slate-50 rounded-lg px-3 py-1.5">
                     <div className="text-xs text-slate-500 font-medium">調帳流出</div>
                     <div className="text-sm font-semibold text-slate-600">{fmt(bank.transferOut)}</div>
                   </div>
@@ -321,23 +345,66 @@ export default function BanksPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Records list */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-50">
+          <h2 className="font-semibold text-slate-900">銀行記錄</h2>
+        </div>
+        {loading ? (
+          <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
+        ) : records.length === 0 ? (
+          <div className="py-16 text-center text-slate-400 text-sm">
+            尚無銀行記錄<br />
+            <span className="text-xs mt-1 block">點擊右上角「+ 新增記錄」開始記帳</span>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {records.map((r) => (
+              <div key={r.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
+                    style={{ backgroundColor: r.type === "TRANSFER" ? "#eef2ff" : (r.category?.color ?? "#e2e8f0") + "20" }}>
+                    {r.type === "TRANSFER" ? "↔️" : (r.category?.icon ?? (r.type === "INCOME" ? "💰" : "💸"))}
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-slate-800">{r.title}</div>
+                    <div className="text-xs text-slate-400">
+                      {r.type === "TRANSFER"
+                        ? `調帳 · ${new Date(r.date).toLocaleDateString("zh-TW")} · ${displayTransferNote(r.note ?? "")}`
+                        : `${r.category?.name ?? "未分類"} · ${new Date(r.date).toLocaleDateString("zh-TW")}${r.note ? ` · ${r.note.startsWith("支付:") ? r.note.slice(3).replace(":", " ") : r.note}` : ""}`
+                      }
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className={`text-sm font-semibold ${
+                    r.type === "INCOME" ? "text-emerald-600" :
+                    r.type === "TRANSFER" ? "text-indigo-500" : "text-red-500"
+                  }`}>
+                    {r.type === "INCOME" ? "+" : r.type === "TRANSFER" ? "" : "-"}{fmt(r.amount)}
+                  </span>
+                  <button onClick={() => handleDelete(r.id)}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-all">
+                    刪除
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
-
-      <p className="text-xs text-slate-400 mt-4 text-center">
-        資料來源：收支記錄中選擇「銀行」分類或支付方式，以及調帳記錄中涉及銀行的部分
-      </p>
 
       {/* 新增記錄 Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-bold text-slate-900 mb-5">新增記錄</h2>
+            <h2 className="text-lg font-bold text-slate-900 mb-5">新增銀行記錄</h2>
             <form onSubmit={handleSave} className="space-y-4">
-
-              {/* Type tabs */}
               <div className="flex gap-2">
-                {(["EXPENSE", "INCOME", "TRANSFER"] as const).map((tp) => (
+                {(["INCOME", "EXPENSE", "TRANSFER"] as const).map((tp) => (
                   <button key={tp} type="button"
                     onClick={() => { setForm({ ...EMPTY_FORM, type: tp, date: form.date }); setTransfer(EMPTY_TRANSFER); setPaymentMethod(""); setPaymentDetail(""); setBankName(""); setInvestmentType(""); }}
                     className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
@@ -352,7 +419,6 @@ export default function BanksPage() {
                 ))}
               </div>
 
-              {/* 調帳表單 */}
               {form.type === "TRANSFER" ? (
                 <>
                   <div className="flex gap-3 items-start">
@@ -382,7 +448,7 @@ export default function BanksPage() {
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">名稱</label>
                     <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
-                      placeholder="例如：午餐" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                      placeholder="例如：薪資入帳" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">金額</label>
@@ -403,14 +469,12 @@ export default function BanksPage() {
                       {filteredCats.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
                     </select>
                   </div>
-
                   {isBank && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">銀行名稱</label>
                       <BankSelector value={bankName} onChange={setBankName} target="category" />
                     </div>
                   )}
-
                   {isInvestmentCat && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -422,19 +486,14 @@ export default function BanksPage() {
                           { value: "FUND", label: "📦 基金" },
                           { value: "FOREX", label: "💱 外匯" },
                         ] as const).map(({ value, label }) => (
-                          <button key={value} type="button"
-                            onClick={() => setInvestmentType(value)}
+                          <button key={value} type="button" onClick={() => setInvestmentType(value)}
                             className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
                               investmentType === value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                            }`}>
-                            {label}
-                          </button>
+                            }`}>{label}</button>
                         ))}
                       </div>
-                      <p className="text-xs text-slate-400 mt-1.5">選擇後將自動同步到對應的投資細項</p>
                     </div>
                   )}
-
                   {!isBank && !isInvestmentCat && form.type === "EXPENSE" && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">支付方式</label>
@@ -449,15 +508,10 @@ export default function BanksPage() {
                           </button>
                         ))}
                       </div>
-                      {paymentMethod === "銀行" && (
-                        <BankSelector value={paymentDetail} onChange={setPaymentDetail} target="payment" />
-                      )}
-                      {paymentMethod === "第三方支付" && (
-                        <ThirdPartySelector value={paymentDetail} onChange={setPaymentDetail} />
-                      )}
+                      {paymentMethod === "銀行" && <BankSelector value={paymentDetail} onChange={setPaymentDetail} target="payment" />}
+                      {paymentMethod === "第三方支付" && <ThirdPartySelector value={paymentDetail} onChange={setPaymentDetail} />}
                     </div>
                   )}
-
                   {!isBank && !isInvestmentCat && form.type === "INCOME" && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>

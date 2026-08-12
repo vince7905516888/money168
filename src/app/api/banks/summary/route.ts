@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
 
   const [transactions, userBanks] = await Promise.all([
     prisma.transaction.findMany({
-      where: { userId: session.user.id },
+      where: { userId: session.user.id, source: "BANK" },
       include: { category: { select: { name: true } } },
     }),
     prisma.userBank.findMany({
