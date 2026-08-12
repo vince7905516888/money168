@@ -11,11 +11,76 @@ interface BankSummary {
   balance: number;
 }
 
+interface Category {
+  id: string;
+  name: string;
+  type: string;
+  icon?: string;
+  color?: string;
+}
+
+interface UserBank {
+  id: string;
+  name: string;
+}
+
+const DEFAULT_BANKS = [
+  "台灣銀行", "合作金庫", "第一銀行", "華南銀行", "彰化銀行",
+  "兆豐銀行", "土地銀行", "國泰世華", "玉山銀行", "中國信託",
+  "台北富邦", "永豐銀行", "台新銀行", "遠東銀行", "上海商銀",
+  "星展銀行", "渣打銀行", "中華郵政",
+];
+
+const THIRD_PARTY = [
+  "LINE Pay", "街口支付", "悠遊付", "Pi拍錢包",
+  "全盈+PAY", "Apple Pay", "Google Pay", "台灣Pay",
+  "橘子Pay", "一卡通Money", "其他",
+];
+
+type PaymentMethod = "" | "現金" | "銀行" | "第三方支付";
+
+const EMPTY_FORM = {
+  title: "",
+  amount: "",
+  type: "EXPENSE" as "INCOME" | "EXPENSE" | "TRANSFER",
+  date: new Date().toISOString().split("T")[0],
+  note: "",
+  categoryId: "",
+};
+
+const EMPTY_TRANSFER = {
+  fromType: "" as PaymentMethod,
+  fromDetail: "",
+  toType: "" as PaymentMethod,
+  toDetail: "",
+};
+
+function buildTransferNote(t: typeof EMPTY_TRANSFER) {
+  return `FROM:${t.fromType}:${t.fromDetail}|TO:${t.toType}:${t.toDetail}`;
+}
+
 export default function BanksPage() {
   const [banks, setBanks] = useState<BankSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
 
-  const fetchAll = async () => {
+  // 表單狀態
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [userBanks, setUserBanks] = useState<UserBank[]>([]);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [transfer, setTransfer] = useState(EMPTY_TRANSFER);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("");
+  const [paymentDetail, setPaymentDetail] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "FUND" | "FOREX">("");
+  const [saving, setSaving] = useState(false);
+  const [addBankInput, setAddBankInput] = useState("");
+  const [addBankTarget, setAddBankTarget] = useState<"category" | "payment" | "fromDetail" | "toDetail" | null>(null);
+  const [addBankLoading, setAddBankLoading] = useState(false);
+
+  const allBanks = [...DEFAULT_BANKS, ...userBanks.map((b) => b.name)];
+
+  const fetchSummary = async () => {
     setLoading(true);
     const res = await fetch("/api/banks/summary");
     const data = await res.json();
@@ -23,10 +88,155 @@ export default function BanksPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchSummary(); }, []);
+
+  const openModal = async () => {
+    setShowModal(true);
+    const [catRes, bankRes] = await Promise.all([fetch("/api/categories"), fetch("/api/user-banks")]);
+    const [catData, bankData] = await Promise.all([catRes.json(), bankRes.json()]);
+    setCategories(Array.isArray(catData) ? catData : []);
+    setUserBanks(Array.isArray(bankData) ? bankData : []);
+  };
+
+  const resetForm = () => {
+    setForm(EMPTY_FORM);
+    setTransfer(EMPTY_TRANSFER);
+    setPaymentMethod("");
+    setPaymentDetail("");
+    setBankName("");
+    setInvestmentType("");
+    setAddBankInput("");
+    setAddBankTarget(null);
+  };
+
+  const handleClose = () => { resetForm(); setShowModal(false); };
+
+  const selectedCatName = categories.find((c) => c.id === form.categoryId)?.name;
+  const isBank = selectedCatName === "銀行";
+  const isInvestmentCat = selectedCatName === "投資" && form.type === "EXPENSE";
+  const filteredCats = categories.filter((c) => c.type === form.type);
+
+  const buildNote = () => {
+    if (form.type === "TRANSFER") return buildTransferNote(transfer);
+    if (isBank) return bankName;
+    if (form.type === "EXPENSE" && paymentMethod) {
+      if (paymentMethod === "現金") return "支付:現金";
+      return `支付:${paymentMethod}:${paymentDetail}`;
+    }
+    return form.note;
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isInvestmentCat && !investmentType) {
+      alert("請選擇投資類別（股票、基金或外匯）");
+      return;
+    }
+    setSaving(true);
+    const res = await fetch("/api/transactions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...form, note: buildNote() }),
+    });
+    if (isInvestmentCat && investmentType && res.ok) {
+      const txData = await res.json();
+      if (txData.id) {
+        await fetch("/api/investments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: investmentType, amount: form.amount, transactionId: txData.id }),
+        });
+      }
+    }
+    setSaving(false);
+    handleClose();
+    fetchSummary();
+  };
+
+  const handleAddBank = async (target: typeof addBankTarget) => {
+    if (!addBankInput.trim()) return;
+    setAddBankLoading(true);
+    const res = await fetch("/api/user-banks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: addBankInput.trim() }),
+    });
+    setAddBankLoading(false);
+    if (res.ok) {
+      const bank = await res.json();
+      setUserBanks((prev) => [...prev, bank]);
+      if (target === "category") setBankName(bank.name);
+      else if (target === "payment") setPaymentDetail(bank.name);
+      else if (target === "fromDetail") setTransfer((t) => ({ ...t, fromDetail: bank.name }));
+      else if (target === "toDetail") setTransfer((t) => ({ ...t, toDetail: bank.name }));
+      setAddBankInput("");
+      setAddBankTarget(null);
+    }
+  };
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
+
+  const BankSelector = ({ value, onChange, target }: { value: string; onChange: (v: string) => void; target: typeof addBankTarget }) => (
+    <div>
+      <select required value={value} onChange={(e) => onChange(e.target.value)}
+        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+        <option value="">請選擇銀行</option>
+        {allBanks.map((b) => <option key={b} value={b}>{b}</option>)}
+      </select>
+      {addBankTarget === target ? (
+        <div className="flex gap-2 mt-2">
+          <input value={addBankInput} onChange={(e) => setAddBankInput(e.target.value)} placeholder="輸入銀行名稱"
+            className="flex-1 border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:border-indigo-400" />
+          <button type="button" onClick={() => handleAddBank(target)} disabled={addBankLoading}
+            className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60">
+            {addBankLoading ? "..." : "新增"}
+          </button>
+          <button type="button" onClick={() => setAddBankTarget(null)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-500 hover:bg-slate-50">取消</button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setAddBankTarget(target)}
+          className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline">
+          + 找不到？申請新增銀行
+        </button>
+      )}
+    </div>
+  );
+
+  const ThirdPartySelector = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <select required value={value} onChange={(e) => onChange(e.target.value)}
+      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+      <option value="">請選擇支付平台</option>
+      {THIRD_PARTY.map((t) => <option key={t} value={t}>{t}</option>)}
+    </select>
+  );
+
+  const TransferSide = ({ label, typeKey, detailKey }: {
+    label: string; typeKey: "fromType" | "toType"; detailKey: "fromDetail" | "toDetail";
+  }) => (
+    <div className="flex-1">
+      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{label}</label>
+      <div className="flex gap-1.5 mb-2">
+        {(["現金", "銀行", "第三方支付"] as PaymentMethod[]).map((pm) => (
+          <button key={pm} type="button"
+            onClick={() => setTransfer((t) => ({ ...t, [typeKey]: pm, [detailKey]: "" }))}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              transfer[typeKey] === pm ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+            }`}>
+            {pm === "現金" ? "💵" : pm === "銀行" ? "🏦" : "📱"}
+            <div className="text-[10px] mt-0.5">{pm === "第三方支付" ? "第三方" : pm}</div>
+          </button>
+        ))}
+      </div>
+      {transfer[typeKey] === "銀行" && (
+        <BankSelector value={transfer[detailKey]} onChange={(v) => setTransfer((t) => ({ ...t, [detailKey]: v }))} target={detailKey} />
+      )}
+      {transfer[typeKey] === "第三方支付" && (
+        <ThirdPartySelector value={transfer[detailKey]} onChange={(v) => setTransfer((t) => ({ ...t, [detailKey]: v }))} />
+      )}
+    </div>
+  );
 
   const totalBalance = banks.reduce((s, b) => s + b.balance, 0);
   const totalIncome = banks.reduce((s, b) => s + b.income + b.transferIn, 0);
@@ -34,9 +244,15 @@ export default function BanksPage() {
 
   return (
     <div className="max-w-4xl">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">銀行資金管理</h1>
-        <p className="text-slate-500 text-sm mt-1">追蹤各銀行帳戶的資金流向</p>
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">銀行資金管理</h1>
+          <p className="text-slate-500 text-sm mt-1">追蹤各銀行帳戶的資金流向</p>
+        </div>
+        <button onClick={openModal}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors">
+          + 新增記錄
+        </button>
       </div>
 
       {/* Summary cards */}
@@ -62,13 +278,12 @@ export default function BanksPage() {
         <div className="px-6 py-4 border-b border-slate-50">
           <h2 className="font-semibold text-slate-900">各銀行明細</h2>
         </div>
-
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
         ) : banks.length === 0 ? (
           <div className="py-16 text-center text-slate-400 text-sm">
             尚無銀行交易記錄<br />
-            <span className="text-xs mt-1 block">在「收支記錄」中選擇「銀行」分類或支付方式即可追蹤</span>
+            <span className="text-xs mt-1 block">點擊右上角「+ 新增記錄」開始記帳</span>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -85,7 +300,7 @@ export default function BanksPage() {
                     {fmt(bank.balance)}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 ml-13">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   <div className="bg-emerald-50 rounded-lg px-3 py-2">
                     <div className="text-xs text-emerald-600 font-medium">收入</div>
                     <div className="text-sm font-semibold text-emerald-700">{fmt(bank.income)}</div>
@@ -112,6 +327,161 @@ export default function BanksPage() {
       <p className="text-xs text-slate-400 mt-4 text-center">
         資料來源：收支記錄中選擇「銀行」分類或支付方式，以及調帳記錄中涉及銀行的部分
       </p>
+
+      {/* 新增記錄 Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-bold text-slate-900 mb-5">新增記錄</h2>
+            <form onSubmit={handleSave} className="space-y-4">
+
+              {/* Type tabs */}
+              <div className="flex gap-2">
+                {(["EXPENSE", "INCOME", "TRANSFER"] as const).map((tp) => (
+                  <button key={tp} type="button"
+                    onClick={() => { setForm({ ...EMPTY_FORM, type: tp, date: form.date }); setTransfer(EMPTY_TRANSFER); setPaymentMethod(""); setPaymentDetail(""); setBankName(""); setInvestmentType(""); }}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                      form.type === tp
+                        ? tp === "INCOME" ? "bg-emerald-500 text-white"
+                          : tp === "TRANSFER" ? "bg-indigo-500 text-white"
+                          : "bg-red-500 text-white"
+                        : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    }`}>
+                    {tp === "INCOME" ? "收入" : tp === "EXPENSE" ? "支出" : "↔ 調帳"}
+                  </button>
+                ))}
+              </div>
+
+              {/* 調帳表單 */}
+              {form.type === "TRANSFER" ? (
+                <>
+                  <div className="flex gap-3 items-start">
+                    <TransferSide label="從" typeKey="fromType" detailKey="fromDetail" />
+                    <div className="text-2xl text-slate-300 mt-8">→</div>
+                    <TransferSide label="至" typeKey="toType" detailKey="toDetail" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">名稱（選填）</label>
+                    <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+                      placeholder="例如：提款" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">金額</label>
+                    <input required type="number" min="0" step="1" value={form.amount}
+                      onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">日期</label>
+                    <input required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">名稱</label>
+                    <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+                      placeholder="例如：午餐" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">金額</label>
+                    <input required type="number" min="0" step="1" value={form.amount}
+                      onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">日期</label>
+                    <input required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">分類</label>
+                    <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                      <option value="">未分類</option>
+                      {filteredCats.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                    </select>
+                  </div>
+
+                  {isBank && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">銀行名稱</label>
+                      <BankSelector value={bankName} onChange={setBankName} target="category" />
+                    </div>
+                  )}
+
+                  {isInvestmentCat && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                        投資類別 <span className="text-red-500">*</span>
+                      </label>
+                      <div className="flex gap-2">
+                        {([
+                          { value: "STOCK", label: "📈 股票" },
+                          { value: "FUND", label: "📦 基金" },
+                          { value: "FOREX", label: "💱 外匯" },
+                        ] as const).map(({ value, label }) => (
+                          <button key={value} type="button"
+                            onClick={() => setInvestmentType(value)}
+                            className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                              investmentType === value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                            }`}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1.5">選擇後將自動同步到對應的投資細項</p>
+                    </div>
+                  )}
+
+                  {!isBank && !isInvestmentCat && form.type === "EXPENSE" && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">支付方式</label>
+                      <div className="flex gap-2 mb-2">
+                        {(["現金", "銀行", "第三方支付"] as PaymentMethod[]).map((pm) => (
+                          <button key={pm} type="button"
+                            onClick={() => { setPaymentMethod(pm); setPaymentDetail(""); setAddBankTarget(null); }}
+                            className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                              paymentMethod === pm ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                            }`}>
+                            {pm === "現金" ? "💵 現金" : pm === "銀行" ? "🏦 銀行" : "📱 第三方"}
+                          </button>
+                        ))}
+                      </div>
+                      {paymentMethod === "銀行" && (
+                        <BankSelector value={paymentDetail} onChange={setPaymentDetail} target="payment" />
+                      )}
+                      {paymentMethod === "第三方支付" && (
+                        <ThirdPartySelector value={paymentDetail} onChange={setPaymentDetail} />
+                      )}
+                    </div>
+                  )}
+
+                  {!isBank && !isInvestmentCat && form.type === "INCOME" && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+                      <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })}
+                        placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={handleClose}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                  取消
+                </button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60">
+                  {saving ? "儲存中..." : "儲存"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
