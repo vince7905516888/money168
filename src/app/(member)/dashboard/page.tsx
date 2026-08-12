@@ -7,7 +7,7 @@ interface Transaction {
   id: string;
   title: string;
   amount: number;
-  type: "INCOME" | "EXPENSE";
+  type: "INCOME" | "EXPENSE" | "TRANSFER";
   date: string;
   category?: { name: string; icon?: string; color?: string };
 }
@@ -34,12 +34,12 @@ export default function DashboardPage() {
   const expense = transactions
     .filter((t) => t.type === "EXPENSE")
     .reduce((s, t) => s + t.amount, 0);
+  const recent = transactions.filter((t) => t.type !== "TRANSFER").slice(0, 5);
   const balance = income - expense;
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
 
-  const recent = transactions.slice(0, 5);
 
   return (
     <div className="max-w-4xl">

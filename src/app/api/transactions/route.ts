@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get("type");
 
   const where: Record<string, unknown> = { userId: session.user.id };
-  if (type && (type === "INCOME" || type === "EXPENSE")) where.type = type;
+  if (type && (type === "INCOME" || type === "EXPENSE" || type === "TRANSFER")) where.type = type;
   if (month) {
     const [year, m] = month.split("-").map(Number);
     where.date = {
