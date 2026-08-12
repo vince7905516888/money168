@@ -435,7 +435,7 @@ export default function BanksPage() {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number) => [fmt(value), "餘額"]}
+                        formatter={(value) => [fmt(Number(value)), "餘額"]}
                         contentStyle={{ borderRadius: "12px", border: "1px solid #e2e8f0", fontSize: "13px" }}
                       />
                       <Legend
