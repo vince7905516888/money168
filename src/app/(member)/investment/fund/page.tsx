@@ -24,6 +24,14 @@ interface UserBank {
   name: string;
 }
 
+interface ForexInvestment {
+  id: string;
+  name?: string;
+  quantity?: number;
+  fee?: number;
+  currency?: string;
+}
+
 const DEFAULT_BANKS = [
   "台灣銀行", "合作金庫", "第一銀行", "華南銀行", "彰化銀行",
   "兆豐銀行", "土地銀行", "國泰世華", "玉山銀行", "中國信託",
@@ -48,6 +56,7 @@ const EMPTY_ADD_FORM = {
 
 export default function FundPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
+  const [forexAdjustments, setForexAdjustments] = useState<ForexInvestment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
@@ -64,13 +73,15 @@ export default function FundPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, bankRes] = await Promise.all([
+    const [invRes, bankRes, forexRes] = await Promise.all([
       fetch("/api/investments?type=FUND"),
       fetch("/api/user-banks"),
+      fetch("/api/investments?type=FOREX"),
     ]);
-    const [invData, bankData] = await Promise.all([invRes.json(), bankRes.json()]);
+    const [invData, bankData, forexData] = await Promise.all([invRes.json(), bankRes.json(), forexRes.json()]);
     setInvestments(Array.isArray(invData) ? invData : []);
     setUserBanks(Array.isArray(bankData) ? bankData : []);
+    setForexAdjustments(Array.isArray(forexData) ? forexData.filter((i: ForexInvestment) => i.name === "調帳") : []);
     setLoading(false);
   }, []);
 
@@ -98,8 +109,24 @@ export default function FundPage() {
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
+  const fmt2 = (n: number) => new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(n);
 
   const total = investments.reduce((s, i) => s + i.amount, 0);
+
+  // 各幣別投入基金總額：本頁自己新增的基金記錄（淨值×單位數，以基金原幣計）
+  // ＋ 外匯投資頁「調帳」轉入的金額（不含手續費），依幣別加總同步過來
+  const currencyInvestedTotals: Record<string, number> = {};
+  for (const i of investments) {
+    if (i.currency && i.price && i.quantity) {
+      currencyInvestedTotals[i.currency] = (currencyInvestedTotals[i.currency] || 0) + i.price * i.quantity;
+    }
+  }
+  for (const i of forexAdjustments) {
+    if (i.currency) {
+      const principal = -(i.quantity || 0) - (i.fee || 0);
+      currencyInvestedTotals[i.currency] = (currencyInvestedTotals[i.currency] || 0) + principal;
+    }
+  }
 
   // ---- 新增表單：即時試算 ----
   const nav = parseFloat(addForm.price) || 0;
@@ -203,6 +230,21 @@ export default function FundPage() {
           <div className="text-2xl font-bold text-slate-900 mt-1">{investments.length} 筆</div>
         </div>
       </div>
+
+      {/* 各幣別投入基金總額（含外匯調帳同步） */}
+      {Object.keys(currencyInvestedTotals).length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別投入基金總額（含外匯調帳轉入）</div>
+          <div className="space-y-2">
+            {Object.entries(currencyInvestedTotals).map(([currency, amount]) => (
+              <div key={currency} className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">{currency}</span>
+                <span className="font-semibold text-slate-900">{fmt2(amount)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
