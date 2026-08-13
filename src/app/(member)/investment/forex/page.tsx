@@ -118,7 +118,7 @@ export default function ForexPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  // 平均匯率：僅採計「買入外幣」（amount 為正、quantity 為正）的加權平均，換回台幣/提款/收入不計入成本
+  // 平均匯率（買入平均）：僅採計「買入外幣」（amount 為正、quantity 為正）的加權平均，換回台幣/提款/收入不計入成本
   const currencyBuyStats = investments.reduce((acc, i) => {
     if (i.currency && i.amount > 0 && (i.quantity || 0) > 0) {
       const key = i.currency;
@@ -128,6 +128,38 @@ export default function ForexPage() {
     }
     return acc;
   }, {} as Record<string, { twd: number; foreign: number }>);
+
+  // 平均匯率（時序加權）：依日期先後逐筆計算移動平均成本。
+  // 買入 → 增加餘額與成本；利息／其他收入 → 只增加餘額不增加成本（稀釋匯率，含息後平均匯率會下降）；
+  // 換回台幣／提款 → 依當下平均匯率等比例扣除成本，避免後續再買進造成的匯率誤差累積到已出場的部位上。
+  const currencyMovingAvgRate: Record<string, number> = {};
+  {
+    const byCurrency: Record<string, Investment[]> = {};
+    for (const inv of investments) {
+      if (!inv.currency) continue;
+      (byCurrency[inv.currency] ||= []).push(inv);
+    }
+    for (const [currency, list] of Object.entries(byCurrency)) {
+      const sorted = [...list].sort(
+        (a, b) => new Date(a.date ?? a.createdAt).getTime() - new Date(b.date ?? b.createdAt).getTime()
+      );
+      let balance = 0;
+      let cost = 0;
+      for (const inv of sorted) {
+        const qty = inv.quantity || 0;
+        if (qty >= 0) {
+          balance += qty;
+          if (inv.amount > 0) cost += inv.amount;
+        } else {
+          const rateNow = balance > 0 ? cost / balance : 0;
+          const outQty = -qty;
+          cost = Math.max(0, cost - rateNow * outQty);
+          balance = Math.max(0, balance - outQty);
+        }
+      }
+      currencyMovingAvgRate[currency] = balance > 0 ? cost / balance : 0;
+    }
+  }
 
   const bankTotals = investments.reduce((acc, i) => {
     const key = i.bankName || "未指定銀行";
@@ -272,7 +304,7 @@ export default function ForexPage() {
       {investments.length > 0 && (
         <div className="grid grid-cols-2 gap-4 mb-8">
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別目前餘額</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別目前餘額（買入平均匯率）</div>
             <div className="space-y-2">
               {Object.entries(currencyTotals).map(([currency, amount]) => {
                 const stats = currencyBuyStats[currency];
@@ -283,6 +315,40 @@ export default function ForexPage() {
                     <div className="text-right">
                       <div className="font-semibold text-slate-900">{fmt2(amount)}</div>
                       {avgRate !== null && <div className="text-[11px] text-slate-400">平均匯率 {fmt2(avgRate)}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依銀行淨投入（台幣）</div>
+            <div className="space-y-2">
+              {Object.entries(bankTotals).map(([bank, amount]) => (
+                <div key={bank} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">{bank}</span>
+                  <span className="font-semibold text-slate-900">{fmt(amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 依幣別 / 銀行 小計（時序加權平均，含息） */}
+      {investments.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 mb-8">
+          <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別目前餘額（時序平均匯率・含息）</div>
+            <div className="space-y-2">
+              {Object.entries(currencyTotals).map(([currency, amount]) => {
+                const avgRate = currencyMovingAvgRate[currency];
+                return (
+                  <div key={currency} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">{currency}</span>
+                    <div className="text-right">
+                      <div className="font-semibold text-slate-900">{fmt2(amount)}</div>
+                      {avgRate > 0 && <div className="text-[11px] text-slate-400">平均匯率 {fmt2(avgRate)}</div>}
                     </div>
                   </div>
                 );
