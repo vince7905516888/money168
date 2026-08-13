@@ -35,9 +35,9 @@ const FLOW_OPTIONS: { key: FlowType; label: string; badgeClass: string; activeCl
   { key: "ADJUSTMENT_IN", label: "調帳(轉入)", badgeClass: "bg-cyan-100 text-cyan-700", activeClass: "bg-cyan-500 text-white" },
 ];
 
-// 支出／收入 兩大類別下的細項（買入外幣、換回台幣本身已具備幣別轉換語意，維持獨立於分類之外）
-const EXPENSE_TYPES: FlowType[] = ["WITHDRAW", "ADJUSTMENT"];
-const INCOME_TYPES: FlowType[] = ["INTEREST", "OTHER_INCOME", "ADJUSTMENT_IN"];
+// 支出／收入 兩大類別下的細項，依外幣餘額增減方向分類：會讓外幣餘額變多的算收入，變少的算支出
+const EXPENSE_TYPES: FlowType[] = ["WITHDRAW", "CONVERT_BACK", "ADJUSTMENT"];
+const INCOME_TYPES: FlowType[] = ["BUY", "INTEREST", "OTHER_INCOME", "ADJUSTMENT_IN"];
 
 const flowMeta = (name?: string) => FLOW_OPTIONS.find((f) => f.label === name) ?? FLOW_OPTIONS[0];
 
@@ -502,16 +502,6 @@ export default function ForexPage() {
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">交易類型</label>
                 <div className="flex flex-wrap gap-2">
                   <button type="button"
-                    onClick={() => setAddForm({ ...addForm, flowType: "BUY", override: "" })}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${addForm.flowType === "BUY" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
-                    買入外幣
-                  </button>
-                  <button type="button"
-                    onClick={() => setAddForm({ ...addForm, flowType: "CONVERT_BACK", override: "" })}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${addForm.flowType === "CONVERT_BACK" ? "bg-red-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
-                    換回台幣
-                  </button>
-                  <button type="button"
                     onClick={() => setAddForm({ ...addForm, flowType: EXPENSE_TYPES[0], override: "" })}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${EXPENSE_TYPES.includes(addForm.flowType) ? "bg-red-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
                     支出
@@ -527,6 +517,7 @@ export default function ForexPage() {
                     onChange={(e) => setAddForm({ ...addForm, flowType: e.target.value as FlowType, override: "" })}
                     className="mt-2 w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
                     <option value="WITHDRAW">提款外幣</option>
+                    <option value="CONVERT_BACK">換回台幣</option>
                     <option value="ADJUSTMENT">調帳</option>
                   </select>
                 )}
@@ -534,6 +525,7 @@ export default function ForexPage() {
                   <select value={addForm.flowType}
                     onChange={(e) => setAddForm({ ...addForm, flowType: e.target.value as FlowType, override: "" })}
                     className="mt-2 w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                    <option value="BUY">買入外幣</option>
                     <option value="INTEREST">利息收入</option>
                     <option value="OTHER_INCOME">其他收入</option>
                     <option value="ADJUSTMENT_IN">調帳(轉入)</option>
