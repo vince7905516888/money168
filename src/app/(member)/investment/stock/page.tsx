@@ -35,6 +35,7 @@ const EMPTY_ADD_FORM = {
   feeRate: "0.1425",
   discount: "1",
   taxRate: "0.3",
+  adjustAmount: "",
   note: "",
 };
 
@@ -84,7 +85,9 @@ export default function StockPage() {
   const principal = quantity * price;
   const calcFee = Math.round(principal * (feeRate / 100) * discount);
   const calcTax = addForm.action === "SELL" ? Math.round(principal * (taxRate / 100)) : 0;
-  const subtotal = addForm.action === "BUY" ? principal + calcFee : principal - calcFee - calcTax;
+  const calcSubtotal = addForm.action === "BUY" ? principal + calcFee : principal - calcFee - calcTax;
+  // 調帳金額：如果填了就以此為準（實際扣款/入帳金額可能與試算有落差），否則採自動試算結果
+  const subtotal = addForm.adjustAmount !== "" ? (parseFloat(addForm.adjustAmount) || 0) : calcSubtotal;
 
   const resetAddForm = () => setAddForm((f) => ({ ...EMPTY_ADD_FORM, feeRate: f.feeRate }));
 
@@ -323,6 +326,15 @@ export default function StockPage() {
                   placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">調帳金額（選填）</label>
+                <input type="number" min="0" step="any" value={addForm.adjustAmount}
+                  onChange={(e) => setAddForm({ ...addForm, adjustAmount: e.target.value })}
+                  placeholder={`試算為 ${fmt(calcSubtotal)}，如與實際金額不同可在此輸入覆蓋`}
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                <p className="text-[11px] text-slate-400 mt-1">留空則採用下方自動試算的小計；填寫後將以此金額為準</p>
+              </div>
+
               {/* 試算小計 */}
               <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
                 <div className="flex justify-between text-xs text-slate-500">
@@ -336,9 +348,12 @@ export default function StockPage() {
                     <span>證券交易稅</span><span>{fmt(calcTax)}</span>
                   </div>
                 )}
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>自動試算小計</span><span>{fmt(calcSubtotal)}</span>
+                </div>
                 <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
-                  <span>{addForm.action === "BUY" ? "小計（應付）" : "小計（應收）"}</span>
-                  <span>{fmt(subtotal)}</span>
+                  <span>{addForm.action === "BUY" ? "最終小計（應付）" : "最終小計（應收）"}</span>
+                  <span>{fmt(subtotal)}{addForm.adjustAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調帳）</span>}</span>
                 </div>
               </div>
 
