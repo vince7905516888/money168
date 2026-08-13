@@ -118,6 +118,17 @@ export default function ForexPage() {
     return acc;
   }, {} as Record<string, number>);
 
+  // 平均匯率：僅採計「買入外幣」（amount 為正、quantity 為正）的加權平均，換回台幣/提款/收入不計入成本
+  const currencyBuyStats = investments.reduce((acc, i) => {
+    if (i.currency && i.amount > 0 && (i.quantity || 0) > 0) {
+      const key = i.currency;
+      if (!acc[key]) acc[key] = { twd: 0, foreign: 0 };
+      acc[key].twd += i.amount;
+      acc[key].foreign += i.quantity || 0;
+    }
+    return acc;
+  }, {} as Record<string, { twd: number; foreign: number }>);
+
   const bankTotals = investments.reduce((acc, i) => {
     const key = i.bankName || "未指定銀行";
     acc[key] = (acc[key] || 0) + i.amount;
@@ -263,12 +274,19 @@ export default function ForexPage() {
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別目前餘額</div>
             <div className="space-y-2">
-              {Object.entries(currencyTotals).map(([currency, amount]) => (
-                <div key={currency} className="flex items-center justify-between text-sm">
-                  <span className="text-slate-600">{currency}</span>
-                  <span className="font-semibold text-slate-900">{fmt2(amount)}</span>
-                </div>
-              ))}
+              {Object.entries(currencyTotals).map(([currency, amount]) => {
+                const stats = currencyBuyStats[currency];
+                const avgRate = stats && stats.foreign > 0 ? stats.twd / stats.foreign : null;
+                return (
+                  <div key={currency} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">{currency}</span>
+                    <div className="text-right">
+                      <div className="font-semibold text-slate-900">{fmt2(amount)}</div>
+                      {avgRate !== null && <div className="text-[11px] text-slate-400">平均匯率 {fmt2(avgRate)}</div>}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
