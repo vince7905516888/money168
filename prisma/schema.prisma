@@ -20,6 +20,7 @@ model User {
   categories     Category[]
   userBanks      UserBank[]
   userThirdParties UserThirdParty[]
+  userBrokers    UserBroker[]
   investments    Investment[]
 }
 
@@ -34,6 +35,16 @@ model UserBank {
 }
 
 model UserThirdParty {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, name])
+}
+
+model UserBroker {
   id        String   @id @default(cuid())
   name      String
   userId    String
@@ -79,6 +90,7 @@ model Investment {
   amount        Float
   quantity      Float?
   price         Float?
+  broker        String?
   action        TradeAction    @default(BUY)
   date          DateTime       @default(now())
   discount      Float?

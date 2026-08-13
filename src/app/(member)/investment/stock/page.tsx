@@ -10,6 +10,7 @@ interface Investment {
   amount: number;
   quantity?: number;
   price?: number;
+  broker?: string;
   action: "BUY" | "SELL";
   date: string;
   discount?: number;
@@ -25,11 +26,24 @@ interface FeeSetting {
   rate: number;
 }
 
+interface UserBroker {
+  id: string;
+  name: string;
+}
+
+const DEFAULT_BROKERS = [
+  "元大證券", "富邦證券", "國泰證券", "凱基證券", "群益證券",
+  "統一證券", "永豐金證券", "兆豐證券", "中國信託證券", "玉山證券",
+  "台新證券", "日盛證券", "康和證券", "華南永昌證券", "第一金證券",
+  "元富證券", "新光證券", "大昌證券",
+];
+
 const EMPTY_ADD_FORM = {
   name: "",
   code: "",
   date: new Date().toISOString().split("T")[0],
   action: "BUY" as "BUY" | "SELL",
+  broker: "",
   quantity: "",
   price: "",
   feeRate: "0.1425",
@@ -47,24 +61,51 @@ export default function StockPage() {
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Investment | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", code: "", date: "", action: "BUY" as "BUY" | "SELL", quantity: "", note: "" });
+  const [editForm, setEditForm] = useState({ name: "", code: "", date: "", action: "BUY" as "BUY" | "SELL", broker: "", quantity: "", note: "" });
   const [saving, setSaving] = useState(false);
+
+  const [userBrokers, setUserBrokers] = useState<UserBroker[]>([]);
+  const [addBrokerInput, setAddBrokerInput] = useState("");
+  const [addBrokerOpen, setAddBrokerOpen] = useState(false);
+  const [addBrokerLoading, setAddBrokerLoading] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, feeRes] = await Promise.all([
+    const [invRes, feeRes, brokerRes] = await Promise.all([
       fetch("/api/investments?type=STOCK"),
       fetch("/api/fee-settings"),
+      fetch("/api/user-brokers"),
     ]);
-    const [invData, feeData] = await Promise.all([invRes.json(), feeRes.json()]);
+    const [invData, feeData, brokerData] = await Promise.all([invRes.json(), feeRes.json(), brokerRes.json()]);
     setInvestments(Array.isArray(invData) ? invData : []);
     const fees: FeeSetting[] = Array.isArray(feeData) ? feeData : [];
     const commission = fees.find((f) => f.key === "stock_commission");
     if (commission) {
       setAddForm((f) => ({ ...f, feeRate: String(commission.rate) }));
     }
+    setUserBrokers(Array.isArray(brokerData) ? brokerData : []);
     setLoading(false);
   }, []);
+
+  const allBrokers = [...DEFAULT_BROKERS, ...userBrokers.map((b) => b.name)];
+
+  const handleAddBroker = async () => {
+    if (!addBrokerInput.trim()) return;
+    setAddBrokerLoading(true);
+    const res = await fetch("/api/user-brokers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: addBrokerInput.trim() }),
+    });
+    setAddBrokerLoading(false);
+    if (res.ok) {
+      const broker = await res.json();
+      setUserBrokers((prev) => [...prev, broker]);
+      setAddForm((f) => ({ ...f, broker: broker.name }));
+      setAddBrokerInput("");
+      setAddBrokerOpen(false);
+    }
+  };
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -89,7 +130,11 @@ export default function StockPage() {
   // 調帳金額：如果填了就以此為準（實際扣款/入帳金額可能與試算有落差），否則採自動試算結果
   const subtotal = addForm.adjustAmount !== "" ? (parseFloat(addForm.adjustAmount) || 0) : calcSubtotal;
 
-  const resetAddForm = () => setAddForm((f) => ({ ...EMPTY_ADD_FORM, feeRate: f.feeRate }));
+  const resetAddForm = () => {
+    setAddForm((f) => ({ ...EMPTY_ADD_FORM, feeRate: f.feeRate }));
+    setAddBrokerInput("");
+    setAddBrokerOpen(false);
+  };
 
   const openAdd = () => { resetAddForm(); setShowAddModal(true); };
 
@@ -109,6 +154,7 @@ export default function StockPage() {
         code: addForm.code,
         date: addForm.date,
         action: addForm.action,
+        broker: addForm.broker,
         quantity: addForm.quantity,
         price: addForm.price,
         discount: addForm.discount,
@@ -130,6 +176,7 @@ export default function StockPage() {
       code: inv.code ?? "",
       date: inv.date ? inv.date.split("T")[0] : "",
       action: inv.action,
+      broker: inv.broker ?? "",
       quantity: inv.quantity ? String(inv.quantity) : "",
       note: inv.note ?? "",
     });
@@ -214,6 +261,7 @@ export default function StockPage() {
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5">
                       {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
+                      {inv.broker ? ` · ${inv.broker}` : ""}
                       {inv.quantity ? ` · ${inv.quantity} 股` : ""}
                       {inv.price ? ` · @${inv.price}` : ""}
                       {inv.fee ? ` · 手續費 ${fmt(inv.fee)}` : ""}
@@ -263,6 +311,39 @@ export default function StockPage() {
                 <input required type="date" value={addForm.date}
                   onChange={(e) => setAddForm({ ...addForm, date: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">證券公司（選填）</label>
+                <input
+                  type="text"
+                  list="brokerlist"
+                  value={addForm.broker}
+                  onChange={(e) => setAddForm({ ...addForm, broker: e.target.value })}
+                  placeholder="搜尋或選擇證券公司"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                />
+                <datalist id="brokerlist">
+                  {allBrokers.map((b) => <option key={b} value={b} />)}
+                </datalist>
+                {addBrokerOpen ? (
+                  <div className="flex gap-2 mt-2">
+                    <input value={addBrokerInput} onChange={(e) => setAddBrokerInput(e.target.value)}
+                      placeholder="輸入證券公司名稱"
+                      className="flex-1 border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:border-indigo-400" />
+                    <button type="button" onClick={handleAddBroker} disabled={addBrokerLoading}
+                      className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60">
+                      {addBrokerLoading ? "..." : "新增"}
+                    </button>
+                    <button type="button" onClick={() => setAddBrokerOpen(false)}
+                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-500 hover:bg-slate-50">取消</button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setAddBrokerOpen(true)}
+                    className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline">
+                    + 找不到？申請新增證券公司
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -394,6 +475,20 @@ export default function StockPage() {
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">申購日期</label>
                 <input type="date" value={editForm.date} onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">證券公司（選填）</label>
+                <input
+                  type="text"
+                  list="brokerlist-edit"
+                  value={editForm.broker}
+                  onChange={(e) => setEditForm({ ...editForm, broker: e.target.value })}
+                  placeholder="搜尋或選擇證券公司"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                />
+                <datalist id="brokerlist-edit">
+                  {allBrokers.map((b) => <option key={b} value={b} />)}
+                </datalist>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">名稱（選填）</label>
