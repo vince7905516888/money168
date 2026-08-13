@@ -8,6 +8,7 @@ interface Investment {
   name?: string;
   amount: number;
   quantity?: number;
+  fee?: number;
   bankName?: string;
   currency?: string;
   exchangeRate?: number;
@@ -22,12 +23,13 @@ interface UserBank {
   name: string;
 }
 
-type FlowType = "BUY" | "WITHDRAW" | "CONVERT_BACK" | "INTEREST" | "OTHER_INCOME";
+type FlowType = "BUY" | "WITHDRAW" | "CONVERT_BACK" | "ADJUSTMENT" | "INTEREST" | "OTHER_INCOME";
 
 const FLOW_OPTIONS: { key: FlowType; label: string; badgeClass: string; activeClass: string }[] = [
   { key: "BUY", label: "買入外幣", badgeClass: "bg-indigo-100 text-indigo-700", activeClass: "bg-indigo-600 text-white" },
   { key: "WITHDRAW", label: "提款外幣", badgeClass: "bg-red-100 text-red-700", activeClass: "bg-red-500 text-white" },
   { key: "CONVERT_BACK", label: "換回台幣", badgeClass: "bg-red-100 text-red-700", activeClass: "bg-red-500 text-white" },
+  { key: "ADJUSTMENT", label: "調帳", badgeClass: "bg-amber-100 text-amber-700", activeClass: "bg-amber-500 text-white" },
   { key: "INTEREST", label: "利息收入", badgeClass: "bg-emerald-100 text-emerald-700", activeClass: "bg-emerald-500 text-white" },
   { key: "OTHER_INCOME", label: "其他收入", badgeClass: "bg-emerald-100 text-emerald-700", activeClass: "bg-emerald-500 text-white" },
 ];
@@ -55,6 +57,7 @@ const EMPTY_ADD_FORM = {
   foreignAmount: "",
   exchangeRate: "",
   override: "",
+  fee: "",
   note: "",
 };
 
@@ -172,6 +175,15 @@ export default function ForexPage() {
     return acc;
   }, {} as Record<string, number>);
 
+  // 各幣別累計手續費（例如調帳轉入基金時的轉帳手續費，以外幣計）
+  const currencyFeeTotals = investments.reduce((acc, i) => {
+    if (i.currency && i.fee) {
+      const key = i.currency;
+      acc[key] = (acc[key] || 0) + i.fee;
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
   // ---- 新增表單：即時試算 ----
   const twdInput = parseFloat(addForm.twdAmount) || 0;
   const foreignInput = parseFloat(addForm.foreignAmount) || 0;
@@ -213,16 +225,22 @@ export default function ForexPage() {
       alert("請填寫外幣金額與匯率");
       return;
     }
+    if (addForm.flowType === "ADJUSTMENT" && (foreignInput <= 0 || exchangeRate <= 0)) {
+      alert("請填寫外幣金額與匯率");
+      return;
+    }
     if ((addForm.flowType === "WITHDRAW" || addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME") && foreignInput <= 0) {
       alert("請填寫外幣金額");
       return;
     }
 
-    // 外幣餘額減少（換回台幣／提款）記為負數；台幣淨投入減少（換回台幣拿回錢）記為負數
-    const isOutflow = addForm.flowType === "CONVERT_BACK" || addForm.flowType === "WITHDRAW";
-    const signedQuantity = isOutflow ? -finalForeign : finalForeign;
+    // 外幣餘額減少（換回台幣／提款／調帳轉出）記為負數；台幣淨投入減少（換回台幣拿回錢）記為負數
+    const isOutflow = addForm.flowType === "CONVERT_BACK" || addForm.flowType === "WITHDRAW" || addForm.flowType === "ADJUSTMENT";
+    const feeInput = addForm.flowType === "ADJUSTMENT" ? (parseFloat(addForm.fee) || 0) : 0;
+    // 調帳實際轉出＝外幣金額＋手續費（手續費也會離開外幣帳戶），但「調帳金額」對外顯示僅計外幣金額，手續費另外累計
+    const signedQuantity = isOutflow ? -(finalForeign + feeInput) : finalForeign;
     const signedAmount = addForm.flowType === "CONVERT_BACK" ? -finalTwd : finalTwd;
-    const needsRate = addForm.flowType === "BUY" || addForm.flowType === "CONVERT_BACK";
+    const needsRate = addForm.flowType === "BUY" || addForm.flowType === "CONVERT_BACK" || addForm.flowType === "ADJUSTMENT";
 
     setAddSaving(true);
     const res = await fetch("/api/investments", {
@@ -235,6 +253,7 @@ export default function ForexPage() {
         bankName: addForm.bankName,
         currency: currencyLabel,
         exchangeRate: needsRate ? addForm.exchangeRate : undefined,
+        fee: addForm.flowType === "ADJUSTMENT" && addForm.fee !== "" ? addForm.fee : undefined,
         amount: signedAmount,
         quantity: signedQuantity,
         note: addForm.note,
@@ -378,6 +397,21 @@ export default function ForexPage() {
         </div>
       )}
 
+      {/* 各幣別累計手續費 */}
+      {Object.keys(currencyFeeTotals).length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別累計手續費</div>
+          <div className="space-y-2">
+            {Object.entries(currencyFeeTotals).map(([currency, fee]) => (
+              <div key={currency} className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">{currency}</span>
+                <span className="font-semibold text-slate-900">{fmt2(fee)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-50">
@@ -395,6 +429,8 @@ export default function ForexPage() {
             {pagedInvestments.map((inv) => {
               const meta = flowMeta(inv.name);
               const showTwd = inv.amount !== 0;
+              // 調帳金額對外顯示不含手續費（quantity 已內含手續費扣除，這裡加回來還原成單純的轉出本金）
+              const displayQty = (inv.quantity || 0) + (inv.fee || 0);
               return (
                 <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
                   <div>
@@ -407,6 +443,7 @@ export default function ForexPage() {
                       {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
                       {inv.exchangeRate ? ` · 匯率 ${inv.exchangeRate}` : ""}
                       {showTwd && inv.quantity ? ` · ${inv.quantity >= 0 ? "+" : ""}${fmt2(inv.quantity)} ${inv.currency ?? ""}` : ""}
+                      {inv.fee ? ` · 手續費 ${fmt2(inv.fee)} ${inv.currency ?? ""}` : ""}
                       {inv.note ? ` · ${inv.note}` : ""}
                       {inv.transactionId && <span className="ml-1 text-indigo-400">· 已連結支出</span>}
                     </div>
@@ -417,8 +454,8 @@ export default function ForexPage() {
                         {inv.amount < 0 ? "-" : ""}{fmt(Math.abs(inv.amount))}
                       </span>
                     ) : (
-                      <span className={`text-sm font-semibold ${(inv.quantity || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                        {(inv.quantity || 0) >= 0 ? "+" : "-"}{fmt2(Math.abs(inv.quantity || 0))} {inv.currency}
+                      <span className={`text-sm font-semibold ${displayQty >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                        {displayQty >= 0 ? "+" : "-"}{fmt2(Math.abs(displayQty))} {inv.currency}
                       </span>
                     )}
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -577,6 +614,32 @@ export default function ForexPage() {
                 </>
               )}
 
+              {addForm.flowType === "ADJUSTMENT" && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">外幣金額</label>
+                      <input required type="number" min="0" step="any" value={addForm.foreignAmount}
+                        onChange={(e) => setAddForm({ ...addForm, foreignAmount: e.target.value })} placeholder="例如：500"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">匯率</label>
+                      <input required type="number" min="0" step="any" value={addForm.exchangeRate}
+                        onChange={(e) => setAddForm({ ...addForm, exchangeRate: e.target.value })} placeholder="例如：31.5"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費（選填，外幣計）</label>
+                    <input type="number" min="0" step="any" value={addForm.fee}
+                      onChange={(e) => setAddForm({ ...addForm, fee: e.target.value })} placeholder="例如：5"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    <p className="text-[11px] text-slate-400 mt-1">手續費會從外幣餘額中扣除，但不計入調帳金額，會另外累計在「各幣別累計手續費」</p>
+                  </div>
+                </>
+              )}
+
               {(addForm.flowType === "WITHDRAW" || addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME") && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -626,6 +689,22 @@ export default function ForexPage() {
                       {fmt(finalTwd)}
                       {addForm.override !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調整）</span>}
                     </span>
+                  </div>
+                </div>
+              )}
+              {addForm.flowType === "ADJUSTMENT" && (
+                <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>調帳金額（不含手續費）</span><span>{fmt2(finalForeign)} {currencyLabel}</span>
+                  </div>
+                  {(parseFloat(addForm.fee) || 0) > 0 && (
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>手續費</span><span>{fmt2(parseFloat(addForm.fee) || 0)} {currencyLabel}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
+                    <span>外幣帳戶實際減少</span>
+                    <span className="text-amber-600">-{fmt2(finalForeign + (parseFloat(addForm.fee) || 0))} {currencyLabel}</span>
                   </div>
                 </div>
               )}
