@@ -23,7 +23,7 @@ interface UserBank {
   name: string;
 }
 
-type FlowType = "BUY" | "WITHDRAW" | "CONVERT_BACK" | "ADJUSTMENT" | "INTEREST" | "OTHER_INCOME";
+type FlowType = "BUY" | "WITHDRAW" | "CONVERT_BACK" | "ADJUSTMENT" | "ADJUSTMENT_IN" | "INTEREST" | "OTHER_INCOME";
 
 const FLOW_OPTIONS: { key: FlowType; label: string; badgeClass: string; activeClass: string }[] = [
   { key: "BUY", label: "買入外幣", badgeClass: "bg-indigo-100 text-indigo-700", activeClass: "bg-indigo-600 text-white" },
@@ -32,7 +32,12 @@ const FLOW_OPTIONS: { key: FlowType; label: string; badgeClass: string; activeCl
   { key: "ADJUSTMENT", label: "調帳", badgeClass: "bg-amber-100 text-amber-700", activeClass: "bg-amber-500 text-white" },
   { key: "INTEREST", label: "利息收入", badgeClass: "bg-emerald-100 text-emerald-700", activeClass: "bg-emerald-500 text-white" },
   { key: "OTHER_INCOME", label: "其他收入", badgeClass: "bg-emerald-100 text-emerald-700", activeClass: "bg-emerald-500 text-white" },
+  { key: "ADJUSTMENT_IN", label: "調帳(轉入)", badgeClass: "bg-cyan-100 text-cyan-700", activeClass: "bg-cyan-500 text-white" },
 ];
+
+// 支出／收入 兩大類別下的細項（買入外幣、換回台幣本身已具備幣別轉換語意，維持獨立於分類之外）
+const EXPENSE_TYPES: FlowType[] = ["WITHDRAW", "ADJUSTMENT"];
+const INCOME_TYPES: FlowType[] = ["INTEREST", "OTHER_INCOME", "ADJUSTMENT_IN"];
 
 const flowMeta = (name?: string) => FLOW_OPTIONS.find((f) => f.label === name) ?? FLOW_OPTIONS[0];
 
@@ -229,7 +234,7 @@ export default function ForexPage() {
       alert("請填寫外幣金額與匯率");
       return;
     }
-    if ((addForm.flowType === "WITHDRAW" || addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME") && foreignInput <= 0) {
+    if ((addForm.flowType === "WITHDRAW" || addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME" || addForm.flowType === "ADJUSTMENT_IN") && foreignInput <= 0) {
       alert("請填寫外幣金額");
       return;
     }
@@ -496,14 +501,44 @@ export default function ForexPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">交易類型</label>
                 <div className="flex flex-wrap gap-2">
-                  {FLOW_OPTIONS.map((opt) => (
-                    <button key={opt.key} type="button"
-                      onClick={() => setAddForm({ ...addForm, flowType: opt.key, override: "" })}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${addForm.flowType === opt.key ? opt.activeClass : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
-                      {opt.label}
-                    </button>
-                  ))}
+                  <button type="button"
+                    onClick={() => setAddForm({ ...addForm, flowType: "BUY", override: "" })}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${addForm.flowType === "BUY" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                    買入外幣
+                  </button>
+                  <button type="button"
+                    onClick={() => setAddForm({ ...addForm, flowType: "CONVERT_BACK", override: "" })}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${addForm.flowType === "CONVERT_BACK" ? "bg-red-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                    換回台幣
+                  </button>
+                  <button type="button"
+                    onClick={() => setAddForm({ ...addForm, flowType: EXPENSE_TYPES[0], override: "" })}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${EXPENSE_TYPES.includes(addForm.flowType) ? "bg-red-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                    支出
+                  </button>
+                  <button type="button"
+                    onClick={() => setAddForm({ ...addForm, flowType: INCOME_TYPES[0], override: "" })}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${INCOME_TYPES.includes(addForm.flowType) ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                    收入
+                  </button>
                 </div>
+                {EXPENSE_TYPES.includes(addForm.flowType) && (
+                  <select value={addForm.flowType}
+                    onChange={(e) => setAddForm({ ...addForm, flowType: e.target.value as FlowType, override: "" })}
+                    className="mt-2 w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                    <option value="WITHDRAW">提款外幣</option>
+                    <option value="ADJUSTMENT">調帳</option>
+                  </select>
+                )}
+                {INCOME_TYPES.includes(addForm.flowType) && (
+                  <select value={addForm.flowType}
+                    onChange={(e) => setAddForm({ ...addForm, flowType: e.target.value as FlowType, override: "" })}
+                    className="mt-2 w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                    <option value="INTEREST">利息收入</option>
+                    <option value="OTHER_INCOME">其他收入</option>
+                    <option value="ADJUSTMENT_IN">調帳(轉入)</option>
+                  </select>
+                )}
               </div>
 
               <div>
@@ -640,10 +675,10 @@ export default function ForexPage() {
                 </>
               )}
 
-              {(addForm.flowType === "WITHDRAW" || addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME") && (
+              {(addForm.flowType === "WITHDRAW" || addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME" || addForm.flowType === "ADJUSTMENT_IN") && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                    {addForm.flowType === "WITHDRAW" ? "提領外幣金額" : "收入外幣金額"}
+                    {addForm.flowType === "WITHDRAW" ? "提領外幣金額" : addForm.flowType === "ADJUSTMENT_IN" ? "調帳轉入外幣金額" : "收入外幣金額"}
                   </label>
                   <input required type="number" min="0" step="any" value={addForm.foreignAmount}
                     onChange={(e) => setAddForm({ ...addForm, foreignAmount: e.target.value })} placeholder="例如：100"
@@ -715,10 +750,11 @@ export default function ForexPage() {
                   </div>
                 </div>
               )}
-              {(addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME") && (
+              {(addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME" || addForm.flowType === "ADJUSTMENT_IN") && (
                 <div className="bg-slate-50 rounded-xl px-4 py-3">
                   <div className="flex justify-between text-sm font-semibold text-slate-900">
-                    <span>收入外幣小計</span><span className="text-emerald-600">+{fmt2(finalForeign)} {currencyLabel}</span>
+                    <span>{addForm.flowType === "ADJUSTMENT_IN" ? "調帳轉入小計" : "收入外幣小計"}</span>
+                    <span className="text-emerald-600">+{fmt2(finalForeign)} {currencyLabel}</span>
                   </div>
                 </div>
               )}
