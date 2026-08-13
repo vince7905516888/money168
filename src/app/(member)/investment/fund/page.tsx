@@ -29,14 +29,6 @@ interface UserFund {
   name: string;
 }
 
-interface ForexInvestment {
-  id: string;
-  name?: string;
-  quantity?: number;
-  fee?: number;
-  currency?: string;
-}
-
 const DEFAULT_BANKS = [
   "台灣銀行", "合作金庫", "第一銀行", "華南銀行", "彰化銀行",
   "兆豐銀行", "土地銀行", "國泰世華", "玉山銀行", "中國信託",
@@ -60,7 +52,6 @@ const EMPTY_ADD_FORM = {
 
 export default function FundPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
-  const [forexAdjustments, setForexAdjustments] = useState<ForexInvestment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
@@ -82,16 +73,14 @@ export default function FundPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, bankRes, forexRes, fundNameRes] = await Promise.all([
+    const [invRes, bankRes, fundNameRes] = await Promise.all([
       fetch("/api/investments?type=FUND"),
       fetch("/api/user-banks"),
-      fetch("/api/investments?type=FOREX"),
       fetch("/api/user-funds"),
     ]);
-    const [invData, bankData, forexData, fundNameData] = await Promise.all([invRes.json(), bankRes.json(), forexRes.json(), fundNameRes.json()]);
+    const [invData, bankData, fundNameData] = await Promise.all([invRes.json(), bankRes.json(), fundNameRes.json()]);
     setInvestments(Array.isArray(invData) ? invData : []);
     setUserBanks(Array.isArray(bankData) ? bankData : []);
-    setForexAdjustments(Array.isArray(forexData) ? forexData.filter((i: ForexInvestment) => i.name === "調帳") : []);
     setUserFunds(Array.isArray(fundNameData) ? fundNameData : []);
     setLoading(false);
   }, []);
@@ -147,17 +136,6 @@ export default function FundPage() {
   const fmt2 = (n: number) => new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(n);
 
   const total = investments.reduce((s, i) => s + i.amount, 0);
-
-  // 各幣別投入基金總額：只計外匯投資頁「調帳」轉入的金額（不含手續費），依幣別加總同步過來。
-  // 注意：不能再疊加本頁自己新增的基金記錄金額——調帳與基金記錄是同一筆錢的兩種紀錄方式（外幣帳戶轉出／基金部位建立），
-  // 兩邊都算會變成重複計算同一筆投入。
-  const currencyInvestedTotals: Record<string, number> = {};
-  for (const i of forexAdjustments) {
-    if (i.currency) {
-      const principal = -(i.quantity || 0) - (i.fee || 0);
-      currencyInvestedTotals[i.currency] = (currencyInvestedTotals[i.currency] || 0) + principal;
-    }
-  }
 
   // 基金投資紀錄：依「檔」（同一產品，以代碼或名稱識別）分組，統計每檔基金買進的筆數與累計金額（台幣）
   const fundGroups = investments.reduce((acc, i) => {
@@ -268,21 +246,6 @@ export default function FundPage() {
           <div className="text-2xl font-bold text-slate-900 mt-1">{investments.length} 筆</div>
         </div>
       </div>
-
-      {/* 各幣別投入基金總額（含外匯調帳同步） */}
-      {Object.keys(currencyInvestedTotals).length > 0 && (
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別投入基金總額（含外匯調帳轉入）</div>
-          <div className="space-y-2">
-            {Object.entries(currencyInvestedTotals).map(([currency, amount]) => (
-              <div key={currency} className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">{currency}</span>
-                <span className="font-semibold text-slate-900">{fmt2(amount)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* 基金投資紀錄：依產品（檔）分組統計 */}
       {fundGroupList.length > 0 && (
