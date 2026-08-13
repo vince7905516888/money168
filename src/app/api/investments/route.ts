@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
-  const { type, name, code, amount, quantity, note, transactionId } = await req.json();
+  const { type, name, code, amount, quantity, note, transactionId, price, action, date, discount, fee, tax } = await req.json();
 
   if (!type || !amount) {
     return NextResponse.json({ error: "請填寫必要欄位" }, { status: 400 });
@@ -37,6 +37,12 @@ export async function POST(req: NextRequest) {
       code: code || null,
       amount: parseFloat(amount),
       quantity: quantity ? parseFloat(quantity) : null,
+      price: price ? parseFloat(price) : null,
+      action: action === "SELL" ? "SELL" : "BUY",
+      date: date ? new Date(date) : undefined,
+      discount: discount !== undefined && discount !== null && discount !== "" ? parseFloat(discount) : null,
+      fee: fee !== undefined && fee !== null && fee !== "" ? parseFloat(fee) : null,
+      tax: tax !== undefined && tax !== null && tax !== "" ? parseFloat(tax) : null,
       note: note || null,
       transactionId: transactionId || null,
       userId: session.user.id,

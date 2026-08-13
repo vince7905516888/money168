@@ -78,6 +78,12 @@ model Investment {
   code          String?
   amount        Float
   quantity      Float?
+  price         Float?
+  action        TradeAction    @default(BUY)
+  date          DateTime       @default(now())
+  discount      Float?
+  fee           Float?
+  tax           Float?
   note          String?
   userId        String
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -92,6 +98,11 @@ enum InvestmentType {
   FOREX
   CRYPTO
   GOLD
+}
+
+enum TradeAction {
+  BUY
+  SELL
 }
 
 enum Role {
