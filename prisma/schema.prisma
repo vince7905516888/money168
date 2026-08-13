@@ -91,6 +91,9 @@ model Investment {
   quantity      Float?
   price         Float?
   broker        String?
+  bankName      String?
+  currency      String?
+  exchangeRate  Float?
   action        TradeAction    @default(BUY)
   date          DateTime       @default(now())
   discount      Float?

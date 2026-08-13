@@ -10,7 +10,7 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const { id } = await params;
-  const { name, code, quantity, note, price, broker, action, date, discount, fee, tax, amount } = await req.json();
+  const { name, code, quantity, note, price, broker, bankName, currency, exchangeRate, action, date, discount, fee, tax, amount } = await req.json();
 
   const existing = await prisma.investment.findFirst({
     where: { id, userId: session.user.id },
@@ -26,6 +26,9 @@ export async function PUT(
       note: note || null,
       ...(price !== undefined ? { price: price !== "" && price !== null ? parseFloat(price) : null } : {}),
       ...(broker !== undefined ? { broker: broker || null } : {}),
+      ...(bankName !== undefined ? { bankName: bankName || null } : {}),
+      ...(currency !== undefined ? { currency: currency || null } : {}),
+      ...(exchangeRate !== undefined ? { exchangeRate: exchangeRate !== "" && exchangeRate !== null ? parseFloat(exchangeRate) : null } : {}),
       ...(action !== undefined ? { action: action === "SELL" ? "SELL" : "BUY" } : {}),
       ...(date !== undefined ? { date: new Date(date) } : {}),
       ...(discount !== undefined ? { discount: discount !== "" && discount !== null ? parseFloat(discount) : null } : {}),
