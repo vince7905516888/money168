@@ -148,14 +148,10 @@ export default function FundPage() {
 
   const total = investments.reduce((s, i) => s + i.amount, 0);
 
-  // 各幣別投入基金總額：本頁自己新增的基金記錄（淨值×單位數，以基金原幣計）
-  // ＋ 外匯投資頁「調帳」轉入的金額（不含手續費），依幣別加總同步過來
+  // 各幣別投入基金總額：只計外匯投資頁「調帳」轉入的金額（不含手續費），依幣別加總同步過來。
+  // 注意：不能再疊加本頁自己新增的基金記錄金額——調帳與基金記錄是同一筆錢的兩種紀錄方式（外幣帳戶轉出／基金部位建立），
+  // 兩邊都算會變成重複計算同一筆投入。
   const currencyInvestedTotals: Record<string, number> = {};
-  for (const i of investments) {
-    if (i.currency && i.price && i.quantity) {
-      currencyInvestedTotals[i.currency] = (currencyInvestedTotals[i.currency] || 0) + i.price * i.quantity;
-    }
-  }
   for (const i of forexAdjustments) {
     if (i.currency) {
       const principal = -(i.quantity || 0) - (i.fee || 0);
