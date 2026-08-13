@@ -177,7 +177,7 @@ export default function ForexPage() {
     const needsRate = addForm.flowType === "BUY" || addForm.flowType === "CONVERT_BACK";
 
     setAddSaving(true);
-    await fetch("/api/investments", {
+    const res = await fetch("/api/investments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -193,6 +193,11 @@ export default function ForexPage() {
       }),
     });
     setAddSaving(false);
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "儲存失敗，請稍後再試");
+      return;
+    }
     setShowAddModal(false);
     fetchAll();
   };
