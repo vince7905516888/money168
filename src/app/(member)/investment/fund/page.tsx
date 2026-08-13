@@ -128,6 +128,16 @@ export default function FundPage() {
     }
   }
 
+  // 基金投資紀錄：依「檔」（同一產品，以代碼或名稱識別）分組，統計每檔基金買進的筆數與累計金額（台幣）
+  const fundGroups = investments.reduce((acc, i) => {
+    const key = i.code || i.name || "(未命名)";
+    if (!acc[key]) acc[key] = { name: i.name || "(未命名)", code: i.code, count: 0, amount: 0 };
+    acc[key].count += 1;
+    acc[key].amount += i.amount;
+    return acc;
+  }, {} as Record<string, { name: string; code?: string; count: number; amount: number }>);
+  const fundGroupList = Object.values(fundGroups);
+
   // ---- 新增表單：即時試算 ----
   const nav = parseFloat(addForm.price) || 0;
   const units = parseFloat(addForm.quantity) || 0;
@@ -242,6 +252,34 @@ export default function FundPage() {
                 <span className="font-semibold text-slate-900">{fmt2(amount)}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 基金投資紀錄：依產品（檔）分組統計 */}
+      {fundGroupList.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">基金投資紀錄</div>
+          <div className="divide-y divide-slate-50">
+            {fundGroupList.map((g) => (
+              <div key={g.code || g.name} className="flex items-center justify-between py-2 text-sm">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-slate-700 truncate">{g.name}</span>
+                  {g.code && <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded shrink-0">{g.code}</span>}
+                </div>
+                <div className="flex items-center gap-4 shrink-0">
+                  <span className="text-xs text-slate-400">{g.count} 筆</span>
+                  <span className="font-semibold text-slate-900">{fmt(g.amount)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between pt-3 mt-1 border-t border-slate-200 text-sm">
+            <span className="font-semibold text-slate-900">合計（{fundGroupList.length} 檔）</span>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-400">{investments.length} 筆</span>
+              <span className="font-bold text-slate-900">{fmt(total)}</span>
+            </div>
           </div>
         </div>
       )}
