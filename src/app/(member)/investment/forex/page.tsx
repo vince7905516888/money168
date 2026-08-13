@@ -43,6 +43,8 @@ const DEFAULT_BANKS = [
 
 const CURRENCIES = ["USD", "JPY", "EUR", "GBP", "AUD", "CNY", "HKD", "CAD", "NZD", "SGD", "ZAR", "CHF", "THB"];
 
+const PAGE_SIZE = 20;
+
 const EMPTY_ADD_FORM = {
   date: new Date().toISOString().split("T")[0],
   flowType: "BUY" as FlowType,
@@ -72,6 +74,8 @@ export default function ForexPage() {
   const [addBankOpen, setAddBankOpen] = useState(false);
   const [addBankLoading, setAddBankLoading] = useState(false);
 
+  const [page, setPage] = useState(1);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     const [invRes, bankRes] = await Promise.all([
@@ -81,6 +85,7 @@ export default function ForexPage() {
     const [invData, bankData] = await Promise.all([invRes.json(), bankRes.json()]);
     setInvestments(Array.isArray(invData) ? invData : []);
     setUserBanks(Array.isArray(bankData) ? bankData : []);
+    setPage(1);
     setLoading(false);
   }, []);
 
@@ -275,6 +280,10 @@ export default function ForexPage() {
     fetchAll();
   };
 
+  const pageCount = Math.max(1, Math.ceil(investments.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedInvestments = investments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   return (
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-8">
@@ -383,7 +392,7 @@ export default function ForexPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {investments.map((inv) => {
+            {pagedInvestments.map((inv) => {
               const meta = flowMeta(inv.name);
               const showTwd = inv.amount !== 0;
               return (
@@ -420,6 +429,23 @@ export default function ForexPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+        {!loading && pageCount > 1 && (
+          <div className="flex items-center justify-between px-6 py-3 border-t border-slate-50">
+            <span className="text-xs text-slate-400">
+              第 {currentPage} / {pageCount} 頁・共 {investments.length} 筆
+            </span>
+            <div className="flex gap-1">
+              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                上一頁
+              </button>
+              <button type="button" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={currentPage >= pageCount}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                下一頁
+              </button>
+            </div>
           </div>
         )}
       </div>
