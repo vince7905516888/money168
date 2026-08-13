@@ -21,6 +21,7 @@ model User {
   userBanks      UserBank[]
   userThirdParties UserThirdParty[]
   userBrokers    UserBroker[]
+  userFunds      UserFund[]
   investments    Investment[]
 }
 
@@ -45,6 +46,16 @@ model UserThirdParty {
 }
 
 model UserBroker {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, name])
+}
+
+model UserFund {
   id        String   @id @default(cuid())
   name      String
   userId    String

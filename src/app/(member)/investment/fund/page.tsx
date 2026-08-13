@@ -24,6 +24,11 @@ interface UserBank {
   name: string;
 }
 
+interface UserFund {
+  id: string;
+  name: string;
+}
+
 interface ForexInvestment {
   id: string;
   name?: string;
@@ -71,17 +76,24 @@ export default function FundPage() {
   const [addBankOpen, setAddBankOpen] = useState(false);
   const [addBankLoading, setAddBankLoading] = useState(false);
 
+  const [userFunds, setUserFunds] = useState<UserFund[]>([]);
+  const [addFundNameInput, setAddFundNameInput] = useState("");
+  const [addFundNameOpen, setAddFundNameOpen] = useState(false);
+  const [addFundNameLoading, setAddFundNameLoading] = useState(false);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, bankRes, forexRes] = await Promise.all([
+    const [invRes, bankRes, forexRes, fundNameRes] = await Promise.all([
       fetch("/api/investments?type=FUND"),
       fetch("/api/user-banks"),
       fetch("/api/investments?type=FOREX"),
+      fetch("/api/user-funds"),
     ]);
-    const [invData, bankData, forexData] = await Promise.all([invRes.json(), bankRes.json(), forexRes.json()]);
+    const [invData, bankData, forexData, fundNameData] = await Promise.all([invRes.json(), bankRes.json(), forexRes.json(), fundNameRes.json()]);
     setInvestments(Array.isArray(invData) ? invData : []);
     setUserBanks(Array.isArray(bankData) ? bankData : []);
     setForexAdjustments(Array.isArray(forexData) ? forexData.filter((i: ForexInvestment) => i.name === "調帳") : []);
+    setUserFunds(Array.isArray(fundNameData) ? fundNameData : []);
     setLoading(false);
   }, []);
 
@@ -105,6 +117,30 @@ export default function FundPage() {
       setAddBankInput("");
       setAddBankOpen(false);
     }
+  };
+
+  const handleAddFundName = async () => {
+    if (!addFundNameInput.trim()) return;
+    setAddFundNameLoading(true);
+    const res = await fetch("/api/user-funds", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: addFundNameInput.trim() }),
+    });
+    setAddFundNameLoading(false);
+    if (res.ok) {
+      const fund = await res.json();
+      setUserFunds((prev) => [...prev, fund]);
+      setAddForm((f) => ({ ...f, name: fund.name }));
+      setAddFundNameInput("");
+      setAddFundNameOpen(false);
+    }
+  };
+
+  const handleDeleteFundName = async (id: string) => {
+    if (!confirm("確定要刪除這個基金名稱？(不會刪除已經新增的投資記錄)")) return;
+    await fetch(`/api/user-funds/${id}`, { method: "DELETE" });
+    setUserFunds((prev) => prev.filter((f) => f.id !== id));
   };
 
   const fmt = (n: number) =>
@@ -389,17 +425,56 @@ export default function FundPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">基金名稱</label>
-                  <input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
-                    placeholder="例如：富達環球高收益基金" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">基金代碼</label>
-                  <input value={addForm.code} onChange={(e) => setAddForm({ ...addForm, code: e.target.value })}
-                    placeholder="例如：LU0068578508" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">基金名稱</label>
+                <input
+                  type="text"
+                  list="fundnamelist"
+                  value={addForm.name}
+                  onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                  placeholder="搜尋或選擇基金，例如：富達環球高收益基金"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                />
+                <datalist id="fundnamelist">
+                  {userFunds.map((f) => <option key={f.id} value={f.name} />)}
+                </datalist>
+                {addFundNameOpen ? (
+                  <div className="flex gap-2 mt-2">
+                    <input value={addFundNameInput} onChange={(e) => setAddFundNameInput(e.target.value)}
+                      placeholder="輸入基金名稱"
+                      className="flex-1 border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:border-indigo-400" />
+                    <button type="button" onClick={handleAddFundName} disabled={addFundNameLoading}
+                      className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60">
+                      {addFundNameLoading ? "..." : "新增"}
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setAddFundNameOpen(true)}
+                    className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline">
+                    + 找不到？新增基金名稱
+                  </button>
+                )}
+                {userFunds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {userFunds.map((f) => (
+                      <span key={f.id} className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs pl-2 pr-1 py-1 rounded-full">
+                        <button type="button" onClick={() => setAddForm({ ...addForm, name: f.name })} className="hover:text-indigo-600">
+                          {f.name}
+                        </button>
+                        <button type="button" onClick={() => handleDeleteFundName(f.id)}
+                          className="text-slate-400 hover:text-red-500 leading-none w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-50">
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">基金代碼</label>
+                <input value={addForm.code} onChange={(e) => setAddForm({ ...addForm, code: e.target.value })}
+                  placeholder="例如：LU0068578508" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
 
               <div className="grid grid-cols-3 gap-3">
