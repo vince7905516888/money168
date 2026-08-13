@@ -97,6 +97,18 @@ export default function ForexPage() {
 
   const total = investments.reduce((s, i) => s + i.amount, 0);
 
+  const currencyTotals = investments.reduce((acc, i) => {
+    const key = i.currency || "未指定幣別";
+    acc[key] = (acc[key] || 0) + (i.quantity || 0);
+    return acc;
+  }, {} as Record<string, number>);
+
+  const bankTotals = investments.reduce((acc, i) => {
+    const key = i.bankName || "未指定銀行";
+    acc[key] = (acc[key] || 0) + i.amount;
+    return acc;
+  }, {} as Record<string, number>);
+
   // ---- 新增表單：即時試算 ----
   const twdAmount = parseFloat(addForm.twdAmount) || 0;
   const exchangeRate = parseFloat(addForm.exchangeRate) || 0;
@@ -193,6 +205,34 @@ export default function ForexPage() {
           <div className="text-2xl font-bold text-slate-900 mt-1">{investments.length} 筆</div>
         </div>
       </div>
+
+      {/* 依幣別 / 銀行 小計 */}
+      {investments.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 mb-8">
+          <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依幣別換算總額</div>
+            <div className="space-y-2">
+              {Object.entries(currencyTotals).map(([currency, amount]) => (
+                <div key={currency} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">{currency}</span>
+                  <span className="font-semibold text-slate-900">{fmt2(amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依銀行小計（台幣）</div>
+            <div className="space-y-2">
+              {Object.entries(bankTotals).map(([bank, amount]) => (
+                <div key={bank} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">{bank}</span>
+                  <span className="font-semibold text-slate-900">{fmt(amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
