@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback } from "react";
 interface Investment {
   id: string;
   type: "FOREX";
+  name?: string;
   amount: number;
   quantity?: number;
   bankName?: string;
@@ -21,6 +22,18 @@ interface UserBank {
   name: string;
 }
 
+type FlowType = "BUY" | "WITHDRAW" | "CONVERT_BACK" | "INTEREST" | "OTHER_INCOME";
+
+const FLOW_OPTIONS: { key: FlowType; label: string; badgeClass: string; activeClass: string }[] = [
+  { key: "BUY", label: "買入外幣", badgeClass: "bg-indigo-100 text-indigo-700", activeClass: "bg-indigo-600 text-white" },
+  { key: "WITHDRAW", label: "提款外幣", badgeClass: "bg-red-100 text-red-700", activeClass: "bg-red-500 text-white" },
+  { key: "CONVERT_BACK", label: "換回台幣", badgeClass: "bg-red-100 text-red-700", activeClass: "bg-red-500 text-white" },
+  { key: "INTEREST", label: "利息收入", badgeClass: "bg-emerald-100 text-emerald-700", activeClass: "bg-emerald-500 text-white" },
+  { key: "OTHER_INCOME", label: "其他收入", badgeClass: "bg-emerald-100 text-emerald-700", activeClass: "bg-emerald-500 text-white" },
+];
+
+const flowMeta = (name?: string) => FLOW_OPTIONS.find((f) => f.label === name) ?? FLOW_OPTIONS[0];
+
 const DEFAULT_BANKS = [
   "台灣銀行", "合作金庫", "第一銀行", "華南銀行", "彰化銀行",
   "兆豐銀行", "土地銀行", "國泰世華", "玉山銀行", "中國信託",
@@ -32,12 +45,14 @@ const CURRENCIES = ["USD", "JPY", "EUR", "GBP", "AUD", "CNY", "HKD", "CAD", "NZD
 
 const EMPTY_ADD_FORM = {
   date: new Date().toISOString().split("T")[0],
+  flowType: "BUY" as FlowType,
   bankName: "",
   currency: "USD",
   currencyOther: "",
   twdAmount: "",
+  foreignAmount: "",
   exchangeRate: "",
-  actualForeignAmount: "",
+  override: "",
   note: "",
 };
 
@@ -110,12 +125,27 @@ export default function ForexPage() {
   }, {} as Record<string, number>);
 
   // ---- 新增表單：即時試算 ----
-  const twdAmount = parseFloat(addForm.twdAmount) || 0;
+  const twdInput = parseFloat(addForm.twdAmount) || 0;
+  const foreignInput = parseFloat(addForm.foreignAmount) || 0;
   const exchangeRate = parseFloat(addForm.exchangeRate) || 0;
-  const calcForeignAmount = exchangeRate > 0 ? twdAmount / exchangeRate : 0;
-  // 實際換得外幣金額：如果填了就以此為準（銀行實際換匯結果可能與試算有落差），否則採自動試算結果
-  const foreignAmount = addForm.actualForeignAmount !== "" ? (parseFloat(addForm.actualForeignAmount) || 0) : calcForeignAmount;
+  const calcForeignFromTwd = exchangeRate > 0 ? twdInput / exchangeRate : 0;
+  const calcTwdFromForeign = foreignInput * exchangeRate;
   const currencyLabel = addForm.currency === "其他" ? (addForm.currencyOther || "其他") : addForm.currency;
+  const flowLabel = FLOW_OPTIONS.find((f) => f.key === addForm.flowType)!.label;
+
+  // 依交易類型決定最終台幣/外幣金額：手動覆蓋優先於自動試算（銀行實際換匯結果可能有落差）
+  let finalTwd = 0;
+  let finalForeign = 0;
+  if (addForm.flowType === "BUY") {
+    finalTwd = twdInput;
+    finalForeign = addForm.override !== "" ? (parseFloat(addForm.override) || 0) : calcForeignFromTwd;
+  } else if (addForm.flowType === "CONVERT_BACK") {
+    finalForeign = foreignInput;
+    finalTwd = addForm.override !== "" ? (parseFloat(addForm.override) || 0) : calcTwdFromForeign;
+  } else {
+    finalForeign = foreignInput;
+    finalTwd = 0;
+  }
 
   const resetAddForm = () => {
     setAddForm(EMPTY_ADD_FORM);
@@ -127,22 +157,38 @@ export default function ForexPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (twdAmount <= 0 || exchangeRate <= 0) {
+    if (addForm.flowType === "BUY" && (twdInput <= 0 || exchangeRate <= 0)) {
       alert("請填寫台幣金額與匯率");
       return;
     }
+    if (addForm.flowType === "CONVERT_BACK" && (foreignInput <= 0 || exchangeRate <= 0)) {
+      alert("請填寫外幣金額與匯率");
+      return;
+    }
+    if ((addForm.flowType === "WITHDRAW" || addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME") && foreignInput <= 0) {
+      alert("請填寫外幣金額");
+      return;
+    }
+
+    // 外幣餘額減少（換回台幣／提款）記為負數；台幣淨投入減少（換回台幣拿回錢）記為負數
+    const isOutflow = addForm.flowType === "CONVERT_BACK" || addForm.flowType === "WITHDRAW";
+    const signedQuantity = isOutflow ? -finalForeign : finalForeign;
+    const signedAmount = addForm.flowType === "CONVERT_BACK" ? -finalTwd : finalTwd;
+    const needsRate = addForm.flowType === "BUY" || addForm.flowType === "CONVERT_BACK";
+
     setAddSaving(true);
     await fetch("/api/investments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: "FOREX",
+        name: flowLabel,
         date: addForm.date,
         bankName: addForm.bankName,
         currency: currencyLabel,
-        exchangeRate: addForm.exchangeRate,
-        amount: twdAmount,
-        quantity: foreignAmount,
+        exchangeRate: needsRate ? addForm.exchangeRate : undefined,
+        amount: signedAmount,
+        quantity: signedQuantity,
         note: addForm.note,
       }),
     });
@@ -197,11 +243,11 @@ export default function ForexPage() {
       {/* Summary */}
       <div className="grid grid-cols-2 gap-4 mb-8">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">總投入金額</div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">淨投入金額（台幣）</div>
           <div className="text-2xl font-bold text-slate-900 mt-1">{fmt(total)}</div>
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">兌換筆數</div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">交易筆數</div>
           <div className="text-2xl font-bold text-slate-900 mt-1">{investments.length} 筆</div>
         </div>
       </div>
@@ -210,7 +256,7 @@ export default function ForexPage() {
       {investments.length > 0 && (
         <div className="grid grid-cols-2 gap-4 mb-8">
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依幣別換算總額</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別目前餘額</div>
             <div className="space-y-2">
               {Object.entries(currencyTotals).map(([currency, amount]) => (
                 <div key={currency} className="flex items-center justify-between text-sm">
@@ -221,7 +267,7 @@ export default function ForexPage() {
             </div>
           </div>
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依銀行小計（台幣）</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依銀行淨投入（台幣）</div>
             <div className="space-y-2">
               {Object.entries(bankTotals).map(([bank, amount]) => (
                 <div key={bank} className="flex items-center justify-between text-sm">
@@ -248,30 +294,43 @@ export default function ForexPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {investments.map((inv) => (
-              <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
-                <div>
-                  <div className="text-sm font-medium text-slate-800">
-                    {inv.bankName || "(未指定銀行)"}
-                    {inv.currency && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{inv.currency}</span>}
+            {investments.map((inv) => {
+              const meta = flowMeta(inv.name);
+              const showTwd = inv.amount !== 0;
+              return (
+                <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${meta.badgeClass}`}>{meta.label}</span>
+                      <span className="text-sm font-medium text-slate-800">{inv.bankName || "(未指定銀行)"}</span>
+                      {inv.currency && <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{inv.currency}</span>}
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
+                      {inv.exchangeRate ? ` · 匯率 ${inv.exchangeRate}` : ""}
+                      {showTwd && inv.quantity ? ` · ${inv.quantity >= 0 ? "+" : ""}${fmt2(inv.quantity)} ${inv.currency ?? ""}` : ""}
+                      {inv.note ? ` · ${inv.note}` : ""}
+                      {inv.transactionId && <span className="ml-1 text-indigo-400">· 已連結支出</span>}
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">
-                    {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
-                    {inv.exchangeRate ? ` · 匯率 ${inv.exchangeRate}` : ""}
-                    {inv.quantity ? ` · 換得 ${fmt2(inv.quantity)} ${inv.currency ?? ""}` : ""}
-                    {inv.note ? ` · ${inv.note}` : ""}
-                    {inv.transactionId && <span className="ml-1 text-indigo-400">· 已連結支出</span>}
+                  <div className="flex items-center gap-4">
+                    {showTwd ? (
+                      <span className={`text-sm font-semibold ${inv.amount >= 0 ? "text-slate-700" : "text-red-500"}`}>
+                        {inv.amount < 0 ? "-" : ""}{fmt(Math.abs(inv.amount))}
+                      </span>
+                    ) : (
+                      <span className={`text-sm font-semibold ${(inv.quantity || 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                        {(inv.quantity || 0) >= 0 ? "+" : "-"}{fmt2(Math.abs(inv.quantity || 0))} {inv.currency}
+                      </span>
+                    )}
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEdit(inv)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
+                      <button onClick={() => handleDelete(inv.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-semibold text-slate-700">{fmt(inv.amount)}</span>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openEdit(inv)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
-                    <button onClick={() => handleDelete(inv.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -282,6 +341,19 @@ export default function ForexPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-slate-900 mb-5">新增外匯記錄</h2>
             <form onSubmit={handleAdd} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">交易類型</label>
+                <div className="flex flex-wrap gap-2">
+                  {FLOW_OPTIONS.map((opt) => (
+                    <button key={opt.key} type="button"
+                      onClick={() => setAddForm({ ...addForm, flowType: opt.key, override: "" })}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${addForm.flowType === opt.key ? opt.activeClass : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">兌換日期</label>
                 <input required type="date" value={addForm.date}
@@ -336,29 +408,70 @@ export default function ForexPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">台幣金額</label>
-                  <input required type="number" min="0" step="any" value={addForm.twdAmount}
-                    onChange={(e) => setAddForm({ ...addForm, twdAmount: e.target.value })} placeholder="例如：10000"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">匯率</label>
-                  <input required type="number" min="0" step="any" value={addForm.exchangeRate}
-                    onChange={(e) => setAddForm({ ...addForm, exchangeRate: e.target.value })} placeholder="例如：31.5"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                </div>
-              </div>
+              {addForm.flowType === "BUY" && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">台幣金額</label>
+                      <input required type="number" min="0" step="any" value={addForm.twdAmount}
+                        onChange={(e) => setAddForm({ ...addForm, twdAmount: e.target.value })} placeholder="例如：10000"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">匯率</label>
+                      <input required type="number" min="0" step="any" value={addForm.exchangeRate}
+                        onChange={(e) => setAddForm({ ...addForm, exchangeRate: e.target.value })} placeholder="例如：31.5"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">實際換得外幣金額（選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.override}
+                      onChange={(e) => setAddForm({ ...addForm, override: e.target.value })}
+                      placeholder={`試算為 ${fmt2(calcForeignFromTwd)} ${currencyLabel}，如與銀行實際換匯金額不同可在此輸入覆蓋`}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    <p className="text-[11px] text-slate-400 mt-1">留空則採用下方自動試算的金額；填寫後將以此金額為準</p>
+                  </div>
+                </>
+              )}
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">實際換得外幣金額（選填）</label>
-                <input type="number" min="0" step="any" value={addForm.actualForeignAmount}
-                  onChange={(e) => setAddForm({ ...addForm, actualForeignAmount: e.target.value })}
-                  placeholder={`試算為 ${fmt2(calcForeignAmount)} ${currencyLabel}，如與銀行實際換匯金額不同可在此輸入覆蓋`}
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                <p className="text-[11px] text-slate-400 mt-1">留空則採用下方自動試算的金額；填寫後將以此金額為準</p>
-              </div>
+              {addForm.flowType === "CONVERT_BACK" && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">外幣金額</label>
+                      <input required type="number" min="0" step="any" value={addForm.foreignAmount}
+                        onChange={(e) => setAddForm({ ...addForm, foreignAmount: e.target.value })} placeholder="例如：500"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">匯率</label>
+                      <input required type="number" min="0" step="any" value={addForm.exchangeRate}
+                        onChange={(e) => setAddForm({ ...addForm, exchangeRate: e.target.value })} placeholder="例如：31.5"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">實際換得台幣金額（選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.override}
+                      onChange={(e) => setAddForm({ ...addForm, override: e.target.value })}
+                      placeholder={`試算為 ${fmt(calcTwdFromForeign)}，如與銀行實際換匯金額不同可在此輸入覆蓋`}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    <p className="text-[11px] text-slate-400 mt-1">留空則採用下方自動試算的金額；填寫後將以此金額為準</p>
+                  </div>
+                </>
+              )}
+
+              {(addForm.flowType === "WITHDRAW" || addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME") && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    {addForm.flowType === "WITHDRAW" ? "提領外幣金額" : "收入外幣金額"}
+                  </label>
+                  <input required type="number" min="0" step="any" value={addForm.foreignAmount}
+                    onChange={(e) => setAddForm({ ...addForm, foreignAmount: e.target.value })} placeholder="例如：100"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
@@ -367,21 +480,54 @@ export default function ForexPage() {
               </div>
 
               {/* 試算小計 */}
-              <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>台幣金額</span><span>{fmt(twdAmount)}</span>
+              {addForm.flowType === "BUY" && (
+                <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>台幣金額</span><span>{fmt(twdInput)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>自動試算外幣金額</span><span>{fmt2(calcForeignFromTwd)} {currencyLabel}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
+                    <span>換得外幣小計</span>
+                    <span>
+                      {fmt2(finalForeign)} {currencyLabel}
+                      {addForm.override !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調整）</span>}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>自動試算外幣金額</span><span>{fmt2(calcForeignAmount)} {currencyLabel}</span>
+              )}
+              {addForm.flowType === "CONVERT_BACK" && (
+                <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>外幣金額</span><span>{fmt2(foreignInput)} {currencyLabel}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>自動試算台幣金額</span><span>{fmt(calcTwdFromForeign)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
+                    <span>換得台幣小計</span>
+                    <span>
+                      {fmt(finalTwd)}
+                      {addForm.override !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調整）</span>}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
-                  <span>換得外幣小計</span>
-                  <span>
-                    {fmt2(foreignAmount)} {currencyLabel}
-                    {addForm.actualForeignAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調整）</span>}
-                  </span>
+              )}
+              {addForm.flowType === "WITHDRAW" && (
+                <div className="bg-slate-50 rounded-xl px-4 py-3">
+                  <div className="flex justify-between text-sm font-semibold text-slate-900">
+                    <span>提領外幣小計</span><span className="text-red-500">-{fmt2(finalForeign)} {currencyLabel}</span>
+                  </div>
                 </div>
-              </div>
+              )}
+              {(addForm.flowType === "INTEREST" || addForm.flowType === "OTHER_INCOME") && (
+                <div className="bg-slate-50 rounded-xl px-4 py-3">
+                  <div className="flex justify-between text-sm font-semibold text-slate-900">
+                    <span>收入外幣小計</span><span className="text-emerald-600">+{fmt2(finalForeign)} {currencyLabel}</span>
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowAddModal(false)}
@@ -403,6 +549,11 @@ export default function ForexPage() {
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
             <h2 className="text-lg font-bold text-slate-900 mb-5">編輯外匯記錄</h2>
+            <div className="mb-4">
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${flowMeta(editing.name).badgeClass}`}>
+                {flowMeta(editing.name).label}
+              </span>
+            </div>
             <form onSubmit={handleSaveEdit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">兌換日期</label>
@@ -439,7 +590,7 @@ export default function ForexPage() {
                 <input value={editForm.note} onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
                   placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
-              <p className="text-[11px] text-slate-400">台幣金額、匯率、換得外幣金額如需調整，請刪除後重新新增以確保試算正確</p>
+              <p className="text-[11px] text-slate-400">交易類型、金額、匯率如需調整，請刪除後重新新增以確保試算正確</p>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setEditing(null)}
                   className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
