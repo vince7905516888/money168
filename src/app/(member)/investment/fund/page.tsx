@@ -55,7 +55,6 @@ const EMPTY_ADD_FORM = {
   code: "",
   price: "",
   quantity: "",
-  exchangeRate: "1",
   note: "",
 };
 
@@ -177,9 +176,7 @@ export default function FundPage() {
   // ---- 新增表單：即時試算 ----
   const nav = parseFloat(addForm.price) || 0;
   const units = parseFloat(addForm.quantity) || 0;
-  const exchangeRate = parseFloat(addForm.exchangeRate) || 0;
   const fundAmount = nav * units;
-  const twdAmount = fundAmount * exchangeRate;
   const currencyLabel = addForm.currency === "其他" ? (addForm.currencyOther || "其他") : addForm.currency;
 
   const resetAddForm = () => {
@@ -207,10 +204,9 @@ export default function FundPage() {
         date: addForm.date,
         bankName: addForm.bankName,
         currency: currencyLabel,
-        exchangeRate: addForm.exchangeRate,
         price: addForm.price,
         quantity: addForm.quantity,
-        amount: twdAmount,
+        amount: fundAmount,
         note: addForm.note,
       }),
     });
@@ -477,7 +473,7 @@ export default function FundPage() {
                   placeholder="例如：LU0068578508" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">淨值</label>
                   <input required type="number" min="0" step="any" value={addForm.price}
@@ -490,12 +486,6 @@ export default function FundPage() {
                     onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })} placeholder="例如：1000"
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">匯率</label>
-                  <input required type="number" min="0" step="any" value={addForm.exchangeRate}
-                    onChange={(e) => setAddForm({ ...addForm, exchangeRate: e.target.value })} placeholder="例如：31.5"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                </div>
               </div>
 
               <div>
@@ -505,14 +495,12 @@ export default function FundPage() {
               </div>
 
               {/* 試算小計 */}
-              <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>基金金額（{currencyLabel}）</span><span>{new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(fundAmount)}</span>
+              <div className="bg-slate-50 rounded-xl px-4 py-3">
+                <div className="flex justify-between text-sm font-semibold text-slate-900">
+                  <span>基金金額小計（{currencyLabel}）</span>
+                  <span>{fmt2(fundAmount)}</span>
                 </div>
-                <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
-                  <span>小計（換算台幣）</span>
-                  <span>{fmt(twdAmount)}</span>
-                </div>
+                <p className="text-[11px] text-slate-400 mt-1.5">匯率換算台幣的金額改在投資總覽頁統一處理</p>
               </div>
 
               <div className="flex gap-2 pt-2">
@@ -587,7 +575,7 @@ export default function FundPage() {
                 <input value={editForm.note} onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
                   placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
-              <p className="text-[11px] text-slate-400">金額、淨值、匯率如需調整，請刪除後重新新增以確保試算正確</p>
+              <p className="text-[11px] text-slate-400">金額、淨值如需調整，請刪除後重新新增以確保試算正確</p>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setEditing(null)}
                   className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
