@@ -417,7 +417,7 @@ export default function TransactionsPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">總流入</div>
           <div className="text-2xl font-bold text-emerald-600 mt-1">{fmt(allIncome)}</div>
@@ -425,6 +425,12 @@ export default function TransactionsPage() {
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">總流出</div>
           <div className="text-2xl font-bold text-red-500 mt-1">{fmt(allExpense)}</div>
+        </div>
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">結餘</div>
+          <div className={`text-2xl font-bold mt-1 ${allIncome - allExpense >= 0 ? "text-slate-900" : "text-red-500"}`}>
+            {fmt(allIncome - allExpense)}
+          </div>
         </div>
       </div>
 
