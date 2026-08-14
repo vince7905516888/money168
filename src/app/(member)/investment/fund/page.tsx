@@ -142,9 +142,12 @@ export default function FundPage() {
   const total = investments.reduce((s, i) => s + i.amount, 0);
 
   // 基金投資紀錄：依「檔」（同一產品，以代碼或名稱識別）分組，統計每檔基金買進的筆數與累計金額（台幣）
+  // 先 trim 掉前後空白再比對，避免手動輸入時多打的空格讓同一檔基金被拆成兩組
   const fundGroups = investments.reduce((acc, i) => {
-    const key = i.code || i.name || "(未命名)";
-    if (!acc[key]) acc[key] = { name: i.name || "(未命名)", code: i.code, count: 0, amount: 0 };
+    const name = i.name?.trim() || "(未命名)";
+    const code = i.code?.trim() || undefined;
+    const key = code || name;
+    if (!acc[key]) acc[key] = { name, code, count: 0, amount: 0 };
     acc[key].count += 1;
     acc[key].amount += i.amount;
     return acc;

@@ -55,14 +55,17 @@ export default function InsurancePage() {
   const payCount = investments.filter((i) => i.action === "BUY").length;
   const withdrawCount = investments.filter((i) => i.action === "SELL").length;
 
-  // 依保單名稱分組統計：同一張保單的繳費/領回筆數與累計淨額
+  // 依保單分組統計：同一張保單的繳費/領回筆數與累計淨額。
+  // 優先用保單號碼分組（號碼相同即視為同一張保單，不受名稱打字差異影響），沒填號碼才退回用名稱（trim 後）分組。
   const policyGroups = investments.reduce((acc, i) => {
-    const key = i.name || "(未命名)";
-    if (!acc[key]) acc[key] = { name: key, count: 0, amount: 0 };
+    const name = i.name?.trim() || "(未命名)";
+    const code = i.code?.trim() || undefined;
+    const key = code || name;
+    if (!acc[key]) acc[key] = { name, code, count: 0, amount: 0 };
     acc[key].count += 1;
     acc[key].amount += i.amount;
     return acc;
-  }, {} as Record<string, { name: string; count: number; amount: number }>);
+  }, {} as Record<string, { name: string; code?: string; count: number; amount: number }>);
   const policyGroupList = Object.values(policyGroups);
 
   const amountInput = parseFloat(addForm.amount) || 0;
@@ -173,11 +176,14 @@ export default function InsurancePage() {
       {/* 依保單名稱分組統計 */}
       {policyGroupList.length > 0 && (
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依保單名稱統計</div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依保單統計</div>
           <div className="divide-y divide-slate-50">
             {policyGroupList.map((g) => (
-              <div key={g.name} className="flex items-center justify-between py-2 text-sm">
-                <span className="text-slate-700 truncate">{g.name}</span>
+              <div key={g.code || g.name} className="flex items-center justify-between py-2 text-sm">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-slate-700 truncate">{g.name}</span>
+                  {g.code && <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded shrink-0">{g.code}</span>}
+                </div>
                 <div className="flex items-center gap-4 shrink-0">
                   <span className="text-xs text-slate-400">{g.count} 筆</span>
                   <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
