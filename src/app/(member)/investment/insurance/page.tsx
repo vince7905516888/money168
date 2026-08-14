@@ -55,6 +55,16 @@ export default function InsurancePage() {
   const payCount = investments.filter((i) => i.action === "BUY").length;
   const withdrawCount = investments.filter((i) => i.action === "SELL").length;
 
+  // 依保單名稱分組統計：同一張保單的繳費/領回筆數與累計淨額
+  const policyGroups = investments.reduce((acc, i) => {
+    const key = i.name || "(未命名)";
+    if (!acc[key]) acc[key] = { name: key, count: 0, amount: 0 };
+    acc[key].count += 1;
+    acc[key].amount += i.amount;
+    return acc;
+  }, {} as Record<string, { name: string; count: number; amount: number }>);
+  const policyGroupList = Object.values(policyGroups);
+
   const amountInput = parseFloat(addForm.amount) || 0;
 
   const resetAddForm = () => setAddForm(EMPTY_ADD_FORM);
@@ -159,6 +169,31 @@ export default function InsurancePage() {
           <div className="text-2xl font-bold text-slate-900 mt-1">{withdrawCount} 筆</div>
         </div>
       </div>
+
+      {/* 依保單名稱分組統計 */}
+      {policyGroupList.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依保單名稱統計</div>
+          <div className="divide-y divide-slate-50">
+            {policyGroupList.map((g) => (
+              <div key={g.name} className="flex items-center justify-between py-2 text-sm">
+                <span className="text-slate-700 truncate">{g.name}</span>
+                <div className="flex items-center gap-4 shrink-0">
+                  <span className="text-xs text-slate-400">{g.count} 筆</span>
+                  <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between pt-3 mt-1 border-t border-slate-200 text-sm">
+            <span className="font-semibold text-slate-900">合計（{policyGroupList.length} 張保單）</span>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-400">{investments.length} 筆</span>
+              <span className={`font-bold ${netInvested >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(netInvested)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
