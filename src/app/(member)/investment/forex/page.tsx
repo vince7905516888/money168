@@ -367,14 +367,18 @@ export default function ForexPage() {
             </div>
           </div>
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依銀行淨投入（台幣）</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別總投入+利息（台幣）</div>
             <div className="space-y-2">
-              {Object.entries(bankTotals).map(([bank, amount]) => (
-                <div key={bank} className="flex items-center justify-between text-sm">
-                  <span className="text-slate-600">{bank}</span>
-                  <span className="font-semibold text-slate-900">{fmt(amount)}</span>
-                </div>
-              ))}
+              {Object.entries(currencyInflowTotals).map(([currency, amount]) => {
+                const stats = currencyBuyStats[currency];
+                const avgRate = stats && stats.foreign > 0 ? stats.twd / stats.foreign : 0;
+                return (
+                  <div key={currency} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">{currency}</span>
+                    <span className="font-semibold text-slate-900">{fmt(amount * avgRate)}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
