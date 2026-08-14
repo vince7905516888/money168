@@ -103,6 +103,18 @@ export default function GoldPage() {
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
 
+  // 依名稱分組統計：同一個名稱（優先用代碼判斷，trim 後比對）的買賣筆數與累計淨額
+  const nameGroups = investments.reduce((acc, i) => {
+    const name = i.name?.trim() || "(未命名)";
+    const code = i.code?.trim() || undefined;
+    const key = code || name;
+    if (!acc[key]) acc[key] = { name, code, count: 0, amount: 0 };
+    acc[key].count += 1;
+    acc[key].amount += i.amount;
+    return acc;
+  }, {} as Record<string, { name: string; code?: string; count: number; amount: number }>);
+  const nameGroupList = Object.values(nameGroups);
+
   // ---- 新增表單：即時試算 ----
   const quantity = parseFloat(addForm.quantity) || 0;
   const price = parseFloat(addForm.price) || 0;
@@ -222,6 +234,34 @@ export default function GoldPage() {
           <div className="text-2xl font-bold text-slate-900 mt-1">{sellCount} 筆</div>
         </div>
       </div>
+
+      {/* 依名稱分組統計 */}
+      {nameGroupList.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依名稱統計</div>
+          <div className="divide-y divide-slate-50">
+            {nameGroupList.map((g) => (
+              <div key={g.code || g.name} className="flex items-center justify-between py-2 text-sm">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-slate-700 truncate">{g.name}</span>
+                  {g.code && <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded shrink-0">{g.code}</span>}
+                </div>
+                <div className="flex items-center gap-4 shrink-0">
+                  <span className="text-xs text-slate-400">{g.count} 筆</span>
+                  <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between pt-3 mt-1 border-t border-slate-200 text-sm">
+            <span className="font-semibold text-slate-900">合計（{nameGroupList.length} 項）</span>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-slate-400">{investments.length} 筆</span>
+              <span className={`font-bold ${netInvested >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(netInvested)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
