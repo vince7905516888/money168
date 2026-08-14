@@ -20,9 +20,9 @@ export async function PUT(
   const updated = await prisma.investment.update({
     where: { id },
     data: {
-      name: name || null,
-      code: code || null,
       note: note || null,
+      ...(name !== undefined ? { name: name || null } : {}),
+      ...(code !== undefined ? { code: code || null } : {}),
       ...(quantity !== undefined ? { quantity: quantity !== "" && quantity !== null ? parseFloat(quantity) : null } : {}),
       ...(price !== undefined ? { price: price !== "" && price !== null ? parseFloat(price) : null } : {}),
       ...(broker !== undefined ? { broker: broker || null } : {}),
