@@ -131,12 +131,24 @@ export default function ForexPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  // 平均匯率（買入平均）：僅採計「買入外幣」（amount 為正、quantity 為正）的加權平均，換回台幣/提款/收入不計入成本
+  // 各幣別總投入＋利息：買入外幣、利息收入、其他收入、調帳(轉入) 這幾種「流入」的外幣數量加總，
+  // 不扣除提款外幣／換回台幣／調帳(轉出)等流出，代表累計投入成本的部位大小（非目前剩餘餘額）。
+  const currencyInflowTotals = investments.reduce((acc, i) => {
+    if (!i.currency) return acc;
+    const label = flowMeta(i.name).label;
+    if (label === "買入外幣" || label === "利息收入" || label === "其他收入" || label === "調帳(轉入)") {
+      acc[i.currency] = (acc[i.currency] || 0) + (i.quantity || 0);
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
+  // 平均匯率（買入平均）：僅採計「買入外幣」，依每筆的外幣數量 × 該筆匯率加總，除以外幣數量加總，
+  // 得出的台幣加總即對應依銀行淨投入（台幣）的金額（換回台幣/提款/收入不計入成本）
   const currencyBuyStats = investments.reduce((acc, i) => {
-    if (i.currency && i.amount > 0 && (i.quantity || 0) > 0) {
+    if (i.currency && i.amount > 0 && (i.quantity || 0) > 0 && i.exchangeRate) {
       const key = i.currency;
       if (!acc[key]) acc[key] = { twd: 0, foreign: 0 };
-      acc[key].twd += i.amount;
+      acc[key].twd += (i.quantity || 0) * i.exchangeRate;
       acc[key].foreign += i.quantity || 0;
     }
     return acc;
@@ -337,9 +349,9 @@ export default function ForexPage() {
       {investments.length > 0 && (
         <div className="grid grid-cols-2 gap-4 mb-8">
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別目前餘額（買入平均匯率）</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別總投入+利息（買入平均匯率）</div>
             <div className="space-y-2">
-              {Object.entries(currencyTotals).map(([currency, amount]) => {
+              {Object.entries(currencyInflowTotals).map(([currency, amount]) => {
                 const stats = currencyBuyStats[currency];
                 const avgRate = stats && stats.foreign > 0 ? stats.twd / stats.foreign : null;
                 return (
