@@ -18,6 +18,8 @@ const investmentItems = [
   { href: "/investment/forex", label: "外匯投資" },
   { href: "/investment/crypto", label: "虛擬貨幣" },
   { href: "/investment/gold", label: "黃金投資" },
+  { href: "/investment/realestate", label: "不動產投資" },
+  { href: "/investment/insurance", label: "保險投資" },
 ];
 
 export default function MemberSidebar({ userName }: { userName: string }) {
@@ -142,6 +144,22 @@ export default function MemberSidebar({ userName }: { userName: string }) {
         >
           <span className="text-base leading-none">▦</span>
           {!collapsed && "報表分析"}
+        </Link>
+
+        {/* 負債表 */}
+        <Link
+          href="/debts"
+          title="負債表"
+          className={`flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
+            collapsed ? "justify-center px-0" : "gap-3 px-3"
+          } ${
+            pathname.startsWith("/debts")
+              ? "bg-indigo-50 text-indigo-700"
+              : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+          }`}
+        >
+          <span className="text-base leading-none">📉</span>
+          {!collapsed && "負債表"}
         </Link>
 
         {/* 投資 section */}

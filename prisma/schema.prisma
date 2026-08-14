@@ -23,7 +23,9 @@ model User {
   userBrokers    UserBroker[]
   userFunds      UserFund[]
   userExchanges  UserExchange[]
+  userDebtCategories UserDebtCategory[]
   investments    Investment[]
+  debts          Debt[]
 }
 
 model UserBank {
@@ -74,6 +76,29 @@ model UserExchange {
   createdAt DateTime @default(now())
 
   @@unique([userId, name])
+}
+
+model UserDebtCategory {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, name])
+}
+
+model Debt {
+  id        String   @id @default(cuid())
+  category  String
+  amount    Float
+  bankName  String?
+  date      DateTime @default(now())
+  note      String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Category {
@@ -135,6 +160,8 @@ enum InvestmentType {
   FOREX
   CRYPTO
   GOLD
+  REALESTATE
+  INSURANCE
 }
 
 enum TradeAction {

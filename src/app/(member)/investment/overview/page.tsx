@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type InvestmentType = "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD";
+type InvestmentType = "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD" | "REALESTATE" | "INSURANCE";
 
 interface Investment {
   id: string;
@@ -22,6 +22,8 @@ const TYPE_LABEL: Record<InvestmentType, string> = {
   FOREX: "外匯",
   CRYPTO: "虛擬貨幣",
   GOLD: "黃金",
+  REALESTATE: "不動產",
+  INSURANCE: "保險",
 };
 
 const TYPE_COLOR: Record<InvestmentType, string> = {
@@ -30,6 +32,8 @@ const TYPE_COLOR: Record<InvestmentType, string> = {
   FOREX: "bg-amber-100 text-amber-700",
   CRYPTO: "bg-orange-100 text-orange-700",
   GOLD: "bg-yellow-100 text-yellow-700",
+  REALESTATE: "bg-teal-100 text-teal-700",
+  INSURANCE: "bg-purple-100 text-purple-700",
 };
 
 export default function InvestmentOverviewPage() {
@@ -99,7 +103,7 @@ export default function InvestmentOverviewPage() {
           <div className="text-2xl font-bold text-slate-900 mt-1">{fmt(total)}</div>
           <div className="text-xs text-slate-400 mt-0.5">{investments.length} 筆</div>
         </div>
-        {(["STOCK", "FUND", "FOREX", "CRYPTO", "GOLD"] as InvestmentType[]).map((type) => (
+        {(["STOCK", "FUND", "FOREX", "CRYPTO", "GOLD", "REALESTATE", "INSURANCE"] as InvestmentType[]).map((type) => (
           <div key={type} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">{TYPE_LABEL[type]}</div>
             <div className="text-2xl font-bold text-slate-900 mt-1">

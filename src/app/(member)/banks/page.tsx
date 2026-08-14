@@ -125,7 +125,7 @@ export default function BanksPage() {
   const [paymentDetail, setPaymentDetail] = useState("");
   const [bankName, setBankName] = useState("");
   const [thirdPartyName, setThirdPartyName] = useState("");
-  const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD">("");
+  const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD" | "REALESTATE" | "INSURANCE">("");
   const [saving, setSaving] = useState(false);
   const [addBankInput, setAddBankInput] = useState("");
   const [addBankTarget, setAddBankTarget] = useState<SelectorTarget | null>(null);
@@ -739,6 +739,8 @@ export default function BanksPage() {
                           { value: "FOREX", label: "💱 外匯" },
                           { value: "CRYPTO", label: "₿ 虛擬貨幣" },
                           { value: "GOLD", label: "🪙 黃金" },
+                          { value: "REALESTATE", label: "🏠 不動產" },
+                          { value: "INSURANCE", label: "🛡️ 保險" },
                         ] as const).map(({ value, label }) => (
                           <button key={value} type="button" onClick={() => setInvestmentType(value)}
                             className={`py-2 rounded-lg text-xs font-semibold transition-colors ${
