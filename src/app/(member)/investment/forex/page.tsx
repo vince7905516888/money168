@@ -83,6 +83,7 @@ export default function ForexPage() {
   const [addBankLoading, setAddBankLoading] = useState(false);
 
   const [page, setPage] = useState(1);
+  const [filterType, setFilterType] = useState<FlowType | "">("");
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -316,9 +317,12 @@ export default function ForexPage() {
     fetchAll();
   };
 
-  const pageCount = Math.max(1, Math.ceil(investments.length / PAGE_SIZE));
+  const filteredInvestments = filterType
+    ? investments.filter((inv) => flowMeta(inv.name).key === filterType)
+    : investments;
+  const pageCount = Math.max(1, Math.ceil(filteredInvestments.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const pagedInvestments = investments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pagedInvestments = filteredInvestments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <div className="max-w-4xl">
@@ -435,8 +439,23 @@ export default function ForexPage() {
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-50">
+        <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between gap-3">
           <h2 className="font-semibold text-slate-900">兌換記錄</h2>
+          <select value={filterType}
+            onChange={(e) => { setFilterType(e.target.value as FlowType | ""); setPage(1); }}
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+            <option value="">全部類型</option>
+            <optgroup label="支出">
+              {EXPENSE_TYPES.map((key) => (
+                <option key={key} value={key}>{FLOW_OPTIONS.find((f) => f.key === key)!.label}</option>
+              ))}
+            </optgroup>
+            <optgroup label="收入">
+              {INCOME_TYPES.map((key) => (
+                <option key={key} value={key}>{FLOW_OPTIONS.find((f) => f.key === key)!.label}</option>
+              ))}
+            </optgroup>
+          </select>
         </div>
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
@@ -444,6 +463,10 @@ export default function ForexPage() {
           <div className="py-16 text-center">
             <p className="text-slate-400 text-sm mb-3">還沒有外匯兌換記錄</p>
             <button onClick={openAdd} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆記錄</button>
+          </div>
+        ) : filteredInvestments.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-slate-400 text-sm">沒有符合篩選條件的記錄</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -492,7 +515,7 @@ export default function ForexPage() {
         {!loading && pageCount > 1 && (
           <div className="flex items-center justify-between px-6 py-3 border-t border-slate-50">
             <span className="text-xs text-slate-400">
-              第 {currentPage} / {pageCount} 頁・共 {investments.length} 筆
+              第 {currentPage} / {pageCount} 頁・共 {filteredInvestments.length} 筆
             </span>
             <div className="flex gap-1">
               <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1}
