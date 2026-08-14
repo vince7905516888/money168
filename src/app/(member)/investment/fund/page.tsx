@@ -38,7 +38,10 @@ const DEFAULT_BANKS = [
 
 const CURRENCIES = ["TWD", "USD", "JPY", "EUR", "GBP", "AUD", "CNY", "HKD", "CAD", "NZD", "SGD", "ZAR", "CHF", "THB"];
 
+type FundFlowType = "INCOME" | "EXPENSE";
+
 const EMPTY_ADD_FORM = {
+  flowType: "INCOME" as FundFlowType,
   date: new Date().toISOString().split("T")[0],
   bankName: "",
   currency: "TWD",
@@ -152,6 +155,7 @@ export default function FundPage() {
   const units = parseFloat(addForm.quantity) || 0;
   const fundAmount = nav * units;
   const currencyLabel = addForm.currency === "其他" ? (addForm.currencyOther || "其他") : addForm.currency;
+  const isExpense = addForm.flowType === "EXPENSE";
 
   const resetAddForm = () => {
     setAddForm(EMPTY_ADD_FORM);
@@ -179,8 +183,8 @@ export default function FundPage() {
         bankName: addForm.bankName,
         currency: currencyLabel,
         price: addForm.price,
-        quantity: addForm.quantity,
-        amount: fundAmount,
+        quantity: isExpense ? -units : units,
+        amount: isExpense ? -fundAmount : fundAmount,
         note: addForm.note,
       }),
     });
@@ -238,8 +242,8 @@ export default function FundPage() {
       {/* Summary */}
       <div className="grid grid-cols-2 gap-4 mb-8">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">總投入金額</div>
-          <div className="text-2xl font-bold text-slate-900 mt-1">{fmt(total)}</div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">淨投入金額</div>
+          <div className={`text-2xl font-bold mt-1 ${total >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(total)}</div>
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">投資筆數</div>
@@ -260,7 +264,7 @@ export default function FundPage() {
                 </div>
                 <div className="flex items-center gap-4 shrink-0">
                   <span className="text-xs text-slate-400">{g.count} 筆</span>
-                  <span className="font-semibold text-slate-900">{fmt(g.amount)}</span>
+                  <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
                 </div>
               </div>
             ))}
@@ -269,7 +273,7 @@ export default function FundPage() {
             <span className="font-semibold text-slate-900">合計（{fundGroupList.length} 檔）</span>
             <div className="flex items-center gap-4">
               <span className="text-xs text-slate-400">{investments.length} 筆</span>
-              <span className="font-bold text-slate-900">{fmt(total)}</span>
+              <span className={`font-bold ${total >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(total)}</span>
             </div>
           </div>
         </div>
@@ -292,23 +296,28 @@ export default function FundPage() {
             {investments.map((inv) => (
               <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
                 <div>
-                  <div className="text-sm font-medium text-slate-800">
+                  <div className="text-sm font-medium text-slate-800 flex items-center gap-2">
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${inv.amount >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                      {inv.amount >= 0 ? "申購" : "贖回"}
+                    </span>
                     {inv.name || "(未命名)"}
-                    {inv.code && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{inv.code}</span>}
+                    {inv.code && <span className="ml-1 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{inv.code}</span>}
                   </div>
-                  <div className="text-xs text-slate-400 mt-0.5">
+                  <div className="text-xs text-slate-400 mt-1">
                     {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
                     {inv.bankName ? ` · ${inv.bankName}` : ""}
                     {inv.currency ? ` · ${inv.currency}` : ""}
                     {inv.price ? ` · 淨值 ${inv.price}` : ""}
-                    {inv.quantity ? ` · ${inv.quantity} 單位` : ""}
+                    {inv.quantity ? ` · ${Math.abs(inv.quantity)} 單位` : ""}
                     {inv.exchangeRate ? ` · 匯率 ${inv.exchangeRate}` : ""}
                     {inv.note ? ` · ${inv.note}` : ""}
                     {inv.transactionId && <span className="ml-1 text-indigo-400">· 已連結支出</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-sm font-semibold text-slate-700">{fmt(inv.amount)}</span>
+                  <span className={`text-sm font-semibold ${inv.amount >= 0 ? "text-slate-700" : "text-red-500"}`}>
+                    {inv.amount < 0 ? "-" : ""}{fmt(Math.abs(inv.amount))}
+                  </span>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => openEdit(inv)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
                     <button onClick={() => handleDelete(inv.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
@@ -327,7 +336,21 @@ export default function FundPage() {
             <h2 className="text-lg font-bold text-slate-900 mb-5">新增基金記錄</h2>
             <form onSubmit={handleAdd} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">申購日期</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">交易類型</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setAddForm({ ...addForm, flowType: "INCOME" })}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${addForm.flowType === "INCOME" ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                    收入（申購）
+                  </button>
+                  <button type="button" onClick={() => setAddForm({ ...addForm, flowType: "EXPENSE" })}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${addForm.flowType === "EXPENSE" ? "bg-red-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                    支出（贖回）
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{isExpense ? "贖回日期" : "申購日期"}</label>
                 <input required type="date" value={addForm.date}
                   onChange={(e) => setAddForm({ ...addForm, date: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
@@ -434,13 +457,13 @@ export default function FundPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">淨值</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">{isExpense ? "贖回淨值" : "淨值"}</label>
                   <input required type="number" min="0" step="any" value={addForm.price}
                     onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder="例如：10.5"
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">單位數</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">{isExpense ? "贖回單位數" : "單位數"}</label>
                   <input required type="number" min="0" step="any" value={addForm.quantity}
                     onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })} placeholder="例如：1000"
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
@@ -456,8 +479,8 @@ export default function FundPage() {
               {/* 試算小計 */}
               <div className="bg-slate-50 rounded-xl px-4 py-3">
                 <div className="flex justify-between text-sm font-semibold text-slate-900">
-                  <span>基金金額小計（{currencyLabel}）</span>
-                  <span>{fmt2(fundAmount)}</span>
+                  <span>{isExpense ? "贖回金額小計" : "基金金額小計"}（{currencyLabel}）</span>
+                  <span className={isExpense ? "text-red-500" : "text-emerald-600"}>{isExpense ? "-" : "+"}{fmt2(fundAmount)}</span>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1.5">匯率換算台幣的金額改在投資總覽頁統一處理</p>
               </div>
