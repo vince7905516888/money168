@@ -50,6 +50,7 @@ const EMPTY_ADD_FORM = {
   code: "",
   price: "",
   quantity: "",
+  override: "",
   note: "",
 };
 
@@ -61,7 +62,7 @@ export default function FundPage() {
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Investment | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", code: "", date: "", bankName: "", currency: "", quantity: "", note: "" });
+  const [editForm, setEditForm] = useState({ name: "", code: "", date: "", bankName: "", currency: "", quantity: "", amount: "", note: "" });
   const [saving, setSaving] = useState(false);
 
   const [userBanks, setUserBanks] = useState<UserBank[]>([]);
@@ -154,6 +155,8 @@ export default function FundPage() {
   const nav = parseFloat(addForm.price) || 0;
   const units = parseFloat(addForm.quantity) || 0;
   const fundAmount = nav * units;
+  // 實際投入金額：淨值×單位數的試算結果常因匯率／進位而與銀行實際扣款金額有落差，填了就以此為準
+  const finalFundAmount = addForm.override !== "" ? (parseFloat(addForm.override) || 0) : fundAmount;
   const currencyLabel = addForm.currency === "其他" ? (addForm.currencyOther || "其他") : addForm.currency;
   const isExpense = addForm.flowType === "EXPENSE";
 
@@ -184,7 +187,7 @@ export default function FundPage() {
         currency: currencyLabel,
         price: addForm.price,
         quantity: isExpense ? -units : units,
-        amount: isExpense ? -fundAmount : fundAmount,
+        amount: isExpense ? -finalFundAmount : finalFundAmount,
         note: addForm.note,
       }),
     });
@@ -202,6 +205,7 @@ export default function FundPage() {
       bankName: inv.bankName ?? "",
       currency: inv.currency ?? "",
       quantity: inv.quantity ? String(inv.quantity) : "",
+      amount: String(inv.amount),
       note: inv.note ?? "",
     });
   };
@@ -476,6 +480,15 @@ export default function FundPage() {
               </div>
 
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">實際投入金額（選填）</label>
+                <input type="number" min="0" step="any" value={addForm.override}
+                  onChange={(e) => setAddForm({ ...addForm, override: e.target.value })}
+                  placeholder={`試算為 ${fmt2(fundAmount)}，如與實際扣款/入帳金額不同可在此輸入覆蓋`}
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                <p className="text-[11px] text-slate-400 mt-1">留空則採用下方自動試算的金額；填寫後將以此金額為準</p>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
                 <input value={addForm.note} onChange={(e) => setAddForm({ ...addForm, note: e.target.value })}
                   placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
@@ -483,9 +496,15 @@ export default function FundPage() {
 
               {/* 試算小計 */}
               <div className="bg-slate-50 rounded-xl px-4 py-3">
-                <div className="flex justify-between text-sm font-semibold text-slate-900">
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>自動試算金額</span><span>{fmt2(fundAmount)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200 mt-1.5">
                   <span>{isExpense ? "贖回金額小計" : "基金金額小計"}（{currencyLabel}）</span>
-                  <span className={isExpense ? "text-red-500" : "text-emerald-600"}>{isExpense ? "-" : "+"}{fmt2(fundAmount)}</span>
+                  <span className={isExpense ? "text-red-500" : "text-emerald-600"}>
+                    {isExpense ? "-" : "+"}{fmt2(finalFundAmount)}
+                    {addForm.override !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調整）</span>}
+                  </span>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1.5">匯率換算台幣的金額改在投資總覽頁統一處理</p>
               </div>
@@ -558,11 +577,18 @@ export default function FundPage() {
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
               <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">投入金額</label>
+                <input required type="number" step="any" value={editForm.amount}
+                  onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} placeholder="例如：50000"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                <p className="text-[11px] text-slate-400 mt-1">因匯率／進位導致與實際扣款金額有落差時，可直接在此修正（贖回記錄請填負數）</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
                 <input value={editForm.note} onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
                   placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
-              <p className="text-[11px] text-slate-400">金額、淨值如需調整，請刪除後重新新增以確保試算正確</p>
+              <p className="text-[11px] text-slate-400">淨值如需調整，請刪除後重新新增以確保試算正確；投入金額可直接於上方修正</p>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setEditing(null)}
                   className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
