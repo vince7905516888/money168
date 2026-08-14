@@ -15,6 +15,7 @@ interface Investment {
   exchangeRate?: number;
   note?: string;
   transactionId?: string;
+  date?: string;
   createdAt: string;
 }
 
@@ -27,6 +28,12 @@ interface Debt {
   id: string;
   category: string;
   amount: number;
+}
+
+interface ExchangeRateRow {
+  id: string;
+  currency: string;
+  rate: number;
 }
 
 const TYPE_LABEL: Record<InvestmentType, string> = {
@@ -53,6 +60,9 @@ export default function InvestmentOverviewPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [banks, setBanks] = useState<BankSummary[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
+  const [savedRates, setSavedRates] = useState<ExchangeRateRow[]>([]);
+  const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
+  const [rateSavingCurrency, setRateSavingCurrency] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Investment | null>(null);
   const [editForm, setEditForm] = useState({ name: "", code: "", quantity: "", note: "" });
@@ -60,15 +70,17 @@ export default function InvestmentOverviewPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, bankRes, debtRes] = await Promise.all([
+    const [invRes, bankRes, debtRes, rateRes] = await Promise.all([
       fetch("/api/investments"),
       fetch("/api/banks/summary"),
       fetch("/api/debts"),
+      fetch("/api/user-exchange-rates"),
     ]);
-    const [invData, bankData, debtData] = await Promise.all([invRes.json(), bankRes.json(), debtRes.json()]);
+    const [invData, bankData, debtData, rateData] = await Promise.all([invRes.json(), bankRes.json(), debtRes.json(), rateRes.json()]);
     setInvestments(Array.isArray(invData) ? invData : []);
     setBanks(Array.isArray(bankData) ? bankData : []);
     setDebts(Array.isArray(debtData) ? debtData : []);
+    setSavedRates(Array.isArray(rateData) ? rateData : []);
     setLoading(false);
   }, []);
 
@@ -116,12 +128,97 @@ export default function InvestmentOverviewPage() {
   const byType = (t: InvestmentType) => investments.filter((i) => i.type === t);
   const sumAmount = (list: Investment[]) => list.reduce((s, i) => s + i.amount, 0);
 
+  // 外匯各幣別「目前餘額」（時序，含息）：加總所有外匯記錄的外幣數量，等同外匯投資頁的餘額
+  const forexInvestments = byType("FOREX");
+  const forexCurrencyBalances: Record<string, number> = {};
+  for (const i of forexInvestments) {
+    if (!i.currency) continue;
+    forexCurrencyBalances[i.currency] = (forexCurrencyBalances[i.currency] || 0) + (i.quantity || 0);
+  }
+  const forexCurrencyList = Object.keys(forexCurrencyBalances).sort();
+
+  // 建議匯率：沿用外匯投資頁「時序加權平均」邏輯，作為手動匯率欄位的預設值（可被使用者輸入覆蓋）
+  const forexSuggestedRate: Record<string, number> = {};
+  {
+    const byCurrency: Record<string, Investment[]> = {};
+    for (const inv of forexInvestments) {
+      if (!inv.currency) continue;
+      (byCurrency[inv.currency] ||= []).push(inv);
+    }
+    for (const [currency, list] of Object.entries(byCurrency)) {
+      const sorted = [...list].sort(
+        (a, b) => new Date(a.date ?? a.createdAt).getTime() - new Date(b.date ?? b.createdAt).getTime()
+      );
+      let balance = 0;
+      let cost = 0;
+      for (const inv of sorted) {
+        const qty = inv.quantity || 0;
+        if (qty >= 0) {
+          balance += qty;
+          if (inv.amount > 0) cost += inv.amount;
+        } else {
+          const rateNow = balance > 0 ? cost / balance : 0;
+          const outQty = -qty;
+          cost = Math.max(0, cost - rateNow * outQty);
+          balance = Math.max(0, balance - outQty);
+        }
+      }
+      forexSuggestedRate[currency] = balance > 0 ? cost / balance : 0;
+    }
+  }
+
+  // 手動匯率輸入欄位第一次出現時，帶入已儲存的匯率，沒有的話帶入建議匯率
+  useEffect(() => {
+    if (loading) return;
+    setRateInputs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const currency of forexCurrencyList) {
+        if (next[currency] === undefined) {
+          const saved = savedRates.find((r) => r.currency === currency);
+          next[currency] = saved ? String(saved.rate) : (forexSuggestedRate[currency] ? forexSuggestedRate[currency].toFixed(4) : "");
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, investments, savedRates]);
+
+  const handleRateChange = (currency: string, value: string) => {
+    setRateInputs((prev) => ({ ...prev, [currency]: value }));
+  };
+
+  const handleRateBlur = async (currency: string) => {
+    const rateVal = parseFloat(rateInputs[currency] ?? "");
+    if (isNaN(rateVal)) return;
+    const existing = savedRates.find((r) => r.currency === currency);
+    if (existing && existing.rate === rateVal) return;
+    setRateSavingCurrency(currency);
+    const res = await fetch("/api/user-exchange-rates", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currency, rate: rateVal }),
+    });
+    setRateSavingCurrency(null);
+    if (res.ok) {
+      const updated = await res.json();
+      setSavedRates((prev) => [...prev.filter((r) => r.currency !== currency), updated]);
+    }
+  };
+
+  // 外匯總計（台幣）＝各幣別餘額 × 手動輸入的匯率加總，這個金額才會列入正資產總計
+  const forexTwdTotal = forexCurrencyList.reduce((s, currency) => {
+    const rate = parseFloat(rateInputs[currency] ?? "") || 0;
+    return s + forexCurrencyBalances[currency] * rate;
+  }, 0);
+
   // 各幣別買入平均匯率：取自外匯投資頁同一套邏輯（僅計「買入外幣」，依每筆外幣數量×匯率加權），
   // 用來把基金頁存的外幣原始金額換算回台幣
   const currencyRates: Record<string, number> = { TWD: 1 };
   {
     const rateStats: Record<string, { twd: number; foreign: number }> = {};
-    for (const i of byType("FOREX")) {
+    for (const i of forexInvestments) {
       if (i.currency && i.amount > 0 && (i.quantity || 0) > 0 && i.exchangeRate) {
         if (!rateStats[i.currency]) rateStats[i.currency] = { twd: 0, foreign: 0 };
         rateStats[i.currency].twd += (i.quantity || 0) * i.exchangeRate;
@@ -146,14 +243,13 @@ export default function InvestmentOverviewPage() {
 
   const bankTotal = banks.reduce((s, b) => s + b.balance, 0);
   const stockTotal = sumAmount(byType("STOCK"));
-  const forexTotal = sumAmount(byType("FOREX"));
   const cryptoTotal = sumAmount(byType("CRYPTO"));
   const goldTotal = sumAmount(byType("GOLD"));
   const realestateTotal = sumAmount(byType("REALESTATE"));
   const insuranceTotal = sumAmount(byType("INSURANCE"));
   const debtTotal = debts.reduce((s, d) => s + d.amount, 0);
 
-  const positiveAssetsTotal = bankTotal + stockTotal + fundTwdTotal + forexTotal + cryptoTotal + goldTotal + realestateTotal + insuranceTotal;
+  const positiveAssetsTotal = bankTotal + stockTotal + fundTwdTotal + forexTwdTotal + cryptoTotal + goldTotal + realestateTotal + insuranceTotal;
   // 資產負債總計＝正資產總計 − 負債表總額
   const netWorth = positiveAssetsTotal - debtTotal;
 
@@ -161,7 +257,7 @@ export default function InvestmentOverviewPage() {
     { label: "銀行資產", amount: bankTotal },
     { label: "股票投資", amount: stockTotal },
     { label: "基金投資（已換算台幣）", amount: fundTwdTotal },
-    { label: "外匯投資", amount: forexTotal },
+    { label: "外匯投資（已換算台幣）", amount: forexTwdTotal },
     { label: "虛擬貨幣", amount: cryptoTotal },
     { label: "黃金投資", amount: goldTotal },
     { label: "不動產投資", amount: realestateTotal },
@@ -214,6 +310,46 @@ export default function InvestmentOverviewPage() {
           <p className="text-[11px] text-slate-400 mt-2">部分基金幣別在外匯投資頁尚無買入匯率記錄，暫以 1:1 換算，實際金額可能有落差</p>
         )}
       </div>
+
+      {/* 外匯投資：各幣別餘額 + 手動匯率換算 */}
+      {forexCurrencyList.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">外匯投資（各幣別餘額與換算匯率）</div>
+          <div className="space-y-3">
+            {forexCurrencyList.map((currency) => {
+              const balance = forexCurrencyBalances[currency];
+              const rateStr = rateInputs[currency] ?? "";
+              const rate = parseFloat(rateStr) || 0;
+              const twd = balance * rate;
+              return (
+                <div key={currency} className="flex items-center gap-3 text-sm">
+                  <span className="w-14 font-medium text-slate-700 shrink-0">{currency}</span>
+                  <span className="flex-1 text-slate-500 text-right">
+                    {new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(balance)}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs text-slate-400">匯率</span>
+                    <input
+                      type="number" min="0" step="any" value={rateStr}
+                      onChange={(e) => handleRateChange(currency, e.target.value)}
+                      onBlur={() => handleRateBlur(currency)}
+                      placeholder="0"
+                      className="w-20 border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-right focus:border-indigo-400 transition-colors"
+                    />
+                    {rateSavingCurrency === currency && <span className="text-[10px] text-slate-400">儲存中...</span>}
+                  </div>
+                  <span className="w-28 text-right font-semibold text-slate-900 shrink-0">{fmt(twd)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between pt-3 mt-2 border-t border-slate-200 text-sm">
+            <span className="font-semibold text-slate-900">外匯總計（台幣）</span>
+            <span className="font-bold text-slate-900">{fmt(forexTwdTotal)}</span>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">匯率預設帶入外匯投資頁的時序平均匯率，可手動修改；異動後會自動儲存，離開欄位即更新台幣金額與正資產總計</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4 mb-8">
         {/* 銀行別餘額 */}

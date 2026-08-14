@@ -24,6 +24,7 @@ model User {
   userFunds      UserFund[]
   userExchanges  UserExchange[]
   userDebtCategories UserDebtCategory[]
+  userExchangeRates UserExchangeRate[]
   investments    Investment[]
   debts          Debt[]
 }
@@ -86,6 +87,18 @@ model UserDebtCategory {
   createdAt DateTime @default(now())
 
   @@unique([userId, name])
+}
+
+model UserExchangeRate {
+  id        String   @id @default(cuid())
+  currency  String
+  rate      Float
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, currency])
 }
 
 model Debt {
