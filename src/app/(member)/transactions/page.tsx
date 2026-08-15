@@ -32,20 +32,6 @@ interface UserThirdParty {
   name: string;
 }
 
-interface ForexInvestment {
-  currency?: string;
-  quantity?: number;
-  amount: number;
-  date?: string;
-  createdAt: string;
-}
-
-interface ExchangeRateRow {
-  id: string;
-  currency: string;
-  rate: number;
-}
-
 const DEFAULT_BANKS = [
   "台灣銀行", "合作金庫", "第一銀行", "華南銀行", "彰化銀行",
   "兆豐銀行", "土地銀行", "國泰世華", "玉山銀行", "中國信託",
@@ -125,10 +111,6 @@ export default function TransactionsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [currencyTotals, setCurrencyTotals] = useState<Record<string, { income: number; expense: number }>>({});
-  const [forexInvestments, setForexInvestments] = useState<ForexInvestment[]>([]);
-  const [savedRates, setSavedRates] = useState<ExchangeRateRow[]>([]);
-  const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
-  const [rateSavingCurrency, setRateSavingCurrency] = useState<string | null>(null);
   const [showList, setShowList] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
   const [transfer, setTransfer] = useState(EMPTY_TRANSFER);
@@ -162,25 +144,21 @@ export default function TransactionsPage() {
     else if (filter.month) params.set("month", filter.month);
     params.set("page", String(page));
     params.set("pageSize", String(PAGE_SIZE));
-    const [txRes, catRes, bankRes, tpRes, allTxRes, forexRes, rateRes] = await Promise.all([
+    const [txRes, catRes, bankRes, tpRes, allTxRes] = await Promise.all([
       fetch(`/api/transactions?${params}`),
       fetch("/api/categories"),
       fetch("/api/user-banks"),
       fetch("/api/user-third-parties"),
       fetch("/api/transactions?source=CASH"),
-      fetch("/api/investments?type=FOREX"),
-      fetch("/api/user-exchange-rates"),
     ]);
-    const [txData, catData, bankData, tpData, allTxData, forexData, rateData] = await Promise.all([
-      txRes.json(), catRes.json(), bankRes.json(), tpRes.json(), allTxRes.json(), forexRes.json(), rateRes.json(),
+    const [txData, catData, bankData, tpData, allTxData] = await Promise.all([
+      txRes.json(), catRes.json(), bankRes.json(), tpRes.json(), allTxRes.json(),
     ]);
     setTransactions(Array.isArray(txData?.items) ? txData.items : []);
     setTotal(typeof txData?.total === "number" ? txData.total : 0);
     setCategories(Array.isArray(catData) ? catData : []);
     setUserBanks(Array.isArray(bankData) ? bankData : []);
     setUserThirdParties(Array.isArray(tpData) ? tpData : []);
-    setForexInvestments(Array.isArray(forexData) ? forexData : []);
-    setSavedRates(Array.isArray(rateData) ? rateData : []);
     const allTx: Transaction[] = Array.isArray(allTxData) ? allTxData : [];
     const totals: Record<string, { income: number; expense: number }> = {};
     for (const t of allTx) {
@@ -196,78 +174,6 @@ export default function TransactionsPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
   useEffect(() => { setPage(1); }, [filter]);
-
-  // 建議匯率：沿用外匯投資頁「時序加權平均」邏輯，作為手動匯率欄位的預設值（可被使用者輸入覆蓋）
-  const forexSuggestedRate: Record<string, number> = {};
-  {
-    const byCurrency: Record<string, ForexInvestment[]> = {};
-    for (const inv of forexInvestments) {
-      if (!inv.currency) continue;
-      (byCurrency[inv.currency] ||= []).push(inv);
-    }
-    for (const [currency, list] of Object.entries(byCurrency)) {
-      const sorted = [...list].sort(
-        (a, b) => new Date(a.date ?? a.createdAt).getTime() - new Date(b.date ?? b.createdAt).getTime()
-      );
-      let balance = 0;
-      let cost = 0;
-      for (const inv of sorted) {
-        const qty = inv.quantity || 0;
-        if (qty >= 0) {
-          balance += qty;
-          if (inv.amount > 0) cost += inv.amount;
-        } else {
-          const rateNow = balance > 0 ? cost / balance : 0;
-          const outQty = -qty;
-          cost = Math.max(0, cost - rateNow * outQty);
-          balance = Math.max(0, balance - outQty);
-        }
-      }
-      forexSuggestedRate[currency] = balance > 0 ? cost / balance : 0;
-    }
-  }
-
-  const foreignCurrencies = Object.keys(currencyTotals).filter((c) => c !== "TWD");
-
-  // 匯率輸入欄位第一次出現時，帶入已儲存的匯率（與外匯投資/基金投資頁共用同一份），沒有的話帶入建議匯率
-  useEffect(() => {
-    if (loading) return;
-    setRateInputs((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const currency of foreignCurrencies) {
-        if (next[currency] === undefined) {
-          const saved = savedRates.find((r) => r.currency === currency);
-          next[currency] = saved ? String(saved.rate) : (forexSuggestedRate[currency] ? forexSuggestedRate[currency].toFixed(4) : "");
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, currencyTotals, savedRates]);
-
-  const handleRateChange = (currency: string, value: string) => {
-    setRateInputs((prev) => ({ ...prev, [currency]: value }));
-  };
-
-  const handleRateBlur = async (currency: string) => {
-    const rateVal = parseFloat(rateInputs[currency] ?? "");
-    if (isNaN(rateVal)) return;
-    const existing = savedRates.find((r) => r.currency === currency);
-    if (existing && existing.rate === rateVal) return;
-    setRateSavingCurrency(currency);
-    const res = await fetch("/api/user-exchange-rates", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ currency, rate: rateVal }),
-    });
-    setRateSavingCurrency(null);
-    if (res.ok) {
-      const updated = await res.json();
-      setSavedRates((prev) => [...prev.filter((r) => r.currency !== currency), updated]);
-    }
-  };
 
   const resetForm = () => {
     setForm(EMPTY_FORM);
@@ -557,51 +463,27 @@ export default function TransactionsPage() {
         ) : (
           Object.entries(currencyTotals)
             .sort(([a], [b]) => (a === "TWD" ? -1 : b === "TWD" ? 1 : a.localeCompare(b)))
-            .map(([currency, { income, expense }]) => {
-              const isForeign = currency !== "TWD";
-              const rateStr = rateInputs[currency] ?? "";
-              const rate = parseFloat(rateStr) || 0;
-              const balance = income - expense;
-              return (
-                <div key={currency}>
-                  {isForeign && (
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-xs font-semibold text-slate-400">{currency}</span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-slate-400">匯率</span>
-                        <input
-                          type="number" min="0" step="any" value={rateStr}
-                          onChange={(e) => handleRateChange(currency, e.target.value)}
-                          onBlur={() => handleRateBlur(currency)}
-                          placeholder="0"
-                          className="w-20 border border-slate-200 rounded-lg px-2 py-1 text-xs text-right focus:border-indigo-400 transition-colors"
-                        />
-                        {rateSavingCurrency === currency && <span className="text-[10px] text-slate-400">儲存中...</span>}
-                      </div>
-                      {rate > 0 && (
-                        <span className="text-[11px] text-slate-400">≈ {fmt(balance * rate)}</span>
-                      )}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-                      <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">總流入</div>
-                      <div className="text-2xl font-bold text-emerald-600 mt-1">{fmtCur(income, currency)}</div>
-                    </div>
-                    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-                      <div className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">總流出</div>
-                      <div className="text-2xl font-bold text-red-500 mt-1">{fmtCur(expense, currency)}</div>
-                    </div>
-                    <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-                      <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">結餘</div>
-                      <div className={`text-2xl font-bold mt-1 ${balance >= 0 ? "text-slate-900" : "text-red-500"}`}>
-                        {fmtCur(balance, currency)}
-                      </div>
+            .map(([currency, { income, expense }]) => (
+              <div key={currency}>
+                {currency !== "TWD" && <div className="text-xs font-semibold text-slate-400 mb-1.5">{currency}</div>}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                    <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">總流入</div>
+                    <div className="text-2xl font-bold text-emerald-600 mt-1">{fmtCur(income, currency)}</div>
+                  </div>
+                  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                    <div className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">總流出</div>
+                    <div className="text-2xl font-bold text-red-500 mt-1">{fmtCur(expense, currency)}</div>
+                  </div>
+                  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">結餘</div>
+                    <div className={`text-2xl font-bold mt-1 ${income - expense >= 0 ? "text-slate-900" : "text-red-500"}`}>
+                      {fmtCur(income - expense, currency)}
                     </div>
                   </div>
                 </div>
-              );
-            })
+              </div>
+            ))
         )}
       </div>
 
