@@ -34,7 +34,7 @@ interface StockData {
   quotes: Quote[];
 }
 
-// 個股基本面統計：需要另外串接財報/公開資訊觀測站類的 API 才能填值，目前先保留版位、全部 null。
+// 個股基本面統計：營收/EPS(季)/本益比/殖利率來自證交所公開資料，EPS(近4季)、ROE(近4季)尚未串接。
 interface FundamentalStats {
   cumulativeRevenueYoY: number | null; // 累計營收YoY(%)
   revenueYoY: number | null; // 營收YoY(%)
@@ -332,9 +332,10 @@ export default function TwStockPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 以下兩份資料目前沒有串接來源，先保留 UI 版位與資料結構、全部給 null/空陣列。
-  // 之後串接籌碼/財報 API 時，把對應的 fetch 邏輯接上、setState 即可，UI 不用再改。
-  const [fundamentals] = useState<FundamentalStats | null>(null);
+  // 個股資訊：營收/EPS(季)/本益比/殖利率已接證交所公開資料，EPS(近4季)、ROE(近4季)
+  // 需要額外的歷史季度或資產負債表資料，目前尚未找到可靠免費來源，固定回傳 null。
+  const [fundamentals, setFundamentals] = useState<FundamentalStats | null>(null);
+  // 以下籌碼排行目前沒有串接來源，先保留 UI 版位與資料結構、全部給空陣列。
   const [buyRanking] = useState<ChipRanking[]>([]);
   const [sellRanking] = useState<ChipRanking[]>([]);
 
@@ -357,6 +358,7 @@ export default function TwStockPage() {
     setError(null);
     setInstitutional(null);
     setMargin(null);
+    setFundamentals(null);
     try {
       const res = await fetch(`/api/market/tw-stock/${code}`);
       if (!res.ok) {
@@ -374,6 +376,13 @@ export default function TwStockPage() {
         .then((body) => {
           if (body?.institutional) setInstitutional(body.institutional);
           if (body?.margin) setMargin(body.margin);
+        })
+        .catch(() => {});
+
+      fetch(`/api/market/tw-stock/${code}/fundamentals`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((body) => {
+          if (body) setFundamentals(body);
         })
         .catch(() => {});
     } catch {
@@ -691,7 +700,8 @@ export default function TwStockPage() {
             )}
           </div>
 
-          {/* 個股資訊（基本面）：版位對齊圖片參考，欄位尚未串接資料源 */}
+          {/* 個股資訊（基本面）：營收/EPS(季)/本益比/殖利率為證交所公開資料真實數值，
+              EPS(近4季)、ROE(近4季)需要額外歷史季度/資產負債表資料，尚未串接 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
             <h3 className="text-sm font-semibold text-slate-700 mb-4">個股資訊</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -711,7 +721,9 @@ export default function TwStockPage() {
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-slate-400 mt-4">尚未串接財報資料源，僅保留版位</p>
+            <p className="text-[11px] text-slate-400 mt-4">
+              EPS(近4季)、ROE(近4季)尚未串接資料源，僅保留版位；其餘欄位為證交所公開資料
+            </p>
           </div>
 
           {/* 三大法人買賣超：真實資料，來源證交所 T86（僅涵蓋上市） */}
