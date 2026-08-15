@@ -13,6 +13,7 @@ import {
   CartesianGrid,
   ReferenceLine,
   Cell,
+  Brush,
 } from "recharts";
 
 const SYNC_ID = "tw-stock-charts";
@@ -47,8 +48,8 @@ interface FundamentalStats {
   roe4Q: number | null; // ROE(近4季)
 }
 
-// 三大法人買賣超（張）：來自證交所 T86 當日全部股票日報表，僅涵蓋上市股票
-interface InstitutionalData {
+// 三大法人買賣超（張）：來自證交所 T86 日報表，近20個交易日逐日資料，僅涵蓋上市股票
+interface InstitutionalRow {
   date: string;
   foreignNetLots: number;
   trustNetLots: number;
@@ -56,14 +57,29 @@ interface InstitutionalData {
   totalNetLots: number;
 }
 
-// 融資融券餘額（張）：來自證交所 MI_MARGN 當日全部股票日報表，僅涵蓋上市股票
-interface MarginData {
+// 融資融券餘額（張）：來自證交所 MI_MARGN 日報表，近20個交易日逐日資料，僅涵蓋上市股票
+interface MarginRow {
   date: string;
   marginBalance: number;
   marginChange: number;
   shortBalance: number;
   shortChange: number;
 }
+
+// 股票觀察名單：存在使用者自己的 UserWatchStock，點擊可直接查詢，不用每次都重新搜尋
+interface WatchStock {
+  id: string;
+  code: string;
+  name: string | null;
+}
+
+const INTERVAL_OPTIONS = [
+  { value: "60m", label: "60分K" },
+  { value: "1d", label: "日線" },
+  { value: "1wk", label: "週線" },
+  { value: "1mo", label: "月線" },
+] as const;
+type ChartInterval = (typeof INTERVAL_OPTIONS)[number]["value"];
 
 // 買超/賣超前 15 名分點：需要券商分點籌碼資料 API，目前先保留版位、欄位對齊圖片參考的分點排行表。
 interface ChipRanking {
@@ -340,9 +356,9 @@ export default function TwStockPage() {
   const [buyRanking] = useState<ChipRanking[]>([]);
   const [sellRanking] = useState<ChipRanking[]>([]);
 
-  // 三大法人買賣超、融資融券：真的接了證交所公開資料
-  const [institutional, setInstitutional] = useState<InstitutionalData | null>(null);
-  const [margin, setMargin] = useState<MarginData | null>(null);
+  // 三大法人買賣超、融資融券：真的接了證交所公開資料，近20個交易日逐日陣列
+  const [institutional, setInstitutional] = useState<InstitutionalRow[]>([]);
+  const [margin, setMargin] = useState<MarginRow[]>([]);
 
   // 散戶持股比率：門檻可調整，但目前找不到能對上台股代碼的免費集保資料源，先留 UI、資料待確認
   const [retailThreshold, setRetailThreshold] = useState("20");
@@ -354,14 +370,57 @@ export default function TwStockPage() {
   const [showDMI, setShowDMI] = useState(false);
   const [showBIAS, setShowBIAS] = useState(false);
 
-  const fetchStock = useCallback(async (code: string) => {
+  // K線週期（60分K/日線/週線/月線）與縮放：縮放用 Brush 拖曳選取範圍，套用到所有同步圖表
+  const [chartInterval, setChartInterval] = useState<ChartInterval>("1d");
+  const [brushRange, setBrushRange] = useState<{ startIndex: number; endIndex: number } | null>(null);
+
+  // 股票觀察名單：用既有 UserWatchStock 資料表存使用者自己的清單
+  const [watchlist, setWatchlist] = useState<WatchStock[]>([]);
+
+  useEffect(() => {
+    fetch("/api/market/tw-stock/watchlist")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setWatchlist)
+      .catch(() => {});
+  }, []);
+
+  const isWatched = data ? watchlist.some((w) => w.code === data.code) : false;
+
+  const toggleWatchlist = async () => {
+    if (!data) return;
+    if (isWatched) {
+      setWatchlist((prev) => prev.filter((w) => w.code !== data.code));
+      fetch(`/api/market/tw-stock/watchlist/${data.code}`, { method: "DELETE" }).catch(() => {});
+    } else {
+      setWatchlist((prev) => [{ id: `pending-${data.code}`, code: data.code, name: data.name }, ...prev]);
+      fetch("/api/market/tw-stock/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: data.code }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((item) => {
+          if (item) setWatchlist((prev) => prev.map((w) => (w.code === item.code ? item : w)));
+        })
+        .catch(() => {});
+    }
+  };
+
+  const removeFromWatchlist = (code: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setWatchlist((prev) => prev.filter((w) => w.code !== code));
+    fetch(`/api/market/tw-stock/watchlist/${code}`, { method: "DELETE" }).catch(() => {});
+  };
+
+  const fetchStock = useCallback(async (code: string, interval: ChartInterval = "1d") => {
     setLoading(true);
     setError(null);
-    setInstitutional(null);
-    setMargin(null);
+    setInstitutional([]);
+    setMargin([]);
     setFundamentals(null);
+    setBrushRange(null);
     try {
-      const res = await fetch(`/api/market/tw-stock/${code}`);
+      const res = await fetch(`/api/market/tw-stock/${code}?interval=${interval}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError(body.error || "查詢失敗");
@@ -394,6 +453,11 @@ export default function TwStockPage() {
     }
   }, []);
 
+  const handleIntervalChange = (next: ChartInterval) => {
+    setChartInterval(next);
+    if (data) fetchStock(data.code, next);
+  };
+
   // 搜尋股票：可打代碼或中文名稱，輸入時即時查詢比對結果做成下拉選單
   const [searchResults, setSearchResults] = useState<{ code: string; name: string; market: "TW" | "TWO" }[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -419,7 +483,7 @@ export default function TwStockPage() {
     setCodeInput(r.code);
     setDropdownOpen(false);
     setSearchResults([]);
-    fetchStock(r.code);
+    fetchStock(r.code, chartInterval);
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -428,13 +492,18 @@ export default function TwStockPage() {
     if (!q) return;
     setDropdownOpen(false);
     if (/^\d+$/.test(q)) {
-      fetchStock(q);
+      fetchStock(q, chartInterval);
     } else if (searchResults.length > 0) {
       setCodeInput(searchResults[0].code);
-      fetchStock(searchResults[0].code);
+      fetchStock(searchResults[0].code, chartInterval);
     } else {
       setError("查無符合的股票，請確認代碼或名稱");
     }
+  };
+
+  const selectWatchStock = (code: string) => {
+    setCodeInput(code);
+    fetchStock(code, chartInterval);
   };
 
   const rows = data ? buildChartRows(data.quotes) : [];
@@ -442,6 +511,9 @@ export default function TwStockPage() {
   const prev = rows[rows.length - 2];
   const change = last && prev ? last.close - prev.close : null;
   const changePct = last && prev ? (change! / prev.close) * 100 : null;
+
+  // K線主圖用 Brush 拖曳選取範圍，其餘同步圖表沒有自己的 Brush，改用這個切好的資料顯示同樣的範圍
+  const visibleRows = brushRange ? rows.slice(brushRange.startIndex, brushRange.endIndex + 1) : rows;
 
   return (
     <div className="max-w-6xl">
@@ -489,6 +561,34 @@ export default function TwStockPage() {
         </button>
       </form>
 
+      {/* 股票觀察名單：點名字直接查詢，不用重新打字搜尋 */}
+      {watchlist.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap mb-6 -mt-2">
+          <span className="text-xs text-slate-400">觀察名單</span>
+          {watchlist.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() => selectWatchStock(w.code)}
+              className={`flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full text-xs border transition-colors ${
+                data?.code === w.code
+                  ? "bg-indigo-50 border-indigo-200 text-indigo-600"
+                  : "bg-white border-slate-200 text-slate-600 hover:border-indigo-300"
+              }`}
+            >
+              {w.name ?? w.code}
+              <span
+                role="button"
+                onClick={(e) => removeFromWatchlist(w.code, e)}
+                className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600"
+              >
+                ×
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl px-4 py-3 mb-6">{error}</div>
       )}
@@ -502,6 +602,17 @@ export default function TwStockPage() {
                 {data.code} {data.name}
               </h2>
               <span className="text-xs text-slate-400">{data.market === "TW" ? "上市" : "上櫃"} · {last.date}</span>
+              <button
+                type="button"
+                onClick={toggleWatchlist}
+                className={`ml-auto text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                  isWatched
+                    ? "bg-amber-50 border-amber-200 text-amber-600"
+                    : "bg-white border-slate-200 text-slate-500 hover:border-amber-300 hover:text-amber-600"
+                }`}
+              >
+                {isWatched ? "★ 已加入觀察" : "☆ 加入觀察"}
+              </button>
             </div>
             <div className="flex items-baseline gap-3 mt-2">
               <span className="text-3xl font-bold text-slate-900">{fmtNum(last.close)}</span>
@@ -521,15 +632,26 @@ export default function TwStockPage() {
 
           {/* K線 + 均線 + 布林通道 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
-            <div className="flex items-center gap-4 text-xs mb-3 text-slate-500">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-amber-400 inline-block" />MA5</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-blue-500 inline-block" />MA20</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-purple-500 inline-block" />MA60</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-slate-400 inline-block" />MA120</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-indigo-300 inline-block" />布林通道</span>
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+              <div className="flex items-center gap-4 text-xs text-slate-500">
+                <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-amber-400 inline-block" />MA5</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-blue-500 inline-block" />MA20</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-purple-500 inline-block" />MA60</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-slate-400 inline-block" />MA120</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-indigo-300 inline-block" />布林通道</span>
+              </div>
+              <select
+                value={chartInterval}
+                onChange={(e) => handleIntervalChange(e.target.value as ChartInterval)}
+                className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-400 transition-colors"
+              >
+                {INTERVAL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
             </div>
             <ResponsiveContainer width="100%" height={380}>
-              <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <ComposedChart key={`${data.code}-${chartInterval}`} data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                 <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} width={56} />
@@ -544,15 +666,25 @@ export default function TwStockPage() {
                 <Line type="monotone" dataKey="ma120" stroke="#94a3b8" dot={false} strokeWidth={1.5} connectNulls />
                 <Line type="monotone" dataKey="bbUpper" stroke="#c7d2fe" dot={false} strokeWidth={1} connectNulls strokeDasharray="4 3" />
                 <Line type="monotone" dataKey="bbLower" stroke="#c7d2fe" dot={false} strokeWidth={1} connectNulls strokeDasharray="4 3" />
+                <Brush
+                  dataKey="date"
+                  height={22}
+                  stroke="#a5b4fc"
+                  travellerWidth={8}
+                  onChange={(r) =>
+                    setBrushRange({ startIndex: r.startIndex ?? 0, endIndex: r.endIndex ?? rows.length - 1 })
+                  }
+                />
               </ComposedChart>
             </ResponsiveContainer>
+            <p className="text-[11px] text-slate-400 mt-2">拖曳圖表下方灰色區塊可縮放時間區間，套用到下方所有同步圖表</p>
           </div>
 
           {/* 成交量 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
             <div className="text-xs text-slate-400 mb-2">成交量</div>
             <ResponsiveContainer width="100%" height={120}>
-              <BarChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <BarChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                 <YAxis tick={{ fontSize: 11 }} width={56} />
                 <Tooltip formatter={(value) => [Number(value).toLocaleString("zh-TW"), "成交量"]} />
@@ -595,7 +727,7 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-purple-500 inline-block" />J</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis tick={{ fontSize: 11 }} width={56} />
@@ -615,7 +747,7 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-indigo-500 inline-block" />RSI</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={56} />
@@ -637,14 +769,14 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-slate-300 inline-block" />柱狀圖</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis tick={{ fontSize: 11 }} width={56} />
                     <Tooltip formatter={(value, name) => [fmtNum(Number(value)), String(name)]} />
                     <ReferenceLine y={0} stroke="#e2e8f0" />
                     <Bar dataKey="macdHist" isAnimationActive={false}>
-                      {rows.map((r, idx) => (
+                      {visibleRows.map((r, idx) => (
                         <Cell key={idx} fill={(r.macdHist ?? 0) >= 0 ? "#fca5a5" : "#86efac"} />
                       ))}
                     </Bar>
@@ -664,7 +796,7 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-slate-500 inline-block" />ADX</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis tick={{ fontSize: 11 }} width={56} />
@@ -686,7 +818,7 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-purple-500 inline-block" />BIAS24</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis tick={{ fontSize: 11 }} width={56} />
@@ -727,56 +859,76 @@ export default function TwStockPage() {
             </p>
           </div>
 
-          {/* 三大法人買賣超：真實資料，來源證交所 T86（僅涵蓋上市） */}
+          {/* 三大法人買賣超：真實資料，來源證交所 T86（僅涵蓋上市），近20個交易日逐日顯示 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
-            <h3 className="text-sm font-semibold text-slate-700 mb-4">三大法人買賣超（張）</h3>
-            {institutional ? (
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  {([
-                    ["外資", institutional.foreignNetLots],
-                    ["投信", institutional.trustNetLots],
-                    ["自營商", institutional.dealerNetLots],
-                    ["合計", institutional.totalNetLots],
-                  ] as const).map(([label, value]) => (
-                    <div key={label}>
-                      <div className="text-xs text-slate-400 mb-0.5">{label}</div>
-                      <div className={`text-lg font-semibold ${value >= 0 ? "text-red-500" : "text-green-600"}`}>
-                        {value >= 0 ? "+" : ""}{value.toLocaleString("zh-TW")}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[11px] text-slate-400 mt-4">資料日期 {institutional.date} · 資料源：證交所 T86</p>
-              </>
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">三大法人買賣超（張，近{institutional.length}個交易日）</h3>
+            {institutional.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-slate-50">
+                      <th className="text-left font-semibold px-3 py-2">日期</th>
+                      <th className="text-right font-semibold px-3 py-2">外資</th>
+                      <th className="text-right font-semibold px-3 py-2">投信</th>
+                      <th className="text-right font-semibold px-3 py-2">自營商</th>
+                      <th className="text-right font-semibold px-3 py-2">合計</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {institutional.map((row) => (
+                      <tr key={row.date} className="text-slate-700">
+                        <td className="px-3 py-2 text-slate-500">{row.date}</td>
+                        {([row.foreignNetLots, row.trustNetLots, row.dealerNetLots, row.totalNetLots] as const).map(
+                          (v, i) => (
+                            <td key={i} className={`px-3 py-2 text-right ${v >= 0 ? "text-red-500" : "text-green-600"}`}>
+                              {v >= 0 ? "+" : ""}{v.toLocaleString("zh-TW")}
+                            </td>
+                          )
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-slate-400 mt-3">資料源：證交所 T86</p>
+              </div>
             ) : (
               <div className="text-sm text-slate-400">尚未取得資料（僅涵蓋上市股票，上櫃股票暫無此資料）</div>
             )}
           </div>
 
-          {/* 融資融券餘額：真實資料，來源證交所 MI_MARGN（僅涵蓋上市） */}
+          {/* 融資融券餘額：真實資料，來源證交所 MI_MARGN（僅涵蓋上市），近20個交易日逐日顯示 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
-            <h3 className="text-sm font-semibold text-slate-700 mb-4">融資融券餘額（張）</h3>
-            {margin ? (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-xs text-slate-400 mb-0.5">融資餘額</div>
-                    <div className="text-lg font-semibold text-slate-700">{margin.marginBalance.toLocaleString("zh-TW")}</div>
-                    <div className={`text-xs mt-0.5 ${margin.marginChange >= 0 ? "text-red-500" : "text-green-600"}`}>
-                      {margin.marginChange >= 0 ? "+" : ""}{margin.marginChange.toLocaleString("zh-TW")}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400 mb-0.5">融券餘額</div>
-                    <div className="text-lg font-semibold text-slate-700">{margin.shortBalance.toLocaleString("zh-TW")}</div>
-                    <div className={`text-xs mt-0.5 ${margin.shortChange >= 0 ? "text-red-500" : "text-green-600"}`}>
-                      {margin.shortChange >= 0 ? "+" : ""}{margin.shortChange.toLocaleString("zh-TW")}
-                    </div>
-                  </div>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-4">資料日期 {margin.date} · 資料源：證交所 MI_MARGN</p>
-              </>
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">融資融券餘額（張，近{margin.length}個交易日）</h3>
+            {margin.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-slate-50">
+                      <th className="text-left font-semibold px-3 py-2">日期</th>
+                      <th className="text-right font-semibold px-3 py-2">融資餘額</th>
+                      <th className="text-right font-semibold px-3 py-2">增減</th>
+                      <th className="text-right font-semibold px-3 py-2">融券餘額</th>
+                      <th className="text-right font-semibold px-3 py-2">增減</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {margin.map((row) => (
+                      <tr key={row.date} className="text-slate-700">
+                        <td className="px-3 py-2 text-slate-500">{row.date}</td>
+                        <td className="px-3 py-2 text-right">{row.marginBalance.toLocaleString("zh-TW")}</td>
+                        <td className={`px-3 py-2 text-right ${row.marginChange >= 0 ? "text-red-500" : "text-green-600"}`}>
+                          {row.marginChange >= 0 ? "+" : ""}{row.marginChange.toLocaleString("zh-TW")}
+                        </td>
+                        <td className="px-3 py-2 text-right">{row.shortBalance.toLocaleString("zh-TW")}</td>
+                        <td className={`px-3 py-2 text-right ${row.shortChange >= 0 ? "text-red-500" : "text-green-600"}`}>
+                          {row.shortChange >= 0 ? "+" : ""}{row.shortChange.toLocaleString("zh-TW")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-slate-400 mt-3">資料源：證交所 MI_MARGN</p>
+              </div>
             ) : (
               <div className="text-sm text-slate-400">尚未取得資料（僅涵蓋上市股票，上櫃股票暫無此資料）</div>
             )}
@@ -808,13 +960,13 @@ export default function TwStockPage() {
             {/* 當日主力動向：以三大法人合計買賣超作為替代指標，非真正的券商分點籌碼 */}
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex flex-col items-center justify-center text-center">
               <div className="text-xs text-slate-400 mb-2">當日主力動向</div>
-              {institutional ? (
+              {institutional.length > 0 ? (
                 <>
-                  <div className={`text-xl font-bold ${institutional.totalNetLots >= 0 ? "text-red-500" : "text-green-600"}`}>
-                    {institutional.totalNetLots >= 0 ? "買超" : "賣超"}
+                  <div className={`text-xl font-bold ${institutional[0].totalNetLots >= 0 ? "text-red-500" : "text-green-600"}`}>
+                    {institutional[0].totalNetLots >= 0 ? "買超" : "賣超"}
                   </div>
-                  <div className="text-sm text-slate-600 mt-1">{Math.abs(institutional.totalNetLots).toLocaleString("zh-TW")} 張</div>
-                  <div className="text-[10px] text-slate-400 mt-1">以三大法人合計買賣超估算</div>
+                  <div className="text-sm text-slate-600 mt-1">{Math.abs(institutional[0].totalNetLots).toLocaleString("zh-TW")} 張</div>
+                  <div className="text-[10px] text-slate-400 mt-1">以三大法人合計買賣超估算（{institutional[0].date}）</div>
                 </>
               ) : (
                 <div className="text-sm text-slate-400 mt-2">尚未取得資料</div>
