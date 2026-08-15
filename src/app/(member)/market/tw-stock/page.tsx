@@ -11,7 +11,11 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  ReferenceLine,
+  Cell,
 } from "recharts";
+
+const SYNC_ID = "tw-stock-charts";
 
 interface Quote {
   date: string;
@@ -68,6 +72,13 @@ interface ChartRow extends Quote {
   ma120: number | null;
   bbUpper: number | null;
   bbLower: number | null;
+  rsi: number | null;
+  k: number | null;
+  d: number | null;
+  j: number | null;
+  macdDif: number | null;
+  macdDea: number | null;
+  macdHist: number | null;
 }
 
 function sma(values: number[], period: number, index: number): number | null {
@@ -84,8 +95,84 @@ function stddev(values: number[], period: number, index: number, mean: number): 
   return Math.sqrt(sumSq / period);
 }
 
+// RSI(14)：Wilder 平滑移動平均，台股看盤軟體常見算法
+function computeRSI(closes: number[], period = 14): (number | null)[] {
+  const result: (number | null)[] = new Array(closes.length).fill(null);
+  let avgGain = 0;
+  let avgLoss = 0;
+  for (let i = 1; i < closes.length; i++) {
+    const delta = closes[i] - closes[i - 1];
+    const gain = Math.max(delta, 0);
+    const loss = Math.max(-delta, 0);
+    if (i <= period) {
+      avgGain += gain;
+      avgLoss += loss;
+      if (i === period) {
+        avgGain /= period;
+        avgLoss /= period;
+        result[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+      }
+    } else {
+      avgGain = (avgGain * (period - 1) + gain) / period;
+      avgLoss = (avgLoss * (period - 1) + loss) / period;
+      result[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+    }
+  }
+  return result;
+}
+
+// KDJ(9,3,3)：RSV 取近 9 日高低，K/D 用平滑因子 1/3，台股看盤軟體常見算法
+function computeKDJ(quotes: Quote[], period = 9) {
+  const k: (number | null)[] = new Array(quotes.length).fill(null);
+  const d: (number | null)[] = new Array(quotes.length).fill(null);
+  const j: (number | null)[] = new Array(quotes.length).fill(null);
+  let prevK = 50;
+  let prevD = 50;
+  for (let i = 0; i < quotes.length; i++) {
+    if (i + 1 < period) continue;
+    let highN = -Infinity;
+    let lowN = Infinity;
+    for (let n = i - period + 1; n <= i; n++) {
+      highN = Math.max(highN, quotes[n].high);
+      lowN = Math.min(lowN, quotes[n].low);
+    }
+    const rsv = highN === lowN ? 50 : ((quotes[i].close - lowN) / (highN - lowN)) * 100;
+    const curK = (prevK * 2 + rsv) / 3;
+    const curD = (prevD * 2 + curK) / 3;
+    k[i] = curK;
+    d[i] = curD;
+    j[i] = 3 * curK - 2 * curD;
+    prevK = curK;
+    prevD = curD;
+  }
+  return { k, d, j };
+}
+
+function ema(values: number[], period: number): number[] {
+  const result: number[] = new Array(values.length);
+  const factor = 2 / (period + 1);
+  result[0] = values[0];
+  for (let i = 1; i < values.length; i++) {
+    result[i] = values[i] * factor + result[i - 1] * (1 - factor);
+  }
+  return result;
+}
+
+// MACD(12,26,9)：DIF = EMA12 - EMA26，DEA = DIF 的 EMA9，柱狀圖 = DIF - DEA
+function computeMACD(closes: number[]) {
+  const ema12 = ema(closes, 12);
+  const ema26 = ema(closes, 26);
+  const dif = closes.map((_, i) => ema12[i] - ema26[i]);
+  const dea = ema(dif, 9);
+  const hist = dif.map((v, i) => v - dea[i]);
+  return { dif, dea, hist };
+}
+
 function buildChartRows(quotes: Quote[]): ChartRow[] {
   const closes = quotes.map((q) => q.close);
+  const rsi = computeRSI(closes);
+  const { k, d, j } = computeKDJ(quotes);
+  const { dif, dea, hist } = computeMACD(closes);
   return quotes.map((q, i) => {
     const ma20 = sma(closes, 20, i);
     const bbStd = ma20 != null ? stddev(closes, 20, i, ma20) : null;
@@ -98,6 +185,13 @@ function buildChartRows(quotes: Quote[]): ChartRow[] {
       ma120: sma(closes, 120, i),
       bbUpper: ma20 != null && bbStd != null ? ma20 + 2 * bbStd : null,
       bbLower: ma20 != null && bbStd != null ? ma20 - 2 * bbStd : null,
+      rsi: rsi[i],
+      k: k[i],
+      d: d[i],
+      j: j[i],
+      macdDif: dif[i],
+      macdDea: dea[i],
+      macdHist: hist[i],
     };
   });
 }
@@ -143,6 +237,11 @@ export default function TwStockPage() {
   const [mainForce] = useState<MainForceFlow | null>(null);
   const [buyRanking] = useState<ChipRanking[]>([]);
   const [sellRanking] = useState<ChipRanking[]>([]);
+
+  // 三個技術指標小窗口：都用同一個 syncId，滑鼠移到任一張圖，其他圖的十字線/提示會同步移動
+  const [showKDJ, setShowKDJ] = useState(true);
+  const [showRSI, setShowRSI] = useState(true);
+  const [showMACD, setShowMACD] = useState(true);
 
   const fetchStock = useCallback(async (code: string) => {
     setLoading(true);
@@ -240,7 +339,7 @@ export default function TwStockPage() {
               <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-indigo-300 inline-block" />布林通道</span>
             </div>
             <ResponsiveContainer width="100%" height={380}>
-              <ComposedChart data={rows} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                 <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} width={56} />
@@ -263,13 +362,100 @@ export default function TwStockPage() {
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
             <div className="text-xs text-slate-400 mb-2">成交量</div>
             <ResponsiveContainer width="100%" height={120}>
-              <BarChart data={rows} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <BarChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                 <YAxis tick={{ fontSize: 11 }} width={56} />
                 <Tooltip formatter={(value) => [Number(value).toLocaleString("zh-TW"), "成交量"]} />
                 <Bar dataKey="volume" fill="#94a3b8" isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* 技術指標小窗口：KDJ / RSI / MACD，跟上面 K 線、成交量共用同一個 syncId 同步游標 */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
+            <div className="flex items-center gap-4 text-xs mb-3">
+              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
+                <input type="checkbox" checked={showKDJ} onChange={(e) => setShowKDJ(e.target.checked)} className="accent-indigo-500" />
+                KDJ
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
+                <input type="checkbox" checked={showRSI} onChange={(e) => setShowRSI(e.target.checked)} className="accent-indigo-500" />
+                RSI
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
+                <input type="checkbox" checked={showMACD} onChange={(e) => setShowMACD(e.target.checked)} className="accent-indigo-500" />
+                MACD
+              </label>
+            </div>
+
+            {showKDJ && (
+              <div className="mb-4">
+                <div className="flex items-center gap-3 text-xs mb-1.5 text-slate-500">
+                  <span className="font-medium text-slate-600">KDJ(9,3,3)</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-amber-500 inline-block" />K</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-blue-500 inline-block" />D</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-purple-500 inline-block" />J</span>
+                </div>
+                <ResponsiveContainer width="100%" height={150}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
+                    <YAxis tick={{ fontSize: 11 }} width={56} />
+                    <Tooltip formatter={(value, name) => [fmtNum(Number(value)), String(name)]} />
+                    <Line type="monotone" dataKey="k" stroke="#f59e0b" dot={false} strokeWidth={1.5} connectNulls />
+                    <Line type="monotone" dataKey="d" stroke="#3b82f6" dot={false} strokeWidth={1.5} connectNulls />
+                    <Line type="monotone" dataKey="j" stroke="#a855f7" dot={false} strokeWidth={1.5} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {showRSI && (
+              <div className="mb-4">
+                <div className="flex items-center gap-3 text-xs mb-1.5 text-slate-500">
+                  <span className="font-medium text-slate-600">RSI(14)</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-indigo-500 inline-block" />RSI</span>
+                </div>
+                <ResponsiveContainer width="100%" height={150}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={56} />
+                    <Tooltip formatter={(value, name) => [fmtNum(Number(value)), String(name)]} />
+                    <ReferenceLine y={70} stroke="#fca5a5" strokeDasharray="4 3" />
+                    <ReferenceLine y={30} stroke="#86efac" strokeDasharray="4 3" />
+                    <Line type="monotone" dataKey="rsi" stroke="#6366f1" dot={false} strokeWidth={1.5} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {showMACD && (
+              <div>
+                <div className="flex items-center gap-3 text-xs mb-1.5 text-slate-500">
+                  <span className="font-medium text-slate-600">MACD(12,26,9)</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-amber-500 inline-block" />DIF</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-blue-500 inline-block" />DEA</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-slate-300 inline-block" />柱狀圖</span>
+                </div>
+                <ResponsiveContainer width="100%" height={150}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
+                    <YAxis tick={{ fontSize: 11 }} width={56} />
+                    <Tooltip formatter={(value, name) => [fmtNum(Number(value)), String(name)]} />
+                    <ReferenceLine y={0} stroke="#e2e8f0" />
+                    <Bar dataKey="macdHist" isAnimationActive={false}>
+                      {rows.map((r, idx) => (
+                        <Cell key={idx} fill={(r.macdHist ?? 0) >= 0 ? "#fca5a5" : "#86efac"} />
+                      ))}
+                    </Bar>
+                    <Line type="monotone" dataKey="macdDif" stroke="#f59e0b" dot={false} strokeWidth={1.5} connectNulls />
+                    <Line type="monotone" dataKey="macdDea" stroke="#3b82f6" dot={false} strokeWidth={1.5} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
 
           {/* 個股資訊（基本面）：版位對齊圖片參考，欄位尚未串接資料源 */}
