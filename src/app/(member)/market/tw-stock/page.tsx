@@ -48,6 +48,28 @@ interface FundamentalStats {
   roe4Q: number | null; // ROE(近4季)
 }
 
+// 個股基本資料：董事長/總經理/資本額等公司登記資訊，來自證交所/櫃買中心公開資訊觀測站資料
+interface CompanyProfile {
+  code: string;
+  name: string;
+  englishName: string | null;
+  industry: string | null;
+  chairman: string | null;
+  generalManager: string | null;
+  spokesman: string | null;
+  foundedDate: string | null;
+  listedDate: string | null;
+  capital: number | null;
+  issuedShares: number | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  transferAgent: string | null;
+  transferAgentPhone: string | null;
+  transferAgentAddress: string | null;
+}
+
 // 三大法人買賣超（張）：來自證交所 T86 日報表，近20個交易日逐日資料，僅涵蓋上市股票
 interface InstitutionalRow {
   date: string;
@@ -80,6 +102,33 @@ const INTERVAL_OPTIONS = [
   { value: "1mo", label: "月線" },
 ] as const;
 type ChartInterval = (typeof INTERVAL_OPTIONS)[number]["value"];
+
+// 法人買賣超趨勢圖：指標下拉選單可切換要看哪個數字，全部統一畫「每日值(長條)+累計值(線)」，
+// 融資/融券沒有現成的「淨買賣超」概念，改用「餘額增減」比照辦理，一樣可以疊出累計走勢。
+const FLOW_METRICS = [
+  { key: "totalNetLots", label: "主力買賣超", source: "institutional" },
+  { key: "foreignNetLots", label: "外資", source: "institutional" },
+  { key: "trustNetLots", label: "投信", source: "institutional" },
+  { key: "dealerNetLots", label: "自營商", source: "institutional" },
+  { key: "marginChange", label: "融資餘額增減", source: "margin" },
+  { key: "shortChange", label: "融券餘額增減", source: "margin" },
+] as const;
+type FlowMetricKey = (typeof FLOW_METRICS)[number]["key"];
+
+const FLOW_PERIODS = [
+  { key: "1m", label: "1個月" },
+  { key: "3m", label: "3個月" },
+  { key: "6m", label: "6個月" },
+  { key: "1y", label: "1年" },
+  { key: "3y", label: "3年" },
+] as const;
+type FlowPeriodKey = (typeof FLOW_PERIODS)[number]["key"];
+
+interface FlowHistoryResponse {
+  institutional: InstitutionalRow[];
+  margin: MarginRow[];
+  requestedFrom: string;
+}
 
 // 買超/賣超前 15 名分點：需要券商分點籌碼資料 API，目前先保留版位、欄位對齊圖片參考的分點排行表。
 interface ChipRanking {
@@ -352,6 +401,8 @@ export default function TwStockPage() {
   // 個股資訊：營收/EPS(季)/本益比/殖利率已接證交所公開資料，EPS(近4季)、ROE(近4季)
   // 需要額外的歷史季度或資產負債表資料，目前尚未找到可靠免費來源，固定回傳 null。
   const [fundamentals, setFundamentals] = useState<FundamentalStats | null>(null);
+  // 個股基本資料：董事長/總經理/資本額等公司登記資訊，來自證交所/櫃買中心公開資料
+  const [profile, setProfile] = useState<CompanyProfile | null>(null);
   // 以下籌碼排行目前沒有串接來源，先保留 UI 版位與資料結構、全部給空陣列。
   const [buyRanking] = useState<ChipRanking[]>([]);
   const [sellRanking] = useState<ChipRanking[]>([]);
@@ -359,6 +410,22 @@ export default function TwStockPage() {
   // 三大法人買賣超、融資融券：真的接了證交所公開資料，近20個交易日逐日陣列
   const [institutional, setInstitutional] = useState<InstitutionalRow[]>([]);
   const [margin, setMargin] = useState<MarginRow[]>([]);
+
+  // 法人買賣超趨勢圖：指標/區間可切換，資料來自逐日累積的快照表（見 flow-history API）
+  const [flowMetric, setFlowMetric] = useState<FlowMetricKey>("totalNetLots");
+  const [flowPeriod, setFlowPeriod] = useState<FlowPeriodKey>("1m");
+  const [flowData, setFlowData] = useState<FlowHistoryResponse | null>(null);
+  const [flowLoading, setFlowLoading] = useState(false);
+
+  useEffect(() => {
+    if (!data?.code) return;
+    setFlowLoading(true);
+    fetch(`/api/market/tw-stock/${data.code}/flow-history?period=${flowPeriod}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => setFlowData(body))
+      .catch(() => setFlowData(null))
+      .finally(() => setFlowLoading(false));
+  }, [data?.code, flowPeriod]);
 
   // 散戶持股比率：門檻可調整，但目前找不到能對上台股代碼的免費集保資料源，先留 UI、資料待確認
   const [retailThreshold, setRetailThreshold] = useState("20");
@@ -430,6 +497,7 @@ export default function TwStockPage() {
     setInstitutional([]);
     setMargin([]);
     setFundamentals(null);
+    setProfile(null);
     setBrushRange(null);
     try {
       const res = await fetch(`/api/market/tw-stock/${code}?interval=${interval}`);
@@ -455,6 +523,13 @@ export default function TwStockPage() {
         .then((r) => (r.ok ? r.json() : null))
         .then((body) => {
           if (body) setFundamentals(body);
+        })
+        .catch(() => {});
+
+      fetch(`/api/market/tw-stock/${code}/profile`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((body) => {
+          if (body) setProfile(body);
         })
         .catch(() => {});
     } catch {
@@ -531,6 +606,18 @@ export default function TwStockPage() {
     () => (brushRange ? rows.slice(brushRange.startIndex, brushRange.endIndex + 1) : rows),
     [rows, brushRange]
   );
+
+  // 法人買賣超趨勢圖資料：統一算出「每日值+累計值」，不管選的是哪個指標都用同一套邏輯畫圖
+  const selectedFlowMetric = FLOW_METRICS.find((m) => m.key === flowMetric)!;
+  const flowChartRows = useMemo(() => {
+    const sourceRows = selectedFlowMetric.source === "institutional" ? flowData?.institutional : flowData?.margin;
+    let cumulative = 0;
+    return (sourceRows ?? []).map((row) => {
+      const value = (row as unknown as Record<string, number>)[selectedFlowMetric.key];
+      cumulative += value;
+      return { date: row.date, value, cumulative };
+    });
+  }, [flowData, selectedFlowMetric]);
 
   return (
     <div className="max-w-6xl">
@@ -652,6 +739,54 @@ export default function TwStockPage() {
               <div><div className="text-xs text-slate-400 mb-0.5">成交量</div>{last.volume?.toLocaleString("zh-TW") ?? "—"}</div>
             </div>
           </div>
+
+          {/* 個股基本資料：董事長/總經理/資本額等公司登記資訊，來自證交所/櫃買中心公開資料 */}
+          {profile && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+              <div className="flex items-baseline gap-2 flex-wrap mb-4">
+                <h3 className="text-base font-bold text-slate-900">{profile.name}</h3>
+                {profile.englishName && <span className="text-xs text-slate-400">{profile.englishName}</span>}
+                {profile.industry && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">{profile.industry}</span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-sm mb-5">
+                <div><div className="text-xs text-slate-400 mb-0.5">董事長</div>{profile.chairman ?? "—"}</div>
+                <div><div className="text-xs text-slate-400 mb-0.5">總經理</div>{profile.generalManager ?? "—"}</div>
+                <div><div className="text-xs text-slate-400 mb-0.5">發言人</div>{profile.spokesman ?? "—"}</div>
+                <div><div className="text-xs text-slate-400 mb-0.5">成立日期</div>{profile.foundedDate ?? "—"}</div>
+                <div><div className="text-xs text-slate-400 mb-0.5">上市日期</div>{profile.listedDate ?? "—"}</div>
+                <div>
+                  <div className="text-xs text-slate-400 mb-0.5">資本額</div>
+                  {profile.capital != null ? `${(profile.capital / 1e8).toFixed(2)}億` : "—"}
+                </div>
+              </div>
+              <div className="text-xs text-slate-400 mb-2">基本資料</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+                {([
+                  ["過戶機構", profile.transferAgent],
+                  ["過戶電話", profile.transferAgentPhone],
+                  ["公司地址", profile.address],
+                  ["過戶地址", profile.transferAgentAddress],
+                  ["公司電話", profile.phone],
+                  ["電子郵件", profile.email],
+                  ["網址", profile.website],
+                  [
+                    "已發行股數",
+                    profile.issuedShares != null ? `${(profile.issuedShares / 1e8).toFixed(2)}億股` : null,
+                  ],
+                ] as const).map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-4 border-b border-slate-50 pb-2">
+                    <span className="text-slate-400 shrink-0">{label}</span>
+                    <span className="text-slate-700 text-right truncate">{value ?? "—"}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-4">
+                資料源：證交所／櫃買中心公開資訊觀測站，僅涵蓋基本登記資訊（股東結構、法說會等資料尚未串接）
+              </p>
+            </div>
+          )}
 
           {/* K線 + 均線 + 布林通道 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
@@ -880,6 +1015,69 @@ export default function TwStockPage() {
             <p className="text-[11px] text-slate-400 mt-4">
               EPS(近4季)、ROE(近4季)由系統每季自動累積歷史資料，累積滿4季後自動顯示；其餘欄位為證交所公開資料
             </p>
+          </div>
+
+          {/* 法人買賣超趨勢圖：指標/區間可切換，資料靠逐日累積（見 flow-history），區間越長初期越稀疏 */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+              <select
+                value={flowMetric}
+                onChange={(e) => setFlowMetric(e.target.value as FlowMetricKey)}
+                className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-700 focus:border-indigo-400 transition-colors"
+              >
+                {FLOW_METRICS.map((m) => (
+                  <option key={m.key} value={m.key}>{m.label}</option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                {FLOW_PERIODS.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => setFlowPeriod(p.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      flowPeriod === p.key ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {flowLoading ? (
+              <div className="h-[220px] flex items-center justify-center text-sm text-slate-400">載入中...</div>
+            ) : flowChartRows.length === 0 ? (
+              <div className="h-[220px] flex items-center justify-center text-sm text-slate-400">尚無累積資料，之後查詢會逐日補上</div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <ComposedChart data={flowChartRows} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
+                    <YAxis yAxisId="value" tick={{ fontSize: 11 }} width={56} />
+                    <YAxis yAxisId="cumulative" orientation="right" tick={{ fontSize: 11 }} width={56} />
+                    <Tooltip
+                      formatter={(value, name) => [
+                        Number(value).toLocaleString("zh-TW"),
+                        name === "cumulative" ? "累計(張)" : "當日(張)",
+                      ]}
+                    />
+                    <ReferenceLine yAxisId="value" y={0} stroke="#e2e8f0" />
+                    <Bar yAxisId="value" dataKey="value" isAnimationActive={false}>
+                      {flowChartRows.map((r, idx) => (
+                        <Cell key={idx} fill={r.value >= 0 ? "#fca5a5" : "#86efac"} />
+                      ))}
+                    </Bar>
+                    <Line yAxisId="cumulative" type="monotone" dataKey="cumulative" stroke="#f59e0b" dot={false} strokeWidth={1.5} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  涵蓋 {flowChartRows[0].date} ~ {flowChartRows[flowChartRows.length - 1].date}，共 {flowChartRows.length} 個交易日
+                  {flowData && flowChartRows[0].date > flowData.requestedFrom ? "（資料逐日累積中，尚未涵蓋完整區間）" : ""}
+                </p>
+              </>
+            )}
           </div>
 
           {/* 三大法人買賣超：真實資料，來源證交所 T86（僅涵蓋上市），近20個交易日逐日顯示 */}

@@ -88,6 +88,12 @@ async function recordEpsSnapshotAndGetTrailing4Q(code: string, eps: Record<strin
   return snapshots.reduce((sum, s) => sum + s.eps, 0);
 }
 
+// 產業別文字版：t187ap03_L(公司基本資料) 只有代碼，月營收彙總表裡剛好有文字版，直接借用同一份快取。
+export async function getIndustryName(code: string): Promise<string | null> {
+  const revenueList = await getRevenue();
+  return revenueList.find((r) => r["公司代號"] === code)?.["產業別"] ?? null;
+}
+
 export async function getTwFundamentals(code: string): Promise<TwFundamentals | null> {
   const [revenueList, epsList, valuationList, balanceSheetList] = await Promise.all([
     getRevenue(),

@@ -282,3 +282,34 @@ model StockEpsSnapshot {
   @@unique([code, year, season])
   @@index([code])
 }
+
+// 法人買賣超／融資融券逐日快照：證交所公開資料只有「單一日期、全部股票」的日報表，
+// 沒有「單一股票、歷史區間」查詢功能，所以查詢過的股票會逐日存進這兩張表，隨使用時間累積歷史，
+// 用來畫「近1個月/3個月/6個月/1年/3年」趨勢圖（見 flow-history API）。
+model StockInstitutionalSnapshot {
+  id             String   @id @default(cuid())
+  code           String
+  date           String
+  foreignNetLots Int
+  trustNetLots   Int
+  dealerNetLots  Int
+  totalNetLots   Int
+  capturedAt     DateTime @default(now())
+
+  @@unique([code, date])
+  @@index([code])
+}
+
+model StockMarginSnapshot {
+  id            String   @id @default(cuid())
+  code          String
+  date          String
+  marginBalance Int
+  marginChange  Int
+  shortBalance  Int
+  shortChange   Int
+  capturedAt    DateTime @default(now())
+
+  @@unique([code, date])
+  @@index([code])
+}

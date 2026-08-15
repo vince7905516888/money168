@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 // 免費、不需金鑰的證交所公開資訊觀測站端點，僅提供上市股票（不含上櫃），資料可能延遲，僅供參考。
 const TWSE_HEADERS = { "User-Agent": "Mozilla/5.0 (compatible; MoneyFlowApp/1.0)" };
@@ -117,6 +118,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
       shortChange: shortBalance - shortPrevBalance,
     };
   });
+
+  // 逐日存進快照表，累積歷史供「法人買賣超趨勢圖」的近3個月/6個月/1年/3年區間使用（見 flow-history）
+  await Promise.all([
+    ...institutional.map((row) =>
+      prisma.stockInstitutionalSnapshot
+        .upsert({
+          where: { code_date: { code: cleanCode, date: row.date } },
+          update: { ...row },
+          create: { code: cleanCode, ...row },
+        })
+        .catch(() => {})
+    ),
+    ...margin.map((row) =>
+      prisma.stockMarginSnapshot
+        .upsert({
+          where: { code_date: { code: cleanCode, date: row.date } },
+          update: { ...row },
+          create: { code: cleanCode, ...row },
+        })
+        .catch(() => {})
+    ),
+  ]);
 
   return NextResponse.json({ institutional, margin });
 }
