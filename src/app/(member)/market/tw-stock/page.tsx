@@ -46,10 +46,22 @@ interface FundamentalStats {
   roe4Q: number | null; // ROE(近4季)
 }
 
-// 當日主力動向：需要券商分點籌碼資料 API，目前先保留版位。
-interface MainForceFlow {
-  direction: "BUY" | "SELL" | null;
-  volume: number | null; // 張數
+// 三大法人買賣超（張）：來自證交所 T86 當日全部股票日報表，僅涵蓋上市股票
+interface InstitutionalData {
+  date: string;
+  foreignNetLots: number;
+  trustNetLots: number;
+  dealerNetLots: number;
+  totalNetLots: number;
+}
+
+// 融資融券餘額（張）：來自證交所 MI_MARGN 當日全部股票日報表，僅涵蓋上市股票
+interface MarginData {
+  date: string;
+  marginBalance: number;
+  marginChange: number;
+  shortBalance: number;
+  shortChange: number;
 }
 
 // 買超/賣超前 15 名分點：需要券商分點籌碼資料 API，目前先保留版位、欄位對齊圖片參考的分點排行表。
@@ -320,12 +332,18 @@ export default function TwStockPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 以下三份資料目前沒有串接來源，先保留 UI 版位與資料結構、全部給 null/空陣列。
+  // 以下兩份資料目前沒有串接來源，先保留 UI 版位與資料結構、全部給 null/空陣列。
   // 之後串接籌碼/財報 API 時，把對應的 fetch 邏輯接上、setState 即可，UI 不用再改。
   const [fundamentals] = useState<FundamentalStats | null>(null);
-  const [mainForce] = useState<MainForceFlow | null>(null);
   const [buyRanking] = useState<ChipRanking[]>([]);
   const [sellRanking] = useState<ChipRanking[]>([]);
+
+  // 三大法人買賣超、融資融券：真的接了證交所公開資料
+  const [institutional, setInstitutional] = useState<InstitutionalData | null>(null);
+  const [margin, setMargin] = useState<MarginData | null>(null);
+
+  // 散戶持股比率：門檻可調整，但目前找不到能對上台股代碼的免費集保資料源，先留 UI、資料待確認
+  const [retailThreshold, setRetailThreshold] = useState("20");
 
   // 三個技術指標小窗口：都用同一個 syncId，滑鼠移到任一張圖，其他圖的十字線/提示會同步移動
   const [showKDJ, setShowKDJ] = useState(true);
@@ -337,6 +355,8 @@ export default function TwStockPage() {
   const fetchStock = useCallback(async (code: string) => {
     setLoading(true);
     setError(null);
+    setInstitutional(null);
+    setMargin(null);
     try {
       const res = await fetch(`/api/market/tw-stock/${code}`);
       if (!res.ok) {
@@ -347,6 +367,15 @@ export default function TwStockPage() {
       }
       const json: StockData = await res.json();
       setData(json);
+
+      // 三大法人／融資融券目前僅涵蓋上市股票，查詢失敗就靜默保留空值（版位仍會顯示「尚未取得資料」）
+      fetch(`/api/market/tw-stock/${code}/institutional`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((body) => {
+          if (body?.institutional) setInstitutional(body.institutional);
+          if (body?.margin) setMargin(body.margin);
+        })
+        .catch(() => {});
     } catch {
       setError("查詢失敗，請稍後再試");
       setData(null);
@@ -625,19 +654,97 @@ export default function TwStockPage() {
             <p className="text-[11px] text-slate-400 mt-4">尚未串接財報資料源，僅保留版位</p>
           </div>
 
+          {/* 三大法人買賣超：真實資料，來源證交所 T86（僅涵蓋上市） */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">三大法人買賣超（張）</h3>
+            {institutional ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {([
+                    ["外資", institutional.foreignNetLots],
+                    ["投信", institutional.trustNetLots],
+                    ["自營商", institutional.dealerNetLots],
+                    ["合計", institutional.totalNetLots],
+                  ] as const).map(([label, value]) => (
+                    <div key={label}>
+                      <div className="text-xs text-slate-400 mb-0.5">{label}</div>
+                      <div className={`text-lg font-semibold ${value >= 0 ? "text-red-500" : "text-green-600"}`}>
+                        {value >= 0 ? "+" : ""}{value.toLocaleString("zh-TW")}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-4">資料日期 {institutional.date} · 資料源：證交所 T86</p>
+              </>
+            ) : (
+              <div className="text-sm text-slate-400">尚未取得資料（僅涵蓋上市股票，上櫃股票暫無此資料）</div>
+            )}
+          </div>
+
+          {/* 融資融券餘額：真實資料，來源證交所 MI_MARGN（僅涵蓋上市） */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">融資融券餘額（張）</h3>
+            {margin ? (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-xs text-slate-400 mb-0.5">融資餘額</div>
+                    <div className="text-lg font-semibold text-slate-700">{margin.marginBalance.toLocaleString("zh-TW")}</div>
+                    <div className={`text-xs mt-0.5 ${margin.marginChange >= 0 ? "text-red-500" : "text-green-600"}`}>
+                      {margin.marginChange >= 0 ? "+" : ""}{margin.marginChange.toLocaleString("zh-TW")}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-400 mb-0.5">融券餘額</div>
+                    <div className="text-lg font-semibold text-slate-700">{margin.shortBalance.toLocaleString("zh-TW")}</div>
+                    <div className={`text-xs mt-0.5 ${margin.shortChange >= 0 ? "text-red-500" : "text-green-600"}`}>
+                      {margin.shortChange >= 0 ? "+" : ""}{margin.shortChange.toLocaleString("zh-TW")}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-4">資料日期 {margin.date} · 資料源：證交所 MI_MARGN</p>
+              </>
+            ) : (
+              <div className="text-sm text-slate-400">尚未取得資料（僅涵蓋上市股票，上櫃股票暫無此資料）</div>
+            )}
+          </div>
+
+          {/* 散戶持股比率：門檻可調整，但目前沒有能對上台股代碼的免費集保資料源，先留 UI 版位 */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">散戶持股比率</h3>
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span>門檻</span>
+                <select
+                  value={retailThreshold}
+                  onChange={(e) => setRetailThreshold(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:border-indigo-400 transition-colors"
+                >
+                  <option value="20">20張以下</option>
+                  <option value="50">50張以下</option>
+                  <option value="100">100張以下</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center justify-center h-16 text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl">
+              尚未串接集保股權分散資料源，僅保留版位（門檻選單已可切換）
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-            {/* 當日主力動向 */}
+            {/* 當日主力動向：以三大法人合計買賣超作為替代指標，非真正的券商分點籌碼 */}
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex flex-col items-center justify-center text-center">
               <div className="text-xs text-slate-400 mb-2">當日主力動向</div>
-              {mainForce?.direction ? (
+              {institutional ? (
                 <>
-                  <div className={`text-xl font-bold ${mainForce.direction === "BUY" ? "text-red-500" : "text-green-600"}`}>
-                    {mainForce.direction === "BUY" ? "買超" : "賣超"}
+                  <div className={`text-xl font-bold ${institutional.totalNetLots >= 0 ? "text-red-500" : "text-green-600"}`}>
+                    {institutional.totalNetLots >= 0 ? "買超" : "賣超"}
                   </div>
-                  <div className="text-sm text-slate-600 mt-1">{fmtNum(mainForce.volume, 0)} 張</div>
+                  <div className="text-sm text-slate-600 mt-1">{Math.abs(institutional.totalNetLots).toLocaleString("zh-TW")} 張</div>
+                  <div className="text-[10px] text-slate-400 mt-1">以三大法人合計買賣超估算</div>
                 </>
               ) : (
-                <div className="text-sm text-slate-400 mt-2">尚未串接籌碼資料源</div>
+                <div className="text-sm text-slate-400 mt-2">尚未取得資料</div>
               )}
             </div>
 
