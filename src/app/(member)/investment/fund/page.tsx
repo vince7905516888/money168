@@ -147,11 +147,12 @@ export default function FundPage() {
     const name = i.name?.trim() || "(未命名)";
     const code = i.code?.trim() || undefined;
     const key = code || name;
-    if (!acc[key]) acc[key] = { name, code, count: 0, amount: 0 };
+    if (!acc[key]) acc[key] = { name, code, count: 0, amount: 0, units: 0 };
     acc[key].count += 1;
     acc[key].amount += i.amount;
+    acc[key].units += i.quantity ?? 0;
     return acc;
-  }, {} as Record<string, { name: string; code?: string; count: number; amount: number }>);
+  }, {} as Record<string, { name: string; code?: string; count: number; amount: number; units: number }>);
   const fundGroupList = Object.values(fundGroups);
 
   // ---- 新增表單：即時試算 ----
@@ -275,6 +276,7 @@ export default function FundPage() {
                   {g.code && <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded shrink-0">{g.code}</span>}
                 </div>
                 <div className="flex items-center gap-4 shrink-0">
+                  <span className="text-xs text-slate-400">{fmt2(g.units)} 單位</span>
                   <span className="text-xs text-slate-400">{g.count} 筆</span>
                   <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
                 </div>
