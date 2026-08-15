@@ -30,6 +30,36 @@ interface StockData {
   quotes: Quote[];
 }
 
+// 個股基本面統計：需要另外串接財報/公開資訊觀測站類的 API 才能填值，目前先保留版位、全部 null。
+interface FundamentalStats {
+  cumulativeRevenueYoY: number | null; // 累計營收YoY(%)
+  revenueYoY: number | null; // 營收YoY(%)
+  revenueMoM: number | null; // 營收MoM(%)
+  epsQuarter: number | null; // EPS(季)
+  eps4Q: number | null; // EPS(近4季)
+  per: number | null; // 本益比
+  dividendYield: number | null; // 殖利率(%)
+  roe4Q: number | null; // ROE(近4季)
+}
+
+// 當日主力動向：需要券商分點籌碼資料 API，目前先保留版位。
+interface MainForceFlow {
+  direction: "BUY" | "SELL" | null;
+  volume: number | null; // 張數
+}
+
+// 買超/賣超前 15 名分點：需要券商分點籌碼資料 API，目前先保留版位、欄位對齊圖片參考的分點排行表。
+interface ChipRanking {
+  brokerName: string;
+  netVolume: number; // 買賣超（張）
+  buyVolume: number; // 買張
+  sellVolume: number; // 賣張
+  avgBuyPrice: number; // 買均價
+  avgSellPrice: number; // 賣均價
+  totalVolume: number; // 交易量
+  profitLoss: number; // 損益（萬）
+}
+
 interface ChartRow extends Quote {
   range: [number, number];
   ma5: number | null;
@@ -106,6 +136,13 @@ export default function TwStockPage() {
   const [data, setData] = useState<StockData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 以下三份資料目前沒有串接來源，先保留 UI 版位與資料結構、全部給 null/空陣列。
+  // 之後串接籌碼/財報 API 時，把對應的 fetch 邏輯接上、setState 即可，UI 不用再改。
+  const [fundamentals] = useState<FundamentalStats | null>(null);
+  const [mainForce] = useState<MainForceFlow | null>(null);
+  const [buyRanking] = useState<ChipRanking[]>([]);
+  const [sellRanking] = useState<ChipRanking[]>([]);
 
   const fetchStock = useCallback(async (code: string) => {
     setLoading(true);
@@ -235,23 +272,110 @@ export default function TwStockPage() {
             </ResponsiveContainer>
           </div>
 
-          {/* 籌碼分析 / 基本面：資料建置中版位 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-              <h3 className="text-sm font-semibold text-slate-700 mb-3">籌碼分析（買超 / 賣超）</h3>
-              <div className="flex items-center justify-center h-32 text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl">
-                券商分點資料建置中
-              </div>
+          {/* 個股資訊（基本面）：版位對齊圖片參考，欄位尚未串接資料源 */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">個股資訊</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {([
+                ["累計營收YoY(%)", fundamentals?.cumulativeRevenueYoY],
+                ["營收YoY(%)", fundamentals?.revenueYoY],
+                ["營收MoM(%)", fundamentals?.revenueMoM],
+                ["EPS(季)", fundamentals?.epsQuarter],
+                ["EPS(近4季)", fundamentals?.eps4Q],
+                ["本益比", fundamentals?.per],
+                ["殖利率(%)", fundamentals?.dividendYield],
+                ["ROE(近4季)", fundamentals?.roe4Q],
+              ] as const).map(([label, value]) => (
+                <div key={label}>
+                  <div className="text-xs text-slate-400 mb-0.5">{label}</div>
+                  <div className="text-sm font-semibold text-slate-700">{fmtNum(value)}</div>
+                </div>
+              ))}
             </div>
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-              <h3 className="text-sm font-semibold text-slate-700 mb-3">基本面（EPS / 營收 / ROE）</h3>
-              <div className="flex items-center justify-center h-32 text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl">
-                財報資料建置中
-              </div>
+            <p className="text-[11px] text-slate-400 mt-4">尚未串接財報資料源，僅保留版位</p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            {/* 當日主力動向 */}
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 flex flex-col items-center justify-center text-center">
+              <div className="text-xs text-slate-400 mb-2">當日主力動向</div>
+              {mainForce?.direction ? (
+                <>
+                  <div className={`text-xl font-bold ${mainForce.direction === "BUY" ? "text-red-500" : "text-green-600"}`}>
+                    {mainForce.direction === "BUY" ? "買超" : "賣超"}
+                  </div>
+                  <div className="text-sm text-slate-600 mt-1">{fmtNum(mainForce.volume, 0)} 張</div>
+                </>
+              ) : (
+                <div className="text-sm text-slate-400 mt-2">尚未串接籌碼資料源</div>
+              )}
             </div>
+
+            {/* 買超前15 */}
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 bg-red-50 border-b border-red-100">
+                <h3 className="text-sm font-semibold text-red-600">買超前15名</h3>
+              </div>
+              <ChipTable rows={buyRanking} />
+            </div>
+          </div>
+
+          {/* 賣超前15 */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100">
+              <h3 className="text-sm font-semibold text-emerald-700">賣超前15名</h3>
+            </div>
+            <ChipTable rows={sellRanking} />
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function ChipTable({ rows }: { rows: ChipRanking[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-slate-400 border-b border-slate-50">
+            <th className="text-left font-semibold px-4 py-2.5">券商名稱</th>
+            <th className="text-right font-semibold px-4 py-2.5">買賣超</th>
+            <th className="text-right font-semibold px-4 py-2.5">買張</th>
+            <th className="text-right font-semibold px-4 py-2.5">賣張</th>
+            <th className="text-right font-semibold px-4 py-2.5">買均價</th>
+            <th className="text-right font-semibold px-4 py-2.5">賣均價</th>
+            <th className="text-right font-semibold px-4 py-2.5">交易量</th>
+            <th className="text-right font-semibold px-4 py-2.5">損益(萬)</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-50">
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={8} className="py-8 text-center text-slate-400">
+                尚未串接券商分點資料源，可在此處接上資料後填入表格
+              </td>
+            </tr>
+          ) : (
+            rows.map((r) => (
+              <tr key={r.brokerName} className="text-slate-700">
+                <td className="px-4 py-2.5">{r.brokerName}</td>
+                <td className={`px-4 py-2.5 text-right font-semibold ${r.netVolume >= 0 ? "text-red-500" : "text-green-600"}`}>
+                  {r.netVolume >= 0 ? "+" : ""}{r.netVolume.toLocaleString("zh-TW")}
+                </td>
+                <td className="px-4 py-2.5 text-right">{r.buyVolume.toLocaleString("zh-TW")}</td>
+                <td className="px-4 py-2.5 text-right">{r.sellVolume.toLocaleString("zh-TW")}</td>
+                <td className="px-4 py-2.5 text-right">{r.avgBuyPrice.toFixed(2)}</td>
+                <td className="px-4 py-2.5 text-right">{r.avgSellPrice.toFixed(2)}</td>
+                <td className="px-4 py-2.5 text-right">{r.totalVolume.toLocaleString("zh-TW")}</td>
+                <td className={`px-4 py-2.5 text-right ${r.profitLoss >= 0 ? "text-red-500" : "text-green-600"}`}>
+                  {r.profitLoss.toLocaleString("zh-TW")}
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
