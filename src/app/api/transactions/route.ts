@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
-  const { title, amount, type, date, note, categoryId, source } = await req.json();
+  const { title, amount, type, date, note, categoryId, source, currency } = await req.json();
 
   if (!title || !amount || !type || !date) {
     return NextResponse.json({ error: "請填寫必要欄位" }, { status: 400 });
@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
       date: new Date(date),
       note,
       source: source ?? "CASH",
+      currency: currency || "TWD",
       categoryId: categoryId || null,
       userId: session.user.id,
     },

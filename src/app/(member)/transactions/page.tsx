@@ -17,6 +17,7 @@ interface Transaction {
   type: "INCOME" | "EXPENSE" | "TRANSFER";
   date: string;
   note?: string;
+  currency?: string;
   category?: Category;
   categoryId?: string;
 }
@@ -46,6 +47,8 @@ const DEFAULT_THIRD_PARTY = [
 
 const PAGE_SIZE = 20;
 
+const CURRENCIES = ["TWD", "USD", "JPY", "EUR", "GBP", "AUD", "CNY", "HKD", "CAD", "NZD", "SGD", "ZAR", "CHF", "THB"];
+
 type PaymentMethod = "" | "現金" | "銀行" | "第三方支付";
 type SelectorTarget = "category" | "payment" | "fromDetail" | "toDetail";
 
@@ -56,6 +59,8 @@ const EMPTY_FORM = {
   date: new Date().toISOString().split("T")[0],
   note: "",
   categoryId: "",
+  currency: "TWD",
+  currencyOther: "",
 };
 
 const EMPTY_TRANSFER = {
@@ -105,8 +110,7 @@ export default function TransactionsPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
-  const [allIncome, setAllIncome] = useState(0);
-  const [allExpense, setAllExpense] = useState(0);
+  const [currencyTotals, setCurrencyTotals] = useState<Record<string, { income: number; expense: number }>>({});
   const [showList, setShowList] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
   const [transfer, setTransfer] = useState(EMPTY_TRANSFER);
@@ -156,8 +160,15 @@ export default function TransactionsPage() {
     setUserBanks(Array.isArray(bankData) ? bankData : []);
     setUserThirdParties(Array.isArray(tpData) ? tpData : []);
     const allTx: Transaction[] = Array.isArray(allTxData) ? allTxData : [];
-    setAllIncome(allTx.filter((t) => t.type === "INCOME").reduce((s, t) => s + t.amount, 0));
-    setAllExpense(allTx.filter((t) => t.type === "EXPENSE").reduce((s, t) => s + t.amount, 0));
+    const totals: Record<string, { income: number; expense: number }> = {};
+    for (const t of allTx) {
+      if (t.type !== "INCOME" && t.type !== "EXPENSE") continue;
+      const cur = t.currency || "TWD";
+      if (!totals[cur]) totals[cur] = { income: 0, expense: 0 };
+      if (t.type === "INCOME") totals[cur].income += t.amount;
+      else totals[cur].expense += t.amount;
+    }
+    setCurrencyTotals(totals);
     setLoading(false);
   }, [filter, page]);
 
@@ -183,14 +194,21 @@ export default function TransactionsPage() {
   const openEdit = (t: Transaction) => {
     setEditing(t);
     resetForm();
+    const currency = t.currency || "TWD";
+    const isKnownCurrency = CURRENCIES.includes(currency);
     if (t.type === "TRANSFER") {
-      setForm({ title: t.title, amount: String(t.amount), type: "TRANSFER", date: t.date.split("T")[0], note: "", categoryId: "" });
+      setForm({ title: t.title, amount: String(t.amount), type: "TRANSFER", date: t.date.split("T")[0], note: "", categoryId: "", currency, currencyOther: "" });
       setTransfer(parseTransferNote(t.note ?? ""));
     } else {
       const isBankCat = t.category?.name === "銀行";
       const isTPCat = t.category?.name === "第三方";
       const { pm, detail, rest } = parsePaymentNote(t.note ?? "");
-      setForm({ title: t.title, amount: String(t.amount), type: t.type, date: t.date.split("T")[0], note: (isBankCat || isTPCat) ? "" : rest, categoryId: t.categoryId ?? "" });
+      setForm({
+        title: t.title, amount: String(t.amount), type: t.type, date: t.date.split("T")[0],
+        note: (isBankCat || isTPCat) ? "" : rest, categoryId: t.categoryId ?? "",
+        currency: isKnownCurrency ? currency : "其他",
+        currencyOther: isKnownCurrency ? "" : currency,
+      });
       if (isBankCat) setBankName(t.note ?? "");
       else if (isTPCat) setThirdPartyName(t.note ?? "");
       else { setPaymentMethod(pm); setPaymentDetail(detail); }
@@ -198,6 +216,7 @@ export default function TransactionsPage() {
     setShowModal(true);
   };
 
+  const currencyLabel = form.currency === "其他" ? (form.currencyOther || "其他") : form.currency;
   const selectedCatName = categories.find((c) => c.id === form.categoryId)?.name;
   const isBank = selectedCatName === "銀行";
   const isThirdPartyCat = selectedCatName === "第三方";
@@ -226,7 +245,7 @@ export default function TransactionsPage() {
     const res = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, note: buildNote() }),
+      body: JSON.stringify({ ...form, note: buildNote(), currency: currencyLabel }),
     });
     // 新增投資記錄：建立新的投資支出時同步到投資模組
     if (!editing && isInvestmentCat && investmentType && res.ok) {
@@ -300,6 +319,14 @@ export default function TransactionsPage() {
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
+
+  const fmtCur = (n: number, currency: string) => {
+    try {
+      return new Intl.NumberFormat("zh-TW", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
+    } catch {
+      return `${currency} ${new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 }).format(n)}`;
+    }
+  };
 
   const filteredCats = categories.filter((c) => c.type === form.type);
   const totalPages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
@@ -416,22 +443,48 @@ export default function TransactionsPage() {
         </button>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">總流入</div>
-          <div className="text-2xl font-bold text-emerald-600 mt-1">{fmt(allIncome)}</div>
-        </div>
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <div className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">總流出</div>
-          <div className="text-2xl font-bold text-red-500 mt-1">{fmt(allExpense)}</div>
-        </div>
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">結餘</div>
-          <div className={`text-2xl font-bold mt-1 ${allIncome - allExpense >= 0 ? "text-slate-900" : "text-red-500"}`}>
-            {fmt(allIncome - allExpense)}
+      {/* Summary cards：依幣別分開顯示 */}
+      <div className="space-y-4 mb-6">
+        {Object.keys(currencyTotals).length === 0 ? (
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+              <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">總流入</div>
+              <div className="text-2xl font-bold text-emerald-600 mt-1">{fmt(0)}</div>
+            </div>
+            <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+              <div className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">總流出</div>
+              <div className="text-2xl font-bold text-red-500 mt-1">{fmt(0)}</div>
+            </div>
+            <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">結餘</div>
+              <div className="text-2xl font-bold text-slate-900 mt-1">{fmt(0)}</div>
+            </div>
           </div>
-        </div>
+        ) : (
+          Object.entries(currencyTotals)
+            .sort(([a], [b]) => (a === "TWD" ? -1 : b === "TWD" ? 1 : a.localeCompare(b)))
+            .map(([currency, { income, expense }]) => (
+              <div key={currency}>
+                {currency !== "TWD" && <div className="text-xs font-semibold text-slate-400 mb-1.5">{currency}</div>}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                    <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">總流入</div>
+                    <div className="text-2xl font-bold text-emerald-600 mt-1">{fmtCur(income, currency)}</div>
+                  </div>
+                  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                    <div className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">總流出</div>
+                    <div className="text-2xl font-bold text-red-500 mt-1">{fmtCur(expense, currency)}</div>
+                  </div>
+                  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">結餘</div>
+                    <div className={`text-2xl font-bold mt-1 ${income - expense >= 0 ? "text-slate-900" : "text-red-500"}`}>
+                      {fmtCur(income - expense, currency)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+        )}
       </div>
 
       {/* Filters */}
@@ -488,7 +541,7 @@ export default function TransactionsPage() {
                       <div className="text-xs text-slate-400">
                         {t.type === "TRANSFER"
                           ? `調帳 · ${new Date(t.date).toLocaleDateString("zh-TW")} · ${displayTransferNote(t.note ?? "")}`
-                          : `${t.category?.name ?? "未分類"} · ${new Date(t.date).toLocaleDateString("zh-TW")}${t.note ? ` · ${t.note.startsWith("支付:") ? t.note.slice(3).replace(":", " ") : t.note}` : ""}`
+                          : `${t.category?.name ?? "未分類"} · ${new Date(t.date).toLocaleDateString("zh-TW")}${t.currency && t.currency !== "TWD" ? ` · ${t.currency}` : ""}${t.note ? ` · ${t.note.startsWith("支付:") ? t.note.slice(3).replace(":", " ") : t.note}` : ""}`
                         }
                       </div>
                     </div>
@@ -498,7 +551,7 @@ export default function TransactionsPage() {
                       t.type === "INCOME" ? "text-emerald-600" :
                       t.type === "TRANSFER" ? "text-indigo-500" : "text-red-500"
                     }`}>
-                      {t.type === "INCOME" ? "+" : t.type === "TRANSFER" ? "" : "-"}{fmt(t.amount)}
+                      {t.type === "INCOME" ? "+" : t.type === "TRANSFER" ? "" : "-"}{fmtCur(t.amount, t.currency || "TWD")}
                     </span>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => openEdit(t)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
@@ -592,11 +645,26 @@ export default function TransactionsPage() {
                     <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
                       placeholder="例如：午餐" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">金額</label>
-                    <input required type="number" min="0" step="1" value={form.amount}
-                      onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0"
-                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">金額</label>
+                      <input required type="number" min="0" step="1" value={form.amount}
+                        onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">幣別</label>
+                      <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                        {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                        <option value="其他">其他</option>
+                      </select>
+                      {form.currency === "其他" && (
+                        <input value={form.currencyOther} onChange={(e) => setForm({ ...form, currencyOther: e.target.value })}
+                          placeholder="例如 CHF"
+                          className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors mt-2" />
+                      )}
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">日期</label>

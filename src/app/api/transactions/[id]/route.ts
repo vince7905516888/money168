@@ -10,7 +10,7 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const { id } = await params;
-  const { title, amount, type, date, note, categoryId } = await req.json();
+  const { title, amount, type, date, note, categoryId, currency } = await req.json();
 
   const existing = await prisma.transaction.findFirst({
     where: { id, userId: session.user.id },
@@ -26,6 +26,7 @@ export async function PUT(
       type,
       date: new Date(date),
       note,
+      currency: currency || "TWD",
       categoryId: categoryId || null,
     },
     include: { category: true },
