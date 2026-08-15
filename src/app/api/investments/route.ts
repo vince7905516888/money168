@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   const { type, name, code, amount, quantity, note, transactionId, price, broker, bankName, currency, exchangeRate, action, date, discount, fee, tax } = await req.json();
 
-  if (!type || !amount) {
+  if (!type || amount === undefined || amount === null || amount === "") {
     return NextResponse.json({ error: "請填寫必要欄位" }, { status: 400 });
   }
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       name: name || null,
       code: code || null,
       amount: parseFloat(amount),
-      quantity: quantity ? parseFloat(quantity) : null,
+      quantity: quantity !== undefined && quantity !== null && quantity !== "" ? parseFloat(quantity) : null,
       price: price ? parseFloat(price) : null,
       broker: broker || null,
       bankName: bankName || null,

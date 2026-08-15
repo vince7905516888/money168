@@ -27,8 +27,12 @@ export async function GET(req: NextRequest) {
     if (t.type === "EXPENSE" && t.note?.startsWith("支付:銀行:")) {
       const name = t.note.split(":")[2];
       if (name) { ensure(name); bankMap[name].expense += t.amount; }
+    } else if (t.type === "EXPENSE" && t.category?.name === "銀行" && t.note) {
+      const name = t.note.split(" · ")[0];
+      if (name) { ensure(name); bankMap[name].expense += t.amount; }
     } else if (t.type === "INCOME" && t.category?.name === "銀行" && t.note) {
-      ensure(t.note); bankMap[t.note].income += t.amount;
+      const name = t.note.split(" · ")[0];
+      if (name) { ensure(name); bankMap[name].income += t.amount; }
     } else if (t.type === "TRANSFER" && t.note) {
       const match = t.note.match(/FROM:([^:]+):?([^|]*)\|TO:([^:]+):?(.*)/);
       if (match) {

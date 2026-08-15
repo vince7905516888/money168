@@ -125,7 +125,7 @@ export default function BanksPage() {
   const [paymentDetail, setPaymentDetail] = useState("");
   const [bankName, setBankName] = useState("");
   const [thirdPartyName, setThirdPartyName] = useState("");
-  const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD">("");
+  const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD" | "REALESTATE" | "INSURANCE">("");
   const [saving, setSaving] = useState(false);
   const [addBankInput, setAddBankInput] = useState("");
   const [addBankTarget, setAddBankTarget] = useState<SelectorTarget | null>(null);
@@ -218,7 +218,7 @@ export default function BanksPage() {
 
   const buildNote = () => {
     if (form.type === "TRANSFER") return buildTransferNote(transfer);
-    if (isBank) return bankName;
+    if (isBank) return form.note.trim() ? `${bankName} · ${form.note.trim()}` : bankName;
     if (isThirdPartyCat) return thirdPartyName;
     if (form.type === "EXPENSE" && paymentMethod) {
       if (paymentMethod === "現金") return "支付:現金";
@@ -709,10 +709,17 @@ export default function BanksPage() {
                     </select>
                   </div>
                   {isBank && (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">銀行名稱</label>
-                      <BankSelector value={bankName} onChange={setBankName} target="category" />
-                    </div>
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">銀行名稱</label>
+                        <BankSelector value={bankName} onChange={setBankName} target="category" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+                        <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })}
+                          placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                      </div>
+                    </>
                   )}
                   {isThirdPartyCat && (
                     <div>
@@ -732,6 +739,8 @@ export default function BanksPage() {
                           { value: "FOREX", label: "💱 外匯" },
                           { value: "CRYPTO", label: "₿ 虛擬貨幣" },
                           { value: "GOLD", label: "🪙 黃金" },
+                          { value: "REALESTATE", label: "🏠 不動產" },
+                          { value: "INSURANCE", label: "🛡️ 保險" },
                         ] as const).map(({ value, label }) => (
                           <button key={value} type="button" onClick={() => setInvestmentType(value)}
                             className={`py-2 rounded-lg text-xs font-semibold transition-colors ${

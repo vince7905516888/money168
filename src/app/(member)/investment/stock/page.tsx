@@ -232,12 +232,17 @@ export default function StockPage() {
     e.preventDefault();
     if (!editing) return;
     setSaving(true);
-    await fetch(`/api/investments/${editing.id}`, {
+    const res = await fetch(`/api/investments/${editing.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editForm),
     });
     setSaving(false);
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "儲存失敗，請稍後再試");
+      return;
+    }
     setEditing(null);
     fetchAll();
   };
