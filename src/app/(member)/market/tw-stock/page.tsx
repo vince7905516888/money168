@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   ComposedChart,
   BarChart,
@@ -384,10 +384,47 @@ export default function TwStockPage() {
     }
   }, []);
 
+  // 搜尋股票：可打代碼或中文名稱，輸入時即時查詢比對結果做成下拉選單
+  const [searchResults, setSearchResults] = useState<{ code: string; name: string; market: "TW" | "TWO" }[]>([]);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    const q = codeInput.trim();
+    if (!q) {
+      setSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/market/tw-stock/search?q=${encodeURIComponent(q)}`);
+        if (res.ok) setSearchResults(await res.json());
+      } catch {
+        // 搜尋失敗就不顯示下拉選單，不影響直接輸入代碼查詢
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [codeInput]);
+
+  const selectSearchResult = (r: { code: string; name: string }) => {
+    setCodeInput(r.code);
+    setDropdownOpen(false);
+    setSearchResults([]);
+    fetchStock(r.code);
+  };
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!codeInput.trim()) return;
-    fetchStock(codeInput.trim());
+    const q = codeInput.trim();
+    if (!q) return;
+    setDropdownOpen(false);
+    if (/^\d+$/.test(q)) {
+      fetchStock(q);
+    } else if (searchResults.length > 0) {
+      setCodeInput(searchResults[0].code);
+      fetchStock(searchResults[0].code);
+    } else {
+      setError("查無符合的股票，請確認代碼或名稱");
+    }
   };
 
   const rows = data ? buildChartRows(data.quotes) : [];
@@ -404,12 +441,35 @@ export default function TwStockPage() {
       </div>
 
       <form onSubmit={handleSearch} className="flex gap-2 mb-6">
-        <input
-          value={codeInput}
-          onChange={(e) => setCodeInput(e.target.value)}
-          placeholder="輸入股票代碼，例如 2330"
-          className="w-56 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-indigo-400 transition-colors"
-        />
+        <div className="relative w-56">
+          <input
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value)}
+            onFocus={() => setDropdownOpen(true)}
+            onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
+            placeholder="輸入股票代碼或中文名稱，例如 2330 或 台積電"
+            autoComplete="off"
+            className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+          />
+          {dropdownOpen && searchResults.length > 0 && (
+            <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+              {searchResults.map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  onClick={() => selectSearchResult(r)}
+                  className="w-full flex items-center justify-between px-4 py-2 text-sm text-left hover:bg-slate-50 transition-colors"
+                >
+                  <span className="text-slate-700">{r.name}</span>
+                  <span className="flex items-center gap-1.5 text-xs text-slate-400">
+                    {r.code}
+                    <span className="px-1 py-0.5 rounded bg-slate-100">{r.market === "TW" ? "上市" : "上櫃"}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           type="submit"
           disabled={loading}

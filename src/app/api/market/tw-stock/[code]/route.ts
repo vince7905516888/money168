@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { lookupStockName } from "@/lib/tw-stock-directory";
 
 // 免費、不需金鑰的 Yahoo Finance chart 端點，資料可能延遲且非正式授權來源，僅供個人參考使用。
 // 上市股票用 .TW 後綴、上櫃股票用 .TWO 後綴，依序嘗試。
@@ -61,11 +62,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
   }
 
   const meta = result.meta ?? {};
+  const chineseName = await lookupStockName(cleanCode).catch(() => null);
 
   return NextResponse.json({
     code: cleanCode,
     market,
-    name: meta.longName || meta.shortName || cleanCode,
+    name: chineseName || meta.longName || meta.shortName || cleanCode,
     currency: meta.currency ?? "TWD",
     quotes,
   });
