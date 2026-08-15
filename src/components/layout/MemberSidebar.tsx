@@ -9,7 +9,6 @@ import { useVisibleNavItems } from "./NavPermissionContext";
 import type { NavItem } from "@/lib/nav-items";
 
 const ICONS: Record<string, string> = {
-  dashboard: "◎",
   reports: "▦",
   debts: "📉",
   "investment.overview": "💼",

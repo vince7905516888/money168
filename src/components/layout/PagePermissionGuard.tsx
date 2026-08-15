@@ -16,7 +16,7 @@ export default function PagePermissionGuard({ children }: { children: ReactNode 
   const blocked = matched ? !visibleItems.some((i) => i.key === matched.key) : false;
 
   useEffect(() => {
-    if (blocked) router.replace("/dashboard");
+    if (blocked) router.replace("/transactions");
   }, [blocked, router]);
 
   if (blocked) return null;

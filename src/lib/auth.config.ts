@@ -27,18 +27,17 @@ export const authConfig = {
       const authRoutes = ["/login", "/register"];
       const adminRoutes = pathname.startsWith("/admin");
       const memberRoutes =
-        pathname.startsWith("/dashboard") ||
         pathname.startsWith("/transactions") ||
         pathname.startsWith("/reports");
 
       if (authRoutes.some((r) => pathname.startsWith(r))) {
-        if (isLoggedIn) return Response.redirect(new URL(isAdmin ? "/admin/dashboard" : "/dashboard", nextUrl));
+        if (isLoggedIn) return Response.redirect(new URL(isAdmin ? "/admin/dashboard" : "/transactions", nextUrl));
         return true;
       }
 
       if (adminRoutes) {
         if (!isLoggedIn) return Response.redirect(new URL("/login", nextUrl));
-        if (!isAdmin) return Response.redirect(new URL("/dashboard", nextUrl));
+        if (!isAdmin) return Response.redirect(new URL("/transactions", nextUrl));
         return true;
       }
 

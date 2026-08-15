@@ -36,10 +36,10 @@ export default function LoginPage() {
       if (me.role === "ADMIN") {
         router.push("/admin/dashboard");
       } else {
-        router.push("/dashboard");
+        router.push("/transactions");
       }
     } else {
-      router.push("/dashboard");
+      router.push("/transactions");
     }
   };
 

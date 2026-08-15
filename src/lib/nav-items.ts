@@ -7,7 +7,6 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { key: "dashboard", label: "總覽", href: "/dashboard", section: null },
   { key: "transactions", label: "收支記錄", href: "/transactions", section: "現金系統" },
   { key: "banks", label: "銀行資金管理", href: "/banks", section: "現金系統" },
   { key: "reports", label: "報表分析", href: "/reports", section: null },
