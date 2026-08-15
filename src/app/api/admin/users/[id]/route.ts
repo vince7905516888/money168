@@ -13,11 +13,12 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const { isActive, role, password } = await req.json();
+  const { isActive, role, tier, password } = await req.json();
 
   const data: Record<string, unknown> = {};
   if (isActive !== undefined) data.isActive = isActive;
   if (role !== undefined) data.role = role;
+  if (tier !== undefined) data.tier = tier;
   if (password) {
     if (password.length < 6) {
       return NextResponse.json({ error: "密碼至少需要 6 個字元" }, { status: 400 });
@@ -33,6 +34,7 @@ export async function PATCH(
       name: true,
       email: true,
       role: true,
+      tier: true,
       isActive: true,
     },
   });

@@ -7,6 +7,7 @@ interface User {
   name: string;
   email: string;
   role: string;
+  tier: string;
   isActive: boolean;
   createdAt: string;
   _count: { transactions: number };
@@ -17,6 +18,7 @@ interface PagePermItem {
   label: string;
   section: string | null;
   allowed: boolean;
+  isOverride: boolean;
 }
 
 function PagePermissionPanel({ userId }: { userId: string }) {
@@ -40,7 +42,7 @@ function PagePermissionPanel({ userId }: { userId: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, pageKey: item.key, allowed: nextAllowed }),
     });
-    setItems((prev) => prev.map((it) => (it.key === item.key ? { ...it, allowed: nextAllowed } : it)));
+    setItems((prev) => prev.map((it) => (it.key === item.key ? { ...it, allowed: nextAllowed, isOverride: true } : it)));
     setSaving(null);
   };
 
@@ -64,6 +66,7 @@ function PagePermissionPanel({ userId }: { userId: string }) {
             <span>
               {item.section ? `${item.section} · ` : ""}
               {item.label}
+              {item.isOverride && <span className="ml-1 text-amber-400" title="個人覆蓋（非該會員等級的預設值）">*</span>}
             </span>
           </label>
         ))}
@@ -97,6 +100,18 @@ export default function PermissionsPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: newRole }),
+    });
+    setSaving(null);
+    fetchUsers();
+  };
+
+  const changeTier = async (user: User, newTier: string) => {
+    if (newTier === user.tier) return;
+    setSaving(user.id);
+    await fetch(`/api/admin/users/${user.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tier: newTier }),
     });
     setSaving(null);
     fetchUsers();
@@ -151,6 +166,18 @@ export default function PermissionsPage() {
             <option value="MEMBER">會員</option>
             <option value="ADMIN">管理員</option>
           </select>
+          {user.role !== "ADMIN" && (
+            <select
+              value={user.tier}
+              onChange={(e) => changeTier(user, e.target.value)}
+              disabled={saving === user.id}
+              className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-xs text-white focus:border-indigo-500 transition-colors disabled:opacity-50"
+            >
+              <option value="FREE">一般會員</option>
+              <option value="BASIC">進階會員</option>
+              <option value="PRO">尊榮會員</option>
+            </select>
+          )}
           {saving === user.id && <span className="text-xs text-slate-400">儲存中...</span>}
           <button
             onClick={() => setExpandedId(expandedId === user.id ? null : user.id)}

@@ -13,6 +13,7 @@ const topItems = [
 const settingsItems = [
   { href: "/admin/users", label: "帳戶管理" },
   { href: "/admin/settings/permissions", label: "權限管理" },
+  { href: "/admin/settings/tiers", label: "會員等級設定" },
 ];
 
 const pointsItems = [

@@ -13,15 +13,32 @@ export async function GET(req: NextRequest) {
   const userId = searchParams.get("userId");
   if (!userId) return NextResponse.json({ error: "缺少 userId" }, { status: 400 });
 
-  const overrides = await prisma.pagePermission.findMany({ where: { userId } });
+  const [user, navConfigs, tierAccessAll, overrides] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { tier: true } }),
+    prisma.navItemConfig.findMany(),
+    prisma.tierPageAccess.findMany(),
+    prisma.pagePermission.findMany({ where: { userId } }),
+  ]);
+
+  const tier = user?.tier ?? "FREE";
+  const configMap = new Map(navConfigs.map((c) => [c.key, c]));
+  const tierAccessMap = new Map(
+    tierAccessAll.filter((t) => t.tier === tier).map((t) => [t.pageKey, t.allowed])
+  );
   const overrideMap = new Map(overrides.map((o) => [o.pageKey, o.allowed]));
 
-  const items = NAV_ITEMS.map((item) => ({
-    key: item.key,
-    label: item.label,
-    section: item.section,
-    allowed: overrideMap.get(item.key) ?? true,
-  }));
+  // 顯示「目前實際生效」的結果（個人覆蓋 > tier 預設 > 全站預設），而不是只看有沒有個人覆蓋記錄
+  const items = NAV_ITEMS.map((item) => {
+    const override = overrideMap.get(item.key);
+    const effective = override ?? tierAccessMap.get(item.key) ?? configMap.get(item.key)?.enabled ?? true;
+    return {
+      key: item.key,
+      label: item.label,
+      section: item.section,
+      allowed: effective,
+      isOverride: override !== undefined,
+    };
+  });
 
   return NextResponse.json(items);
 }

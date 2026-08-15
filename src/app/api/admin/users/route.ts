@@ -14,6 +14,7 @@ export async function GET() {
       name: true,
       email: true,
       role: true,
+      tier: true,
       isActive: true,
       createdAt: true,
       _count: { select: { transactions: true } },

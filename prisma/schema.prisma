@@ -13,6 +13,7 @@ model User {
   email              String              @unique
   password           String
   role               Role                @default(MEMBER)
+  tier               MemberTier          @default(FREE)
   isActive           Boolean             @default(true)
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
@@ -229,6 +230,12 @@ enum Role {
   ADMIN
 }
 
+enum MemberTier {
+  FREE
+  BASIC
+  PRO
+}
+
 enum TransactionType {
   INCOME
   EXPENSE
@@ -261,4 +268,13 @@ model NavItemConfig {
   key     String  @unique
   enabled Boolean @default(true)
   order   Int     @default(0)
+}
+
+model TierPageAccess {
+  id      String     @id @default(cuid())
+  tier    MemberTier
+  pageKey String
+  allowed Boolean
+
+  @@unique([tier, pageKey])
 }
