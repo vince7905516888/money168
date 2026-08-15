@@ -7,7 +7,7 @@ const TIERS = ["FREE", "BASIC", "PRO"] as const;
 
 export async function GET() {
   const session = await auth();
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || session.user.role !== "ADMIN" || !session.user.isSuperAdmin) {
     return NextResponse.json({ error: "無權限" }, { status: 403 });
   }
 
@@ -28,7 +28,7 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   const session = await auth();
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || session.user.role !== "ADMIN" || !session.user.isSuperAdmin) {
     return NextResponse.json({ error: "無權限" }, { status: 403 });
   }
 

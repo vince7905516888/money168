@@ -14,6 +14,7 @@ model User {
   password           String
   role               Role                @default(MEMBER)
   tier               MemberTier          @default(FREE)
+  isSuperAdmin       Boolean             @default(false)
   isActive           Boolean             @default(true)
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
@@ -34,7 +35,6 @@ model User {
   userCurrencies     UserCurrency[]
   userFundNavs       UserFundNav[]
   userWatchStocks    UserWatchStock[]
-  pagePermissions    PagePermission[]
 }
 
 model UserBank {
@@ -251,16 +251,6 @@ model FeeSetting {
   note        String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-}
-
-model PagePermission {
-  id      String  @id @default(cuid())
-  userId  String
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  pageKey String
-  allowed Boolean
-
-  @@unique([userId, pageKey])
 }
 
 model NavItemConfig {

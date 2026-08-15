@@ -16,7 +16,7 @@ export default async function AdminLayout({
   return (
     <div className="flex min-h-screen bg-slate-900">
       <SidebarProvider storageKey="admin-sidebar-collapsed">
-        <AdminSidebar userName={session.user.name} />
+        <AdminSidebar userName={session.user.name} isSuperAdmin={session.user.isSuperAdmin} />
         <MainArea>{children}</MainArea>
       </SidebarProvider>
     </div>

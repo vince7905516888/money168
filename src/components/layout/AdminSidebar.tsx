@@ -10,24 +10,27 @@ const topItems = [
   { href: "/admin/dashboard", label: "後台總覽", icon: "◎" },
 ];
 
-const settingsItems = [
-  { href: "/admin/users", label: "帳戶管理" },
-  { href: "/admin/settings/permissions", label: "權限管理" },
-  { href: "/admin/settings/tiers", label: "會員等級設定" },
+const settingsItemsAll = [
+  { href: "/admin/users", label: "帳戶管理", superOnly: false },
+  { href: "/admin/settings/levels", label: "層級管理", superOnly: true },
+  { href: "/admin/settings/tiers", label: "會員等級設定", superOnly: true },
 ];
 
-const pointsItems = [
-  { href: "/admin/points/query", label: "會員積分查詢" },
+const pointsItemsAll = [
+  { href: "/admin/points/query", label: "會員積分查詢", superOnly: false },
 ];
 
-const configItems = [
-  { href: "/admin/config/fees", label: "手續費設定" },
-  { href: "/admin/settings/layout", label: "前台欄目排版" },
+const configItemsAll = [
+  { href: "/admin/config/fees", label: "手續費設定", superOnly: false },
+  { href: "/admin/settings/layout", label: "前台欄目排版", superOnly: true },
 ];
 
-export default function AdminSidebar({ userName }: { userName: string }) {
+export default function AdminSidebar({ userName, isSuperAdmin }: { userName: string; isSuperAdmin: boolean }) {
   const pathname = usePathname();
   const { collapsed, toggle, expand } = useSidebar();
+  const settingsItems = settingsItemsAll.filter((i) => isSuperAdmin || !i.superOnly);
+  const pointsItems = pointsItemsAll.filter((i) => isSuperAdmin || !i.superOnly);
+  const configItems = configItemsAll.filter((i) => isSuperAdmin || !i.superOnly);
   const isSettingsActive = settingsItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
   const isPointsActive = pointsItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
   const isConfigActive = configItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
@@ -111,6 +114,7 @@ export default function AdminSidebar({ userName }: { userName: string }) {
         })}
 
         {/* 系統設置 collapsible */}
+        {settingsItems.length > 0 && (
         <div>
           <button
             onClick={toggleSettings}
@@ -147,7 +151,9 @@ export default function AdminSidebar({ userName }: { userName: string }) {
             </div>
           )}
         </div>
+        )}
         {/* 積分系統 collapsible */}
+        {pointsItems.length > 0 && (
         <div>
           <button
             onClick={togglePoints}
@@ -184,7 +190,9 @@ export default function AdminSidebar({ userName }: { userName: string }) {
             </div>
           )}
         </div>
+        )}
         {/* 設定 collapsible */}
+        {configItems.length > 0 && (
         <div>
           <button
             onClick={toggleConfig}
@@ -221,6 +229,7 @@ export default function AdminSidebar({ userName }: { userName: string }) {
             </div>
           )}
         </div>
+        )}
       </nav>
 
       {/* User */}
@@ -232,7 +241,7 @@ export default function AdminSidebar({ userName }: { userName: string }) {
           {!collapsed && (
             <div className="overflow-hidden">
               <div className="text-sm font-medium text-white truncate">{userName}</div>
-              <div className="text-xs text-slate-400">管理員</div>
+              <div className="text-xs text-slate-400">{isSuperAdmin ? "超級管理員" : "一般管理員"}</div>
             </div>
           )}
         </div>

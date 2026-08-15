@@ -13,12 +13,17 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const { isActive, role, tier, password } = await req.json();
+  const { isActive, role, tier, isSuperAdmin, password } = await req.json();
+
+  if ((tier !== undefined || isSuperAdmin !== undefined) && !session.user.isSuperAdmin) {
+    return NextResponse.json({ error: "只有超級管理員可以調整等級" }, { status: 403 });
+  }
 
   const data: Record<string, unknown> = {};
   if (isActive !== undefined) data.isActive = isActive;
   if (role !== undefined) data.role = role;
   if (tier !== undefined) data.tier = tier;
+  if (isSuperAdmin !== undefined) data.isSuperAdmin = isSuperAdmin;
   if (password) {
     if (password.length < 6) {
       return NextResponse.json({ error: "密碼至少需要 6 個字元" }, { status: 400 });
@@ -35,6 +40,7 @@ export async function PATCH(
       email: true,
       role: true,
       tier: true,
+      isSuperAdmin: true,
       isActive: true,
     },
   });
