@@ -543,6 +543,10 @@ export default function TwStockPage() {
   // 散戶持股比率：門檻可調整，但目前找不到能對上台股代碼的免費集保資料源，先留 UI、資料待確認
   const [retailThreshold, setRetailThreshold] = useState("20");
 
+  // 三大法人買賣超、融資融券餘額表格：可收合展開，表格資料量大時先收起來比較清爽
+  const [institutionalCollapsed, setInstitutionalCollapsed] = useState(false);
+  const [marginCollapsed, setMarginCollapsed] = useState(false);
+
   // 三個技術指標小窗口：都用同一個 syncId，滑鼠移到任一張圖，其他圖的十字線/提示會同步移動
   const [showKDJ, setShowKDJ] = useState(true);
   const [showRSI, setShowRSI] = useState(true);
@@ -635,8 +639,15 @@ export default function TwStockPage() {
 
   const isWatched = data ? watchlist.some((w) => w.code === data.code) : false;
 
+  // 觀察名單按鈕一律顯示（不管會員層級），沒有權限的話點了顯示提示而不是直接隱藏功能
+  const [showWatchlistLockedHint, setShowWatchlistLockedHint] = useState(false);
+
   const toggleWatchlist = async () => {
     if (!data) return;
+    if (!watchlistEnabled) {
+      setShowWatchlistLockedHint(true);
+      return;
+    }
     if (isWatched) {
       setWatchlist((prev) => prev.filter((w) => w.code !== data.code));
       fetch(`/api/market/tw-stock/watchlist/${data.code}`, { method: "DELETE" }).catch(() => {});
@@ -677,6 +688,7 @@ export default function TwStockPage() {
     setTrendLines([]);
     setPendingTrendPoint(null);
     setDrawTool("none");
+    setShowWatchlistLockedHint(false);
     try {
       const res = await fetch(`/api/market/tw-stock/${code}?interval=${interval}`);
       if (!res.ok) {
@@ -888,11 +900,11 @@ export default function TwStockPage() {
                 {data.code} {data.name}
               </h2>
               <span className="text-xs text-slate-400">{data.market === "TW" ? "上市" : "上櫃"} · {last.date}</span>
-              {watchlistEnabled && (
+              <div className="ml-auto relative">
                 <button
                   type="button"
                   onClick={toggleWatchlist}
-                  className={`ml-auto text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
                     isWatched
                       ? "bg-amber-50 border-amber-200 text-amber-600"
                       : "bg-white border-slate-200 text-slate-500 hover:border-amber-300 hover:text-amber-600"
@@ -900,7 +912,21 @@ export default function TwStockPage() {
                 >
                   {isWatched ? "★ 已加入觀察" : "☆ 加入觀察"}
                 </button>
-              )}
+                {showWatchlistLockedHint && (
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-slate-800 text-white text-xs rounded-xl p-3 shadow-lg z-10">
+                    <div className="flex items-start justify-between gap-2">
+                      <p>您的會員等級尚未開放觀察名單功能，未來會開放用其他方式兌換權限，敬請期待。</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowWatchlistLockedHint(false)}
+                        className="text-slate-400 hover:text-white shrink-0"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex items-baseline gap-3 mt-2">
               <span className="text-3xl font-bold text-slate-900">{fmtNum(last.close)}</span>
@@ -1317,77 +1343,99 @@ export default function TwStockPage() {
 
           {/* 三大法人買賣超：真實資料，來源證交所 T86（僅涵蓋上市），近20個交易日逐日顯示 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
-            <h3 className="text-sm font-semibold text-slate-700 mb-4">三大法人買賣超（張，近{institutional.length}個交易日）</h3>
-            {institutional.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-slate-400 border-b border-slate-50">
-                      <th className="text-left font-semibold px-3 py-2">日期</th>
-                      <th className="text-right font-semibold px-3 py-2">外資</th>
-                      <th className="text-right font-semibold px-3 py-2">投信</th>
-                      <th className="text-right font-semibold px-3 py-2">自營商</th>
-                      <th className="text-right font-semibold px-3 py-2">合計</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {institutional.map((row) => (
-                      <tr key={row.date} className="text-slate-700">
-                        <td className="px-3 py-2 text-slate-500">{row.date}</td>
-                        {([row.foreignNetLots, row.trustNetLots, row.dealerNetLots, row.totalNetLots] as const).map(
-                          (v, i) => (
-                            <td key={i} className={`px-3 py-2 text-right ${v >= 0 ? "text-red-500" : "text-green-600"}`}>
-                              {v >= 0 ? "+" : ""}{v.toLocaleString("zh-TW")}
-                            </td>
-                          )
-                        )}
+            <button
+              type="button"
+              onClick={() => setInstitutionalCollapsed((c) => !c)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <h3 className="text-sm font-semibold text-slate-700">三大法人買賣超（張，近{institutional.length}個交易日）</h3>
+              <span className="text-slate-400 text-xs flex items-center gap-1">
+                {institutionalCollapsed ? "展開" : "收合"}
+                <span className={`transition-transform ${institutionalCollapsed ? "" : "rotate-180"}`}>▾</span>
+              </span>
+            </button>
+            {!institutionalCollapsed &&
+              (institutional.length > 0 ? (
+                <div className="overflow-x-auto mt-4">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-400 border-b border-slate-50">
+                        <th className="text-left font-semibold px-3 py-2">日期</th>
+                        <th className="text-right font-semibold px-3 py-2">外資</th>
+                        <th className="text-right font-semibold px-3 py-2">投信</th>
+                        <th className="text-right font-semibold px-3 py-2">自營商</th>
+                        <th className="text-right font-semibold px-3 py-2">合計</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="text-[11px] text-slate-400 mt-3">資料源：證交所 T86</p>
-              </div>
-            ) : (
-              <div className="text-sm text-slate-400">尚未取得資料（僅涵蓋上市股票，上櫃股票暫無此資料）</div>
-            )}
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {institutional.map((row) => (
+                        <tr key={row.date} className="text-slate-700">
+                          <td className="px-3 py-2 text-slate-500">{row.date}</td>
+                          {([row.foreignNetLots, row.trustNetLots, row.dealerNetLots, row.totalNetLots] as const).map(
+                            (v, i) => (
+                              <td key={i} className={`px-3 py-2 text-right ${v >= 0 ? "text-red-500" : "text-green-600"}`}>
+                                {v >= 0 ? "+" : ""}{v.toLocaleString("zh-TW")}
+                              </td>
+                            )
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[11px] text-slate-400 mt-3">資料源：證交所 T86</p>
+                </div>
+              ) : (
+                <div className="text-sm text-slate-400 mt-4">尚未取得資料（僅涵蓋上市股票，上櫃股票暫無此資料）</div>
+              ))}
           </div>
 
           {/* 融資融券餘額：真實資料，來源證交所 MI_MARGN（僅涵蓋上市），近20個交易日逐日顯示 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
-            <h3 className="text-sm font-semibold text-slate-700 mb-4">融資融券餘額（張，近{margin.length}個交易日）</h3>
-            {margin.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-slate-400 border-b border-slate-50">
-                      <th className="text-left font-semibold px-3 py-2">日期</th>
-                      <th className="text-right font-semibold px-3 py-2">融資餘額</th>
-                      <th className="text-right font-semibold px-3 py-2">增減</th>
-                      <th className="text-right font-semibold px-3 py-2">融券餘額</th>
-                      <th className="text-right font-semibold px-3 py-2">增減</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {margin.map((row) => (
-                      <tr key={row.date} className="text-slate-700">
-                        <td className="px-3 py-2 text-slate-500">{row.date}</td>
-                        <td className="px-3 py-2 text-right">{row.marginBalance.toLocaleString("zh-TW")}</td>
-                        <td className={`px-3 py-2 text-right ${row.marginChange >= 0 ? "text-red-500" : "text-green-600"}`}>
-                          {row.marginChange >= 0 ? "+" : ""}{row.marginChange.toLocaleString("zh-TW")}
-                        </td>
-                        <td className="px-3 py-2 text-right">{row.shortBalance.toLocaleString("zh-TW")}</td>
-                        <td className={`px-3 py-2 text-right ${row.shortChange >= 0 ? "text-red-500" : "text-green-600"}`}>
-                          {row.shortChange >= 0 ? "+" : ""}{row.shortChange.toLocaleString("zh-TW")}
-                        </td>
+            <button
+              type="button"
+              onClick={() => setMarginCollapsed((c) => !c)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <h3 className="text-sm font-semibold text-slate-700">融資融券餘額（張，近{margin.length}個交易日）</h3>
+              <span className="text-slate-400 text-xs flex items-center gap-1">
+                {marginCollapsed ? "展開" : "收合"}
+                <span className={`transition-transform ${marginCollapsed ? "" : "rotate-180"}`}>▾</span>
+              </span>
+            </button>
+            {!marginCollapsed &&
+              (margin.length > 0 ? (
+                <div className="overflow-x-auto mt-4">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-slate-400 border-b border-slate-50">
+                        <th className="text-left font-semibold px-3 py-2">日期</th>
+                        <th className="text-right font-semibold px-3 py-2">融資餘額</th>
+                        <th className="text-right font-semibold px-3 py-2">增減</th>
+                        <th className="text-right font-semibold px-3 py-2">融券餘額</th>
+                        <th className="text-right font-semibold px-3 py-2">增減</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="text-[11px] text-slate-400 mt-3">資料源：證交所 MI_MARGN</p>
-              </div>
-            ) : (
-              <div className="text-sm text-slate-400">尚未取得資料（僅涵蓋上市股票，上櫃股票暫無此資料）</div>
-            )}
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {margin.map((row) => (
+                        <tr key={row.date} className="text-slate-700">
+                          <td className="px-3 py-2 text-slate-500">{row.date}</td>
+                          <td className="px-3 py-2 text-right">{row.marginBalance.toLocaleString("zh-TW")}</td>
+                          <td className={`px-3 py-2 text-right ${row.marginChange >= 0 ? "text-red-500" : "text-green-600"}`}>
+                            {row.marginChange >= 0 ? "+" : ""}{row.marginChange.toLocaleString("zh-TW")}
+                          </td>
+                          <td className="px-3 py-2 text-right">{row.shortBalance.toLocaleString("zh-TW")}</td>
+                          <td className={`px-3 py-2 text-right ${row.shortChange >= 0 ? "text-red-500" : "text-green-600"}`}>
+                            {row.shortChange >= 0 ? "+" : ""}{row.shortChange.toLocaleString("zh-TW")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[11px] text-slate-400 mt-3">資料源：證交所 MI_MARGN</p>
+                </div>
+              ) : (
+                <div className="text-sm text-slate-400 mt-4">尚未取得資料（僅涵蓋上市股票，上櫃股票暫無此資料）</div>
+              ))}
           </div>
 
           {/* 散戶持股比率：門檻可調整，但目前沒有能對上台股代碼的免費集保資料源，先留 UI 版位 */}

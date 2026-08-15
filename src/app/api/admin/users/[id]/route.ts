@@ -13,7 +13,7 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const { isActive, role, tier, isSuperAdmin, password } = await req.json();
+  const { isActive, role, tier, isSuperAdmin, password, disableTwoFactor } = await req.json();
 
   if ((tier !== undefined || isSuperAdmin !== undefined) && !session.user.isSuperAdmin) {
     return NextResponse.json({ error: "只有超級管理員可以調整等級" }, { status: 403 });
@@ -30,6 +30,11 @@ export async function PATCH(
     }
     data.password = await bcrypt.hash(password, 12);
   }
+  // 管理員代為解除會員的兩步驟驗證綁定，供帳號救援使用（會員自己被鎖在外面、忘了驗證器裝置等情況）
+  if (disableTwoFactor) {
+    data.twoFactorEnabled = false;
+    data.twoFactorSecret = null;
+  }
 
   const updated = await prisma.user.update({
     where: { id },
@@ -42,6 +47,7 @@ export async function PATCH(
       tier: true,
       isSuperAdmin: true,
       isActive: true,
+      twoFactorEnabled: true,
     },
   });
 

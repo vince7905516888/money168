@@ -17,6 +17,7 @@ export async function GET() {
       tier: true,
       isSuperAdmin: true,
       isActive: true,
+      twoFactorEnabled: true,
       createdAt: true,
       _count: { select: { transactions: true } },
     },

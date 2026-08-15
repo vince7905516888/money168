@@ -8,6 +8,7 @@ interface User {
   email: string;
   role: string;
   isActive: boolean;
+  twoFactorEnabled: boolean;
   createdAt: string;
   _count: { transactions: number };
 }
@@ -90,6 +91,16 @@ export default function AdminUsersPage() {
     fetchUsers();
   };
 
+  const disableTwoFactor = async (user: User) => {
+    if (!confirm(`確定要解除 ${user.name} 的兩步驟驗證綁定？解除後該帳號登入將不再要求驗證碼，使用者可以重新綁定。`)) return;
+    await fetch(`/api/admin/users/${user.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ disableTwoFactor: true }),
+    });
+    fetchUsers();
+  };
+
   const filtered = users.filter(
     (u) => u.name.includes(search) || u.email.includes(search)
   );
@@ -118,9 +129,10 @@ export default function AdminUsersPage() {
       {/* Table */}
       <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
         <div className="grid grid-cols-12 px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700">
-          <div className="col-span-4">帳戶</div>
+          <div className="col-span-3">帳戶</div>
           <div className="col-span-2">角色</div>
-          <div className="col-span-2 text-center">記錄數</div>
+          <div className="col-span-1 text-center">記錄數</div>
+          <div className="col-span-2">兩步驟驗證</div>
           <div className="col-span-2">狀態</div>
           <div className="col-span-2 text-right">操作</div>
         </div>
@@ -133,7 +145,7 @@ export default function AdminUsersPage() {
           <div className="divide-y divide-slate-700">
             {filtered.map((user) => (
               <div key={user.id} className="grid grid-cols-12 items-center px-5 py-4 hover:bg-slate-700/50 transition-colors">
-                <div className="col-span-4 flex items-center gap-3">
+                <div className="col-span-3 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full bg-indigo-900 flex items-center justify-center text-indigo-300 font-semibold text-sm flex-shrink-0">
                     {user.name.charAt(0).toUpperCase()}
                   </div>
@@ -153,8 +165,26 @@ export default function AdminUsersPage() {
                     {user.role === "ADMIN" ? "管理員" : "會員"}
                   </span>
                 </div>
-                <div className="col-span-2 text-center text-sm text-slate-300">
+                <div className="col-span-1 text-center text-sm text-slate-300">
                   {user._count.transactions}
+                </div>
+                <div className="col-span-2 flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1 text-xs font-medium ${
+                      user.twoFactorEnabled ? "text-emerald-400" : "text-slate-500"
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${user.twoFactorEnabled ? "bg-emerald-400" : "bg-slate-600"}`} />
+                    {user.twoFactorEnabled ? "已綁定" : "未綁定"}
+                  </span>
+                  {user.twoFactorEnabled && (
+                    <button
+                      onClick={() => disableTwoFactor(user)}
+                      className="text-xs text-amber-400 hover:bg-amber-900/30 rounded px-1.5 py-0.5 transition-colors"
+                    >
+                      解除綁定
+                    </button>
+                  )}
                 </div>
                 <div className="col-span-2">
                   <span
