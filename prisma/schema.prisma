@@ -8,28 +8,57 @@ datasource db {
 }
 
 model User {
-  id           String        @id @default(cuid())
-  name         String
-  email        String        @unique
-  password     String
-  role         Role          @default(MEMBER)
-  isActive     Boolean       @default(true)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  transactions   Transaction[]
-  categories     Category[]
-  userBanks      UserBank[]
+  id               String             @id @default(cuid())
+  name             String
+  email            String             @unique
+  password         String
+  role             Role               @default(MEMBER)
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  twoFactorEnabled Boolean            @default(false)
+  twoFactorSecret  String?
+  points           Int                @default(0)
+  categories       Category[]
+  Debt             Debt[]
+  investments      Investment[]
+  transactions     Transaction[]
+  userBanks        UserBank[]
+  userBrokers      UserBroker[]
+  UserCurrency     UserCurrency[]
+  UserDebtCategory UserDebtCategory[]
+  UserExchange     UserExchange[]
+  UserExchangeRate UserExchangeRate[]
+  UserFund         UserFund[]
+  UserFundNav      UserFundNav[]
   userThirdParties UserThirdParty[]
-  userBrokers    UserBroker[]
-  investments    Investment[]
+  UserWatchStock   UserWatchStock[]
+  pagePermissions  PagePermission[]
+}
+
+model PagePermission {
+  id      String  @id @default(cuid())
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pageKey String
+  allowed Boolean
+
+  @@unique([userId, pageKey])
+}
+
+model NavItemConfig {
+  id      String  @id @default(cuid())
+  key     String  @unique
+  enabled Boolean @default(true)
+  order   Int     @default(0)
 }
 
 model UserBank {
   id        String   @id @default(cuid())
   name      String
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, name])
 }
@@ -38,8 +67,8 @@ model UserThirdParty {
   id        String   @id @default(cuid())
   name      String
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, name])
 }
@@ -48,8 +77,8 @@ model UserBroker {
   id        String   @id @default(cuid())
   name      String
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, name])
 }
@@ -61,9 +90,9 @@ model Category {
   icon         String?
   color        String?
   userId       String
+  createdAt    DateTime        @default(now())
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
-  createdAt    DateTime        @default(now())
 }
 
 model Transaction {
@@ -73,13 +102,14 @@ model Transaction {
   type       TransactionType
   date       DateTime
   note       String?
-  source     String          @default("CASH")
   userId     String
-  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   categoryId String?
-  category   Category?       @relation(fields: [categoryId], references: [id])
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
+  source     String          @default("CASH")
+  currency   String?
+  category   Category?       @relation(fields: [categoryId], references: [id])
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Investment {
@@ -89,22 +119,121 @@ model Investment {
   code          String?
   amount        Float
   quantity      Float?
-  price         Float?
-  broker        String?
-  bankName      String?
-  currency      String?
-  exchangeRate  Float?
+  note          String?
+  userId        String
+  transactionId String?        @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   action        TradeAction    @default(BUY)
   date          DateTime       @default(now())
   discount      Float?
   fee           Float?
+  price         Float?
   tax           Float?
-  note          String?
-  userId        String
+  broker        String?
+  bankName      String?
+  currency      String?
+  exchangeRate  Float?
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactionId String?        @unique
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+}
+
+model FeeSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  rate        Float    @default(0)
+  fixedAmount Float    @default(0)
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Debt {
+  id        String   @id
+  category  String
+  amount    Float
+  bankName  String?
+  date      DateTime @default(now())
+  note      String?
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserCurrency {
+  id        String   @id
+  name      String
+  userId    String
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+}
+
+model UserDebtCategory {
+  id        String   @id
+  name      String
+  userId    String
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+}
+
+model UserExchange {
+  id        String   @id
+  name      String
+  userId    String
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+}
+
+model UserExchangeRate {
+  id        String   @id
+  currency  String
+  rate      Float
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, currency])
+}
+
+model UserFund {
+  id        String   @id
+  name      String
+  userId    String
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+}
+
+model UserFundNav {
+  id        String   @id
+  fundKey   String
+  nav       Float
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fundKey])
+}
+
+model UserWatchStock {
+  id        String   @id
+  code      String
+  name      String?
+  userId    String
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, code])
 }
 
 enum InvestmentType {
@@ -113,6 +242,8 @@ enum InvestmentType {
   FOREX
   CRYPTO
   GOLD
+  REALESTATE
+  INSURANCE
 }
 
 enum TradeAction {
@@ -129,15 +260,4 @@ enum TransactionType {
   INCOME
   EXPENSE
   TRANSFER
-}
-
-model FeeSetting {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  label       String
-  rate        Float    @default(0)
-  fixedAmount Float    @default(0)
-  note        String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
 }

@@ -38,6 +38,51 @@ const DEFAULT_BROKERS = [
   "元富證券", "新光證券", "大昌證券",
 ];
 
+interface Holding {
+  key: string;
+  name: string;
+  code: string;
+  quantity: number;
+  cost: number;
+  avgPrice: number;
+}
+
+// 移動平均成本法：買進累加股數與成本，賣出則按賣出前的平均成本比例扣除，平均成本不變、只有股數與總成本下降
+function computeHoldings(investments: Investment[]): Holding[] {
+  const groups = new Map<string, { name: string; code: string; qty: number; cost: number }>();
+
+  const sorted = [...investments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  for (const inv of sorted) {
+    if (!inv.quantity || !inv.price) continue;
+    const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
+    if (!groups.has(key)) {
+      groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0 });
+    }
+    const g = groups.get(key)!;
+    if (inv.action === "BUY") {
+      g.qty += inv.quantity;
+      g.cost += inv.quantity * inv.price;
+    } else {
+      const avgCost = g.qty > 0 ? g.cost / g.qty : 0;
+      const sellQty = Math.min(inv.quantity, g.qty);
+      g.qty -= sellQty;
+      g.cost -= avgCost * sellQty;
+    }
+  }
+
+  return Array.from(groups.entries())
+    .filter(([, g]) => g.qty > 0.0001)
+    .map(([key, g]) => ({
+      key,
+      name: g.name,
+      code: g.code,
+      quantity: g.qty,
+      cost: g.cost,
+      avgPrice: g.cost / g.qty,
+    }));
+}
+
 const EMPTY_ADD_FORM = {
   name: "",
   code: "",
@@ -116,6 +161,7 @@ export default function StockPage() {
   const netInvested = investments.reduce((s, i) => s + i.amount, 0);
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
+  const holdings = computeHoldings(investments);
 
   // ---- 新增表單：即時試算 ----
   const quantity = parseFloat(addForm.quantity) || 0;
@@ -230,6 +276,41 @@ export default function StockPage() {
           <div className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">賣出筆數</div>
           <div className="text-2xl font-bold text-slate-900 mt-1">{sellCount} 筆</div>
         </div>
+      </div>
+
+      {/* 持股狀況 */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
+        <div className="px-6 py-4 border-b border-slate-50">
+          <h2 className="font-semibold text-slate-900">持股狀況</h2>
+        </div>
+        {holdings.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-sm">目前沒有持股</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-50">
+                  <th className="text-left font-semibold px-6 py-3">股票名稱</th>
+                  <th className="text-left font-semibold px-6 py-3">股票代碼</th>
+                  <th className="text-right font-semibold px-6 py-3">合計股數</th>
+                  <th className="text-right font-semibold px-6 py-3">投資總額</th>
+                  <th className="text-right font-semibold px-6 py-3">平均每股價格</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {holdings.map((h) => (
+                  <tr key={h.key} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-3 font-medium text-slate-800">{h.name}</td>
+                    <td className="px-6 py-3 text-slate-500 font-mono text-xs">{h.code}</td>
+                    <td className="px-6 py-3 text-right text-slate-700">{h.quantity.toLocaleString("zh-TW")}</td>
+                    <td className="px-6 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
+                    <td className="px-6 py-3 text-right text-slate-700">{h.avgPrice.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* List */}

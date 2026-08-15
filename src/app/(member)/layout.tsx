@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import MemberSidebar from "@/components/layout/MemberSidebar";
 import MainArea from "@/components/layout/MainArea";
 import { SidebarProvider } from "@/components/layout/SidebarContext";
+import { NavPermissionProvider } from "@/components/layout/NavPermissionContext";
+import PagePermissionGuard from "@/components/layout/PagePermissionGuard";
+import { getVisibleNavItems } from "@/lib/permissions";
 
 export default async function MemberLayout({
   children,
@@ -13,12 +16,18 @@ export default async function MemberLayout({
   if (!session) redirect("/login");
   if (session.user.role === "ADMIN") redirect("/admin/dashboard");
 
+  const visibleItems = await getVisibleNavItems(session.user.id, session.user.role);
+
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <SidebarProvider storageKey="member-sidebar-collapsed">
-        <MemberSidebar userName={session.user.name} />
-        <MainArea>{children}</MainArea>
-      </SidebarProvider>
+      <NavPermissionProvider visibleItems={visibleItems}>
+        <SidebarProvider storageKey="member-sidebar-collapsed">
+          <MemberSidebar userName={session.user.name} />
+          <MainArea>
+            <PagePermissionGuard>{children}</PagePermissionGuard>
+          </MainArea>
+        </SidebarProvider>
+      </NavPermissionProvider>
     </div>
   );
 }

@@ -3,38 +3,71 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useSidebar } from "./SidebarContext";
+import { useVisibleNavItems } from "./NavPermissionContext";
+import type { NavItem } from "@/lib/nav-items";
 
-const cashItems = [
-  { href: "/transactions", label: "收支記錄" },
-  { href: "/banks", label: "銀行資金管理" },
-];
+const ICONS: Record<string, string> = {
+  dashboard: "◎",
+  reports: "▦",
+  profile: "👤",
+};
 
-const investmentItems = [
-  { href: "/investment/overview", label: "投資總攬" },
-  { href: "/investment/stock", label: "股票投資" },
-  { href: "/investment/fund", label: "基金投資" },
-  { href: "/investment/forex", label: "外匯投資" },
-  { href: "/investment/crypto", label: "虛擬貨幣" },
-  { href: "/investment/gold", label: "黃金投資" },
-];
+const SECTION_ICONS: Record<string, string> = {
+  "現金系統": "💵",
+  "投資": "📊",
+  "市場行情": "📈",
+};
+
+type Block =
+  | { type: "link"; item: NavItem; order: number }
+  | { type: "section"; name: string; items: NavItem[]; order: number };
 
 export default function MemberSidebar({ userName }: { userName: string }) {
   const pathname = usePathname();
   const { collapsed, toggle, expand } = useSidebar();
-  const isCash = pathname.startsWith("/transactions") || pathname.startsWith("/banks");
-  const isInvestment = pathname.startsWith("/investment");
-  const [cashOpen, setCashOpen] = useState(isCash);
-  const [investOpen, setInvestOpen] = useState(isInvestment);
+  const visibleItems = useVisibleNavItems();
 
-  const toggleCash = () => {
-    if (collapsed) { expand(); setCashOpen(true); return; }
-    setCashOpen((o) => !o);
-  };
-  const toggleInvest = () => {
-    if (collapsed) { expand(); setInvestOpen(true); return; }
-    setInvestOpen((o) => !o);
+  const blocks = useMemo<Block[]>(() => {
+    const bySection = new Map<string, NavItem[]>();
+    const standalone: NavItem[] = [];
+    for (const item of visibleItems) {
+      if (item.section) {
+        if (!bySection.has(item.section)) bySection.set(item.section, []);
+        bySection.get(item.section)!.push(item);
+      } else {
+        standalone.push(item);
+      }
+    }
+    const result: Block[] = [
+      ...standalone.map((item) => ({ type: "link" as const, item, order: item.order ?? 0 })),
+      ...Array.from(bySection.entries()).map(([name, items]) => ({
+        type: "section" as const,
+        name,
+        items,
+        order: Math.min(...items.map((i) => i.order ?? 0)),
+      })),
+    ];
+    return result.sort((a, b) => a.order - b.order);
+  }, [visibleItems]);
+
+  const [openSections, setOpenSections] = useState<Set<string>>(
+    () => new Set(blocks.filter((b) => b.type === "section" && b.items.some((i) => pathname.startsWith(i.href))).map((b) => (b as { name: string }).name))
+  );
+
+  const toggleSection = (name: string) => {
+    if (collapsed) {
+      expand();
+      setOpenSections((prev) => new Set(prev).add(name));
+      return;
+    }
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
   };
 
   return (
@@ -73,131 +106,69 @@ export default function MemberSidebar({ userName }: { userName: string }) {
 
       {/* Nav */}
       <nav className="flex-1 space-y-1">
-        {/* 總覽 */}
-        <Link
-          href="/dashboard"
-          title="總覽"
-          className={`flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
-            collapsed ? "justify-center px-0" : "gap-3 px-3"
-          } ${
-            pathname === "/dashboard"
-              ? "bg-indigo-50 text-indigo-700"
-              : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
-          }`}
-        >
-          <span className="text-base leading-none">◎</span>
-          {!collapsed && "總覽"}
-        </Link>
+        {blocks.map((block) => {
+          if (block.type === "link") {
+            const { item } = block;
+            const active = pathname === item.href || pathname.startsWith(item.href + "/");
+            return (
+              <Link
+                key={item.key}
+                href={item.href}
+                title={item.label}
+                className={`flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  collapsed ? "justify-center px-0" : "gap-3 px-3"
+                } ${
+                  active ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                }`}
+              >
+                <span className="text-base leading-none">{ICONS[item.key] ?? "•"}</span>
+                {!collapsed && item.label}
+              </Link>
+            );
+          }
 
-        {/* 現金系統 section */}
-        <button
-          onClick={toggleCash}
-          title="現金系統"
-          className={`w-full flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
-            collapsed ? "justify-center px-0" : "gap-3 px-3"
-          } ${
-            isCash
-              ? "bg-indigo-50 text-indigo-700"
-              : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
-          }`}
-        >
-          <span className="text-base leading-none">💵</span>
-          {!collapsed && <span className="flex-1 text-left">現金系統</span>}
-          {!collapsed && <span className="text-xs text-slate-400">{cashOpen ? "▾" : "▸"}</span>}
-        </button>
+          const isActiveSection = block.items.some((i) => pathname.startsWith(i.href));
+          const open = openSections.has(block.name);
+          return (
+            <div key={block.name}>
+              <button
+                onClick={() => toggleSection(block.name)}
+                title={block.name}
+                className={`w-full flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  collapsed ? "justify-center px-0" : "gap-3 px-3"
+                } ${
+                  isActiveSection ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                }`}
+              >
+                <span className="text-base leading-none">{SECTION_ICONS[block.name] ?? "▤"}</span>
+                {!collapsed && <span className="flex-1 text-left">{block.name}</span>}
+                {!collapsed && <span className="text-xs text-slate-400">{open ? "▾" : "▸"}</span>}
+              </button>
 
-        {!collapsed && cashOpen && (
-          <div className="ml-4 space-y-0.5">
-            {cashItems.map((item) => {
-              const active = pathname === item.href || pathname.startsWith(item.href + "/");
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all ${
-                    active
-                      ? "bg-indigo-50 text-indigo-700 font-medium"
-                      : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-        )}
-
-        {/* 報表分析 */}
-        <Link
-          href="/reports"
-          title="報表分析"
-          className={`flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
-            collapsed ? "justify-center px-0" : "gap-3 px-3"
-          } ${
-            pathname.startsWith("/reports")
-              ? "bg-indigo-50 text-indigo-700"
-              : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
-          }`}
-        >
-          <span className="text-base leading-none">▦</span>
-          {!collapsed && "報表分析"}
-        </Link>
-
-        {/* 投資 section */}
-        <button
-          onClick={toggleInvest}
-          title="投資"
-          className={`w-full flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
-            collapsed ? "justify-center px-0" : "gap-3 px-3"
-          } ${
-            isInvestment
-              ? "bg-indigo-50 text-indigo-700"
-              : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
-          }`}
-        >
-          <span className="text-base leading-none">📊</span>
-          {!collapsed && <span className="flex-1 text-left">投資</span>}
-          {!collapsed && <span className="text-xs text-slate-400">{investOpen ? "▾" : "▸"}</span>}
-        </button>
-
-        {!collapsed && investOpen && (
-          <div className="ml-4 space-y-0.5">
-            {investmentItems.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all ${
-                    active
-                      ? "bg-indigo-50 text-indigo-700 font-medium"
-                      : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-        )}
-
-        {/* 會員資料管理 */}
-        <Link
-          href="/profile"
-          title="會員資料管理"
-          className={`flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
-            collapsed ? "justify-center px-0" : "gap-3 px-3"
-          } ${
-            pathname.startsWith("/profile")
-              ? "bg-indigo-50 text-indigo-700"
-              : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
-          }`}
-        >
-          <span className="text-base leading-none">👤</span>
-          {!collapsed && "會員資料管理"}
-        </Link>
+              {!collapsed && open && (
+                <div className="ml-4 space-y-0.5">
+                  {block.items.map((item) => {
+                    const active = pathname === item.href;
+                    return (
+                      <Link
+                        key={item.key}
+                        href={item.href}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all ${
+                          active
+                            ? "bg-indigo-50 text-indigo-700 font-medium"
+                            : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       {/* User */}
