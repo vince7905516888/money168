@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   ComposedChart,
   BarChart,
@@ -518,14 +518,19 @@ export default function TwStockPage() {
     fetchStock(code, chartInterval);
   };
 
-  const rows = data ? buildChartRows(data.quotes) : [];
+  // rows 一定要記憶化：Brush 拖曳時 onChange 會不斷更新 brushRange 觸發重繪，
+  // 如果每次重繪都重算出新的陣列參照，recharts 的 Brush 會誤判成「資料變了」而中斷拖曳手勢。
+  const rows = useMemo(() => (data ? buildChartRows(data.quotes) : []), [data]);
   const last = rows[rows.length - 1];
   const prev = rows[rows.length - 2];
   const change = last && prev ? last.close - prev.close : null;
   const changePct = last && prev ? (change! / prev.close) * 100 : null;
 
   // K線主圖用 Brush 拖曳選取範圍，其餘同步圖表沒有自己的 Brush，改用這個切好的資料顯示同樣的範圍
-  const visibleRows = brushRange ? rows.slice(brushRange.startIndex, brushRange.endIndex + 1) : rows;
+  const visibleRows = useMemo(
+    () => (brushRange ? rows.slice(brushRange.startIndex, brushRange.endIndex + 1) : rows),
+    [rows, brushRange]
+  );
 
   return (
     <div className="max-w-6xl">
