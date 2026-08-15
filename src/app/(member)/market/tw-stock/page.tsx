@@ -499,6 +499,9 @@ export default function TwStockPage() {
     setFundamentals(null);
     setProfile(null);
     setBrushRange(null);
+    // 換股票時法人買賣超趨勢圖區間重置回1個月：避免補歷史的請求跟上面法人資料的請求同時打證交所，
+    // 併發太高證交所會直接擋（實測回應 428），拆開來個別請求量都在安全範圍內。
+    setFlowPeriod("1m");
     try {
       const res = await fetch(`/api/market/tw-stock/${code}?interval=${interval}`);
       if (!res.ok) {
@@ -1074,7 +1077,9 @@ export default function TwStockPage() {
                 </ResponsiveContainer>
                 <p className="text-[11px] text-slate-400 mt-2">
                   涵蓋 {flowChartRows[0].date} ~ {flowChartRows[flowChartRows.length - 1].date}，共 {flowChartRows.length} 個交易日
-                  {flowData && flowChartRows[0].date > flowData.requestedFrom ? "（資料逐日累積中，尚未涵蓋完整區間）" : ""}
+                  {flowData && flowChartRows[0].date > flowData.requestedFrom
+                    ? "（資料分批累積中，尚未涵蓋完整區間，切換區間或改天再回來看會愈來愈完整）"
+                    : ""}
                 </p>
               </>
             )}
