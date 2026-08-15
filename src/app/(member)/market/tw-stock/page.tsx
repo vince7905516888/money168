@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   ComposedChart,
   BarChart,
@@ -14,6 +14,10 @@ import {
   ReferenceLine,
   Cell,
   Brush,
+  useYAxisScale,
+  useXAxisScale,
+  useYAxisInverseScale,
+  usePlotArea,
 } from "recharts";
 
 const SYNC_ID = "tw-stock-charts";
@@ -392,6 +396,115 @@ function CandleShape(props: unknown) {
 const fmtNum = (n: number | null | undefined, digits = 2) =>
   n == null ? "—" : n.toLocaleString("zh-TW", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
+type DrawTool = "none" | "horizontal" | "trend";
+interface HorizontalLine {
+  id: string;
+  price: number;
+}
+interface TrendLine {
+  id: string;
+  x1: string;
+  y1: number;
+  x2: string;
+  y2: number;
+}
+
+// K線畫線工具＋游標標價：recharts 3.x 把 Customized 整個廢棄了（拿不到 xAxisMap/yAxisMap/offset），
+// 改用官方新的 hooks（useYAxisScale／useXAxisScale／useYAxisInverseScale／usePlotArea）取得真正的
+// scale。這幾個 hooks 只能在 <ComposedChart> 底下的子元件呼叫，所以 DrawingLayer 要直接當子元件渲染
+// （不能包在 Customized 裡），同時把「像素→價格」的反查函式存進 ref，讓外層 <ComposedChart> 自己的
+// onClick/onMouseMove（跟 Tooltip 共用同一套、保證會觸發）能讀出來用。
+function DrawingLayer(props: {
+  horizontalLines: HorizontalLine[];
+  trendLines: TrendLine[];
+  pendingTrendPoint: { x: string; y: number } | null;
+  hoverPrice: number | null;
+  scaleRef: React.MutableRefObject<{ yInverse: (px: number) => unknown } | null>;
+  onRemoveHorizontal: (id: string) => void;
+  onRemoveTrend: (id: string) => void;
+}) {
+  const { horizontalLines, trendLines, pendingTrendPoint, hoverPrice, scaleRef, onRemoveHorizontal, onRemoveTrend } = props;
+
+  const yScale = useYAxisScale();
+  const xScale = useXAxisScale();
+  const yInverse = useYAxisInverseScale();
+  const plotArea = usePlotArea();
+
+  useEffect(() => {
+    scaleRef.current = yInverse ? { yInverse } : null;
+  }, [yInverse, scaleRef]);
+
+  if (!yScale || !xScale || !plotArea) return null;
+
+  const priceToY = (price: number) => yScale(price) ?? 0;
+  const dateToX = (date: string) => xScale(date, { position: "middle" }) ?? 0;
+
+  const priceLabel = (price: number, y: number, color: string, onRemove?: () => void) => (
+    <g>
+      <line x1={plotArea.x} x2={plotArea.x + plotArea.width} y1={y} y2={y} stroke={color} strokeWidth={1.25} strokeDasharray="4 3" />
+      <rect x={plotArea.x + plotArea.width + 2} y={y - 9} width={62} height={18} fill={color} rx={3} />
+      <text x={plotArea.x + plotArea.width + 33} y={y + 4} fontSize={10} fill="#fff" textAnchor="middle">
+        {price.toFixed(2)}
+      </text>
+      {onRemove && (
+        <text
+          x={plotArea.x + plotArea.width - 6}
+          y={y - 10}
+          fontSize={13}
+          fill={color}
+          textAnchor="end"
+          style={{ cursor: "pointer" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+        >
+          ×
+        </text>
+      )}
+    </g>
+  );
+
+  return (
+    <g>
+      {horizontalLines.map((line) => (
+        <g key={line.id}>{priceLabel(line.price, priceToY(line.price), "#6366f1", () => onRemoveHorizontal(line.id))}</g>
+      ))}
+      {trendLines.map((line) => {
+        const x1 = dateToX(line.x1);
+        const x2 = dateToX(line.x2);
+        const y1 = priceToY(line.y1);
+        const y2 = priceToY(line.y2);
+        return (
+          <g key={line.id}>
+            <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#f59e0b" strokeWidth={2} />
+            <circle cx={x1} cy={y1} r={3} fill="#f59e0b" />
+            <circle cx={x2} cy={y2} r={3} fill="#f59e0b" />
+            <text
+              x={(x1 + x2) / 2}
+              y={(y1 + y2) / 2 - 8}
+              fontSize={13}
+              fill="#f59e0b"
+              textAnchor="middle"
+              style={{ cursor: "pointer" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveTrend(line.id);
+              }}
+            >
+              ×
+            </text>
+          </g>
+        );
+      })}
+      {pendingTrendPoint && (
+        <circle cx={dateToX(pendingTrendPoint.x)} cy={priceToY(pendingTrendPoint.y)} r={4} fill="#f59e0b" stroke="#fff" strokeWidth={1.5} />
+      )}
+      {hoverPrice != null && priceLabel(hoverPrice, priceToY(hoverPrice), "#94a3b8")}
+    </g>
+  );
+}
+
 export default function TwStockPage() {
   const [codeInput, setCodeInput] = useState("2330");
   const [data, setData] = useState<StockData | null>(null);
@@ -440,6 +553,63 @@ export default function TwStockPage() {
   // K線週期（60分K/日線/週線/月線）與縮放：縮放用 Brush 拖曳選取範圍，套用到所有同步圖表
   const [chartInterval, setChartInterval] = useState<ChartInterval>("1d");
   const [brushRange, setBrushRange] = useState<{ startIndex: number; endIndex: number } | null>(null);
+
+  // K線畫線工具（水平價位線／趨勢線）與游標標價
+  const [drawTool, setDrawTool] = useState<DrawTool>("none");
+  const [horizontalLines, setHorizontalLines] = useState<HorizontalLine[]>([]);
+  const [trendLines, setTrendLines] = useState<TrendLine[]>([]);
+  const [pendingTrendPoint, setPendingTrendPoint] = useState<{ x: string; y: number } | null>(null);
+  const [hoverPrice, setHoverPrice] = useState<number | null>(null);
+  // DrawingLayer（recharts hooks 只能在 ComposedChart 底下的子元件呼叫）每次渲染會把目前的
+  // 像素→價格反查函式寫進這個 ref，<ComposedChart> 自己的 onClick/onMouseMove 再讀出來用
+  const chartScaleRef = useRef<{ yInverse: (px: number) => unknown } | null>(null);
+
+  // recharts 圖表本身的 onClick/onMouseMove：Tooltip 就是靠這層事件運作，保證會確實觸發。
+  // 這兩個 handler 沒有用 useCallback 包，每次渲染都是新的閉包，drawTool/pendingTrendPoint 一定是最新值。
+  const handleChartClick = (state: any) => {
+    if (drawTool === "none") return;
+    const yInverse = chartScaleRef.current?.yInverse;
+    if (!yInverse || state?.activeCoordinate?.y == null || state?.activeLabel == null) return;
+    const price = yInverse(state.activeCoordinate.y) as number;
+    const date = state.activeLabel as string;
+
+    if (drawTool === "horizontal") {
+      setHorizontalLines((prev) => [...prev, { id: crypto.randomUUID(), price }]);
+      setDrawTool("none");
+    } else if (drawTool === "trend") {
+      if (!pendingTrendPoint) {
+        setPendingTrendPoint({ x: date, y: price });
+      } else {
+        setTrendLines((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), x1: pendingTrendPoint.x, y1: pendingTrendPoint.y, x2: date, y2: price },
+        ]);
+        setPendingTrendPoint(null);
+        setDrawTool("none");
+      }
+    }
+  };
+
+  const handleChartMouseMove = (state: any) => {
+    const yInverse = chartScaleRef.current?.yInverse;
+    if (!yInverse || state?.activeCoordinate?.y == null) {
+      setHoverPrice(null);
+      return;
+    }
+    setHoverPrice(yInverse(state.activeCoordinate.y) as number);
+  };
+
+  const toggleDrawTool = (tool: DrawTool) => {
+    setPendingTrendPoint(null);
+    setDrawTool((prev) => (prev === tool ? "none" : tool));
+  };
+
+  const clearAllDrawings = () => {
+    setHorizontalLines([]);
+    setTrendLines([]);
+    setPendingTrendPoint(null);
+    setDrawTool("none");
+  };
 
   // 股票觀察名單：用既有 UserWatchStock 資料表存使用者自己的清單
   const [watchlist, setWatchlist] = useState<WatchStock[]>([]);
@@ -502,6 +672,11 @@ export default function TwStockPage() {
     // 換股票時法人買賣超趨勢圖區間重置回1個月：避免補歷史的請求跟上面法人資料的請求同時打證交所，
     // 併發太高證交所會直接擋（實測回應 428），拆開來個別請求量都在安全範圍內。
     setFlowPeriod("1m");
+    // 換股票／換週期時清掉畫線標註：不同圖表的座標系不一樣，留著會畫錯位置
+    setHorizontalLines([]);
+    setTrendLines([]);
+    setPendingTrendPoint(null);
+    setDrawTool("none");
     try {
       const res = await fetch(`/api/market/tw-stock/${code}?interval=${interval}`);
       if (!res.ok) {
@@ -811,8 +986,52 @@ export default function TwStockPage() {
                 ))}
               </select>
             </div>
+
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <span className="text-xs text-slate-400">畫線工具</span>
+              <button
+                type="button"
+                onClick={() => toggleDrawTool("horizontal")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  drawTool === "horizontal" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                }`}
+              >
+                水平價位線
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleDrawTool("trend")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  drawTool === "trend" ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                }`}
+              >
+                趨勢線
+              </button>
+              {(horizontalLines.length > 0 || trendLines.length > 0) && (
+                <button
+                  type="button"
+                  onClick={clearAllDrawings}
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  清除全部
+                </button>
+              )}
+              {drawTool === "horizontal" && <span className="text-xs text-indigo-500">請在圖上點一下要標記的價位</span>}
+              {drawTool === "trend" && (
+                <span className="text-xs text-amber-500">{pendingTrendPoint ? "請在圖上點選第二個點" : "請在圖上點選起點"}</span>
+              )}
+            </div>
+
             <ResponsiveContainer width="100%" height={380}>
-              <ComposedChart key={`${data.code}-${chartInterval}`} data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <ComposedChart
+                key={`${data.code}-${chartInterval}`}
+                data={rows}
+                syncId={SYNC_ID}
+                margin={{ top: 4, right: 56, left: 0, bottom: 4 }}
+                onClick={handleChartClick}
+                onMouseMove={handleChartMouseMove}
+                onMouseLeave={() => setHoverPrice(null)}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                 <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} width={56} />
@@ -836,9 +1055,20 @@ export default function TwStockPage() {
                     setBrushRange({ startIndex: r.startIndex ?? 0, endIndex: r.endIndex ?? rows.length - 1 })
                   }
                 />
+                <DrawingLayer
+                  horizontalLines={horizontalLines}
+                  trendLines={trendLines}
+                  pendingTrendPoint={pendingTrendPoint}
+                  hoverPrice={hoverPrice}
+                  scaleRef={chartScaleRef}
+                  onRemoveHorizontal={(id) => setHorizontalLines((prev) => prev.filter((l) => l.id !== id))}
+                  onRemoveTrend={(id) => setTrendLines((prev) => prev.filter((l) => l.id !== id))}
+                />
               </ComposedChart>
             </ResponsiveContainer>
-            <p className="text-[11px] text-slate-400 mt-2">拖曳圖表下方灰色區塊可縮放時間區間，套用到下方所有同步圖表</p>
+            <p className="text-[11px] text-slate-400 mt-2">
+              拖曳圖表下方灰色區塊可縮放時間區間，套用到下方所有同步圖表；游標移到圖上會顯示當下價位，畫線工具可標記價位或趨勢線
+            </p>
           </div>
 
           {/* 成交量 */}
