@@ -129,13 +129,23 @@ export default function InvestmentOverviewPage() {
     }
   }
 
-  // 手動匯率輸入欄位第一次出現時，帶入已儲存的匯率，沒有的話帶入建議匯率
+  // 基金各幣別「淨投入」原幣金額：基金頁存的 amount 就是原幣金額（未換算台幣）
+  const fundInvestments = byType("FUND");
+  const fundCurrencyBalances: Record<string, number> = {};
+  for (const i of fundInvestments) {
+    const cur = i.currency || "TWD";
+    fundCurrencyBalances[cur] = (fundCurrencyBalances[cur] || 0) + i.amount;
+  }
+  const fundCurrencyList = Object.keys(fundCurrencyBalances).filter((c) => c !== "TWD").sort();
+
+  // 手動匯率輸入欄位第一次出現時，帶入已儲存的匯率，沒有的話帶入建議匯率。
+  // 外匯與基金共用同一份匯率（依幣別鍵值對應），任一邊修改都會同步反映到另一邊。
   useEffect(() => {
     if (loading) return;
     setRateInputs((prev) => {
       let changed = false;
       const next = { ...prev };
-      for (const currency of forexCurrencyList) {
+      for (const currency of new Set([...forexCurrencyList, ...fundCurrencyList])) {
         if (next[currency] === undefined) {
           const saved = savedRates.find((r) => r.currency === currency);
           next[currency] = saved ? String(saved.rate) : (forexSuggestedRate[currency] ? forexSuggestedRate[currency].toFixed(4) : "");
@@ -175,33 +185,12 @@ export default function InvestmentOverviewPage() {
     return s + forexCurrencyBalances[currency] * rate;
   }, 0);
 
-  // 各幣別買入平均匯率：取自外匯投資頁同一套邏輯（僅計「買入外幣」，依每筆外幣數量×匯率加權），
-  // 用來把基金頁存的外幣原始金額換算回台幣
-  const currencyRates: Record<string, number> = { TWD: 1 };
-  {
-    const rateStats: Record<string, { twd: number; foreign: number }> = {};
-    for (const i of forexInvestments) {
-      if (i.currency && i.amount > 0 && (i.quantity || 0) > 0 && i.exchangeRate) {
-        if (!rateStats[i.currency]) rateStats[i.currency] = { twd: 0, foreign: 0 };
-        rateStats[i.currency].twd += (i.quantity || 0) * i.exchangeRate;
-        rateStats[i.currency].foreign += i.quantity || 0;
-      }
-    }
-    for (const [cur, s] of Object.entries(rateStats)) {
-      if (s.foreign > 0) currencyRates[cur] = s.twd / s.foreign;
-    }
-  }
-
-  const fundInvestments = byType("FUND");
-  const fundHasUnratedCurrency = fundInvestments.some((i) => {
-    const cur = i.currency || "TWD";
-    return cur !== "TWD" && currencyRates[cur] === undefined;
-  });
-  const fundTwdTotal = fundInvestments.reduce((s, i) => {
-    const cur = i.currency || "TWD";
-    const rate = currencyRates[cur] ?? 1;
-    return s + i.amount * rate;
-  }, 0);
+  // 基金總計（台幣）＝各幣別淨投入原幣金額 × 手動輸入的匯率加總（與外匯投資共用同一份匯率）
+  const fundHasUnratedCurrency = fundCurrencyList.some((c) => !parseFloat(rateInputs[c] ?? ""));
+  const fundTwdTotal = fundCurrencyList.reduce((s, currency) => {
+    const rate = parseFloat(rateInputs[currency] ?? "") || 0;
+    return s + fundCurrencyBalances[currency] * rate;
+  }, 0) + (fundCurrencyBalances.TWD || 0);
 
   // 現金結餘：取自收支記錄頁「現金」來源的收入減支出（不含轉帳），跟收支記錄頁的「結餘」卡片同一套算法
   const cashBalance = cashTransactions.reduce((s, t) => {
@@ -290,7 +279,7 @@ export default function InvestmentOverviewPage() {
           ))}
         </div>
         {fundHasUnratedCurrency && (
-          <p className="text-[11px] text-slate-400 mt-2">部分基金幣別在外匯投資頁尚無買入匯率記錄，暫以 1:1 換算，實際金額可能有落差</p>
+          <p className="text-[11px] text-slate-400 mt-2">部分基金幣別尚未在下方設定匯率，暫以 0 計算，請至下方外匯/基金區塊輸入匯率</p>
         )}
       </div>
 
@@ -331,6 +320,56 @@ export default function InvestmentOverviewPage() {
             <span className="font-bold text-slate-900">{fmt(forexTwdTotal)}</span>
           </div>
           <p className="text-[11px] text-slate-400 mt-2">匯率預設帶入外匯投資頁的時序平均匯率，可手動修改；異動後會自動儲存，離開欄位即更新台幣金額與正資產總計</p>
+        </div>
+      )}
+
+      {/* 基金投資：各幣別餘額 + 手動匯率換算（與外匯投資共用同一份匯率，任一邊修改會同步） */}
+      {fundCurrencyList.length > 0 && (
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">基金投資（各幣別餘額與換算匯率）</div>
+          <div className="space-y-3">
+            {fundCurrencyList.map((currency) => {
+              const balance = fundCurrencyBalances[currency];
+              const rateStr = rateInputs[currency] ?? "";
+              const rate = parseFloat(rateStr) || 0;
+              const twd = balance * rate;
+              return (
+                <div key={currency} className="flex items-center gap-3 text-sm">
+                  <span className="w-14 font-medium text-slate-700 shrink-0">{currency}</span>
+                  <span className="flex-1 text-slate-500 text-right">
+                    {new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(balance)}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs text-slate-400">匯率</span>
+                    <input
+                      type="number" min="0" step="any" value={rateStr}
+                      onChange={(e) => handleRateChange(currency, e.target.value)}
+                      onBlur={() => handleRateBlur(currency)}
+                      placeholder="0"
+                      className="w-20 border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-right focus:border-indigo-400 transition-colors"
+                    />
+                    {rateSavingCurrency === currency && <span className="text-[10px] text-slate-400">儲存中...</span>}
+                  </div>
+                  <span className="w-28 text-right font-semibold text-slate-900 shrink-0">{fmt(twd)}</span>
+                </div>
+              );
+            })}
+            {(fundCurrencyBalances.TWD || 0) !== 0 && (
+              <div className="flex items-center gap-3 text-sm">
+                <span className="w-14 font-medium text-slate-700 shrink-0">TWD</span>
+                <span className="flex-1 text-slate-500 text-right">
+                  {new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(fundCurrencyBalances.TWD)}
+                </span>
+                <span className="w-[104px] text-xs text-slate-400 text-right shrink-0">無需換算</span>
+                <span className="w-28 text-right font-semibold text-slate-900 shrink-0">{fmt(fundCurrencyBalances.TWD)}</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-between pt-3 mt-2 border-t border-slate-200 text-sm">
+            <span className="font-semibold text-slate-900">基金總計（台幣）</span>
+            <span className="font-bold text-slate-900">{fmt(fundTwdTotal)}</span>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">匯率與上方外匯投資共用同一份設定：修改任一邊的匯率，兩邊金額都會同步更新並自動儲存</p>
         </div>
       )}
 
