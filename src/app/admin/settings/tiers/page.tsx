@@ -60,7 +60,7 @@ export default function TiersPage() {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">會員等級設定</h1>
-          <p className="text-slate-400 text-sm mt-1">設定每個會員等級預設能看到哪些前台欄目（個別會員的「頁面權限」設定優先度更高）</p>
+          <p className="text-slate-400 text-sm mt-1">設定每個會員等級預設能看到哪些前台欄目、能用哪些子功能</p>
         </div>
         <button
           onClick={handleSave}
@@ -76,7 +76,7 @@ export default function TiersPage() {
       ) : (
         <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
           <div className="grid grid-cols-12 px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700">
-            <div className="col-span-6">頁面</div>
+            <div className="col-span-6">項目</div>
             {TIERS.map((t) => (
               <div key={t.key} className="col-span-2 text-center">{t.label}</div>
             ))}

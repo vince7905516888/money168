@@ -377,10 +377,22 @@ export default function TwStockPage() {
   // 股票觀察名單：用既有 UserWatchStock 資料表存使用者自己的清單
   const [watchlist, setWatchlist] = useState<WatchStock[]>([]);
 
+  // 觀察名單功能可在後台「會員等級設定」依會員等級開關，先確認有沒有權限再決定要不要顯示/請求
+  const [watchlistEnabled, setWatchlistEnabled] = useState(false);
+
   useEffect(() => {
-    fetch("/api/market/tw-stock/watchlist")
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setWatchlist)
+    fetch("/api/me/nav")
+      .then((r) => (r.ok ? r.json() : { keys: [] }))
+      .then((body) => {
+        const enabled = (body.keys ?? []).includes("feature.tw-stock-watchlist");
+        setWatchlistEnabled(enabled);
+        if (enabled) {
+          fetch("/api/market/tw-stock/watchlist")
+            .then((r) => (r.ok ? r.json() : []))
+            .then(setWatchlist)
+            .catch(() => {});
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -561,31 +573,35 @@ export default function TwStockPage() {
         </button>
       </form>
 
-      {/* 股票觀察名單：點名字直接查詢，不用重新打字搜尋 */}
-      {watchlist.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap mb-6 -mt-2">
-          <span className="text-xs text-slate-400">觀察名單</span>
-          {watchlist.map((w) => (
-            <button
-              key={w.id}
-              type="button"
-              onClick={() => selectWatchStock(w.code)}
-              className={`flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full text-xs border transition-colors ${
-                data?.code === w.code
-                  ? "bg-indigo-50 border-indigo-200 text-indigo-600"
-                  : "bg-white border-slate-200 text-slate-600 hover:border-indigo-300"
-              }`}
-            >
-              {w.name ?? w.code}
-              <span
-                role="button"
-                onClick={(e) => removeFromWatchlist(w.code, e)}
-                className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600"
+      {/* 股票觀察名單：列表式，點列可直接查詢；移除鍵預設不顯示、滑過整列才會淡入，避免手滑點到 */}
+      {watchlistEnabled && watchlist.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm mb-6 overflow-hidden">
+          <div className="px-4 py-2.5 text-xs text-slate-400 border-b border-slate-50">觀察名單</div>
+          <div className="divide-y divide-slate-50">
+            {watchlist.map((w) => (
+              <div
+                key={w.id}
+                onClick={() => selectWatchStock(w.code)}
+                className={`group flex items-center justify-between px-4 py-2.5 cursor-pointer transition-colors ${
+                  data?.code === w.code ? "bg-indigo-50" : "hover:bg-slate-50"
+                }`}
               >
-                ×
-              </span>
-            </button>
-          ))}
+                <div className="flex items-baseline gap-2">
+                  <span className={`text-sm ${data?.code === w.code ? "text-indigo-600 font-semibold" : "text-slate-700"}`}>
+                    {w.name ?? w.code}
+                  </span>
+                  <span className="text-xs text-slate-400">{w.code}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => removeFromWatchlist(w.code, e)}
+                  className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 hover:text-red-500 px-2.5 py-1 rounded-lg transition-opacity ml-6"
+                >
+                  移除
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -602,17 +618,19 @@ export default function TwStockPage() {
                 {data.code} {data.name}
               </h2>
               <span className="text-xs text-slate-400">{data.market === "TW" ? "上市" : "上櫃"} · {last.date}</span>
-              <button
-                type="button"
-                onClick={toggleWatchlist}
-                className={`ml-auto text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                  isWatched
-                    ? "bg-amber-50 border-amber-200 text-amber-600"
-                    : "bg-white border-slate-200 text-slate-500 hover:border-amber-300 hover:text-amber-600"
-                }`}
-              >
-                {isWatched ? "★ 已加入觀察" : "☆ 加入觀察"}
-              </button>
+              {watchlistEnabled && (
+                <button
+                  type="button"
+                  onClick={toggleWatchlist}
+                  className={`ml-auto text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    isWatched
+                      ? "bg-amber-50 border-amber-200 text-amber-600"
+                      : "bg-white border-slate-200 text-slate-500 hover:border-amber-300 hover:text-amber-600"
+                  }`}
+                >
+                  {isWatched ? "★ 已加入觀察" : "☆ 加入觀察"}
+                </button>
+              )}
             </div>
             <div className="flex items-baseline gap-3 mt-2">
               <span className="text-3xl font-bold text-slate-900">{fmtNum(last.close)}</span>

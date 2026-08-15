@@ -22,3 +22,13 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "market.tw-stock", label: "台灣股市", href: "/market/tw-stock", section: "市場行情" },
   { key: "profile", label: "會員資料管理", href: "/profile", section: null },
 ];
+
+// 功能權限：不是獨立頁面、而是某個頁面內的子功能，一樣可以在後台會員等級設定裡依會員等級開關。
+export interface FeatureItem {
+  key: string;
+  label: string;
+}
+
+export const FEATURE_ITEMS: FeatureItem[] = [
+  { key: "feature.tw-stock-watchlist", label: "股票觀察名單" },
+];

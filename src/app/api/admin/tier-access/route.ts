@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { NAV_ITEMS } from "@/lib/nav-items";
+import { NAV_ITEMS, FEATURE_ITEMS } from "@/lib/nav-items";
 
 const TIERS = ["FREE", "BASIC", "PRO"] as const;
 
@@ -14,7 +14,7 @@ export async function GET() {
   const rows = await prisma.tierPageAccess.findMany();
   const map = new Map(rows.map((r) => [`${r.tier}:${r.pageKey}`, r.allowed]));
 
-  const matrix = NAV_ITEMS.map((item) => ({
+  const pageRows = NAV_ITEMS.map((item) => ({
     key: item.key,
     label: item.label,
     section: item.section,
@@ -23,7 +23,16 @@ export async function GET() {
     ),
   }));
 
-  return NextResponse.json(matrix);
+  const featureRows = FEATURE_ITEMS.map((item) => ({
+    key: item.key,
+    label: item.label,
+    section: "功能權限",
+    tiers: Object.fromEntries(
+      TIERS.map((tier) => [tier, map.get(`${tier}:${item.key}`) ?? true])
+    ),
+  }));
+
+  return NextResponse.json([...pageRows, ...featureRows]);
 }
 
 export async function PUT(req: NextRequest) {
@@ -37,7 +46,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "格式錯誤" }, { status: 400 });
   }
 
-  const validKeys = new Set(NAV_ITEMS.map((i) => i.key));
+  const validKeys = new Set([...NAV_ITEMS.map((i) => i.key), ...FEATURE_ITEMS.map((i) => i.key)]);
 
   await Promise.all(
     items

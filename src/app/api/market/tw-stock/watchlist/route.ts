@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { lookupStockName } from "@/lib/tw-stock-directory";
+import { hasFeatureAccess } from "@/lib/permissions";
+
+const FEATURE_KEY = "feature.tw-stock-watchlist";
 
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
+  if (!(await hasFeatureAccess(session.user.id, session.user.role, FEATURE_KEY))) {
+    return NextResponse.json({ error: "您的會員等級無法使用觀察名單功能" }, { status: 403 });
+  }
 
   const list = await prisma.userWatchStock.findMany({
     where: { userId: session.user.id },
@@ -17,6 +23,9 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
+  if (!(await hasFeatureAccess(session.user.id, session.user.role, FEATURE_KEY))) {
+    return NextResponse.json({ error: "您的會員等級無法使用觀察名單功能" }, { status: 403 });
+  }
 
   const { code } = await req.json();
   const cleanCode = String(code ?? "").trim();
