@@ -34,7 +34,8 @@ interface StockData {
   quotes: Quote[];
 }
 
-// 個股基本面統計：營收/EPS(季)/本益比/殖利率來自證交所公開資料，EPS(近4季)、ROE(近4季)尚未串接。
+// 個股基本面統計：營收/EPS(季)/本益比/殖利率來自證交所公開資料，
+// EPS(近4季)、ROE(近4季)由系統逐季累積歷史 EPS 快照，累積滿4季後才會有值（見 tw-stock-fundamentals.ts）。
 interface FundamentalStats {
   cumulativeRevenueYoY: number | null; // 累計營收YoY(%)
   revenueYoY: number | null; // 營收YoY(%)
@@ -701,7 +702,7 @@ export default function TwStockPage() {
           </div>
 
           {/* 個股資訊（基本面）：營收/EPS(季)/本益比/殖利率為證交所公開資料真實數值，
-              EPS(近4季)、ROE(近4季)需要額外歷史季度/資產負債表資料，尚未串接 */}
+              EPS(近4季)、ROE(近4季)靠系統逐季自動累積歷史 EPS 快照，累積滿4季後才會顯示數值 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
             <h3 className="text-sm font-semibold text-slate-700 mb-4">個股資訊</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -722,7 +723,7 @@ export default function TwStockPage() {
               ))}
             </div>
             <p className="text-[11px] text-slate-400 mt-4">
-              EPS(近4季)、ROE(近4季)尚未串接資料源，僅保留版位；其餘欄位為證交所公開資料
+              EPS(近4季)、ROE(近4季)由系統每季自動累積歷史資料，累積滿4季後自動顯示；其餘欄位為證交所公開資料
             </p>
           </div>
 

@@ -268,3 +268,17 @@ model TierPageAccess {
 
   @@unique([tier, pageKey])
 }
+
+// 個股每季 EPS 快照：證交所公開資料只提供「最新一季」，沒有歷史查詢功能，
+// 所以查詢過的股票會逐季存進這張表，累積滿 4 筆(近4季)後才能算出 EPS(近4季)/ROE(近4季)。
+model StockEpsSnapshot {
+  id        String   @id @default(cuid())
+  code      String
+  year      Int
+  season    Int
+  eps       Float
+  capturedAt DateTime @default(now())
+
+  @@unique([code, year, season])
+  @@index([code])
+}
