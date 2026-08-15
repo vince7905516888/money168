@@ -12,7 +12,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "banks", label: "銀行資金管理", href: "/banks", section: "現金系統" },
   { key: "reports", label: "報表分析", href: "/reports", section: null },
   { key: "debts", label: "負債表", href: "/debts", section: null },
-  { key: "investment.overview", label: "資產總攬", href: "/investment/overview", section: "投資" },
+  { key: "investment.overview", label: "資產總攬", href: "/investment/overview", section: null },
   { key: "investment.stock", label: "股票投資", href: "/investment/stock", section: "投資" },
   { key: "investment.fund", label: "基金投資", href: "/investment/fund", section: "投資" },
   { key: "investment.forex", label: "外匯投資", href: "/investment/forex", section: "投資" },
