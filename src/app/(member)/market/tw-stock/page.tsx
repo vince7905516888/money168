@@ -79,6 +79,12 @@ interface ChartRow extends Quote {
   macdDif: number | null;
   macdDea: number | null;
   macdHist: number | null;
+  plusDI: number | null;
+  minusDI: number | null;
+  adx: number | null;
+  bias6: number | null;
+  bias12: number | null;
+  bias24: number | null;
 }
 
 function sma(values: number[], period: number, index: number): number | null {
@@ -168,11 +174,88 @@ function computeMACD(closes: number[]) {
   return { dif, dea, hist };
 }
 
+// 乖離率 BIAS(n) = (收盤價 - n日均線) / n日均線 * 100，台股常用 6/12/24 日
+function computeBIAS(closes: number[], period: number): (number | null)[] {
+  return closes.map((c, i) => {
+    const ma = sma(closes, period, i);
+    return ma != null && ma !== 0 ? ((c - ma) / ma) * 100 : null;
+  });
+}
+
+// DMI/ADX(14)：Wilder 平滑，+DI/-DI 判斷多空方向，ADX 判斷趨勢強弱，台股看盤軟體常見算法
+function computeDMI(quotes: Quote[], period = 14) {
+  const n = quotes.length;
+  const plusDI: (number | null)[] = new Array(n).fill(null);
+  const minusDI: (number | null)[] = new Array(n).fill(null);
+  const adx: (number | null)[] = new Array(n).fill(null);
+
+  const tr: number[] = new Array(n).fill(0);
+  const plusDM: number[] = new Array(n).fill(0);
+  const minusDM: number[] = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) {
+    const upMove = quotes[i].high - quotes[i - 1].high;
+    const downMove = quotes[i - 1].low - quotes[i].low;
+    plusDM[i] = upMove > downMove && upMove > 0 ? upMove : 0;
+    minusDM[i] = downMove > upMove && downMove > 0 ? downMove : 0;
+    tr[i] = Math.max(
+      quotes[i].high - quotes[i].low,
+      Math.abs(quotes[i].high - quotes[i - 1].close),
+      Math.abs(quotes[i].low - quotes[i - 1].close)
+    );
+  }
+
+  let smoothTR = 0;
+  let smoothPlusDM = 0;
+  let smoothMinusDM = 0;
+  let prevADX: number | null = null;
+  const dxHistory: number[] = [];
+
+  for (let i = 1; i < n; i++) {
+    if (i <= period) {
+      smoothTR += tr[i];
+      smoothPlusDM += plusDM[i];
+      smoothMinusDM += minusDM[i];
+      if (i === period) {
+        const pDI = smoothTR === 0 ? 0 : (100 * smoothPlusDM) / smoothTR;
+        const mDI = smoothTR === 0 ? 0 : (100 * smoothMinusDM) / smoothTR;
+        plusDI[i] = pDI;
+        minusDI[i] = mDI;
+        const dx = pDI + mDI === 0 ? 0 : (100 * Math.abs(pDI - mDI)) / (pDI + mDI);
+        dxHistory.push(dx);
+      }
+    } else {
+      smoothTR = smoothTR - smoothTR / period + tr[i];
+      smoothPlusDM = smoothPlusDM - smoothPlusDM / period + plusDM[i];
+      smoothMinusDM = smoothMinusDM - smoothMinusDM / period + minusDM[i];
+      const pDI = smoothTR === 0 ? 0 : (100 * smoothPlusDM) / smoothTR;
+      const mDI = smoothTR === 0 ? 0 : (100 * smoothMinusDM) / smoothTR;
+      plusDI[i] = pDI;
+      minusDI[i] = mDI;
+      const dx = pDI + mDI === 0 ? 0 : (100 * Math.abs(pDI - mDI)) / (pDI + mDI);
+      dxHistory.push(dx);
+
+      if (dxHistory.length === period) {
+        prevADX = dxHistory.reduce((s, v) => s + v, 0) / period;
+        adx[i] = prevADX;
+      } else if (dxHistory.length > period && prevADX != null) {
+        prevADX = (prevADX * (period - 1) + dx) / period;
+        adx[i] = prevADX;
+      }
+    }
+  }
+
+  return { plusDI, minusDI, adx };
+}
+
 function buildChartRows(quotes: Quote[]): ChartRow[] {
   const closes = quotes.map((q) => q.close);
   const rsi = computeRSI(closes);
   const { k, d, j } = computeKDJ(quotes);
   const { dif, dea, hist } = computeMACD(closes);
+  const { plusDI, minusDI, adx } = computeDMI(quotes);
+  const bias6 = computeBIAS(closes, 6);
+  const bias12 = computeBIAS(closes, 12);
+  const bias24 = computeBIAS(closes, 24);
   return quotes.map((q, i) => {
     const ma20 = sma(closes, 20, i);
     const bbStd = ma20 != null ? stddev(closes, 20, i, ma20) : null;
@@ -192,6 +275,12 @@ function buildChartRows(quotes: Quote[]): ChartRow[] {
       macdDif: dif[i],
       macdDea: dea[i],
       macdHist: hist[i],
+      plusDI: plusDI[i],
+      minusDI: minusDI[i],
+      adx: adx[i],
+      bias6: bias6[i],
+      bias12: bias12[i],
+      bias24: bias24[i],
     };
   });
 }
@@ -242,6 +331,8 @@ export default function TwStockPage() {
   const [showKDJ, setShowKDJ] = useState(true);
   const [showRSI, setShowRSI] = useState(true);
   const [showMACD, setShowMACD] = useState(true);
+  const [showDMI, setShowDMI] = useState(false);
+  const [showBIAS, setShowBIAS] = useState(false);
 
   const fetchStock = useCallback(async (code: string) => {
     setLoading(true);
@@ -371,9 +462,9 @@ export default function TwStockPage() {
             </ResponsiveContainer>
           </div>
 
-          {/* 技術指標小窗口：KDJ / RSI / MACD，跟上面 K 線、成交量共用同一個 syncId 同步游標 */}
+          {/* 技術指標小窗口：跟上面 K 線、成交量共用同一個 syncId 同步游標 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
-            <div className="flex items-center gap-4 text-xs mb-3">
+            <div className="flex items-center gap-4 text-xs mb-3 flex-wrap">
               <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
                 <input type="checkbox" checked={showKDJ} onChange={(e) => setShowKDJ(e.target.checked)} className="accent-indigo-500" />
                 KDJ
@@ -385,6 +476,14 @@ export default function TwStockPage() {
               <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
                 <input type="checkbox" checked={showMACD} onChange={(e) => setShowMACD(e.target.checked)} className="accent-indigo-500" />
                 MACD
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
+                <input type="checkbox" checked={showDMI} onChange={(e) => setShowDMI(e.target.checked)} className="accent-indigo-500" />
+                DMI
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
+                <input type="checkbox" checked={showBIAS} onChange={(e) => setShowBIAS(e.target.checked)} className="accent-indigo-500" />
+                乖離率
               </label>
             </div>
 
@@ -431,7 +530,7 @@ export default function TwStockPage() {
             )}
 
             {showMACD && (
-              <div>
+              <div className={showDMI || showBIAS ? "mb-4" : ""}>
                 <div className="flex items-center gap-3 text-xs mb-1.5 text-slate-500">
                   <span className="font-medium text-slate-600">MACD(12,26,9)</span>
                   <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-amber-500 inline-block" />DIF</span>
@@ -452,6 +551,51 @@ export default function TwStockPage() {
                     </Bar>
                     <Line type="monotone" dataKey="macdDif" stroke="#f59e0b" dot={false} strokeWidth={1.5} connectNulls />
                     <Line type="monotone" dataKey="macdDea" stroke="#3b82f6" dot={false} strokeWidth={1.5} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {showDMI && (
+              <div className={showBIAS ? "mb-4" : ""}>
+                <div className="flex items-center gap-3 text-xs mb-1.5 text-slate-500">
+                  <span className="font-medium text-slate-600">DMI/ADX(14)</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-red-500 inline-block" />+DI</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-green-600 inline-block" />-DI</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-slate-500 inline-block" />ADX</span>
+                </div>
+                <ResponsiveContainer width="100%" height={150}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
+                    <YAxis tick={{ fontSize: 11 }} width={56} />
+                    <Tooltip formatter={(value, name) => [fmtNum(Number(value)), String(name)]} />
+                    <Line type="monotone" dataKey="plusDI" stroke="#ef4444" dot={false} strokeWidth={1.5} connectNulls />
+                    <Line type="monotone" dataKey="minusDI" stroke="#16a34a" dot={false} strokeWidth={1.5} connectNulls />
+                    <Line type="monotone" dataKey="adx" stroke="#64748b" dot={false} strokeWidth={1.5} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {showBIAS && (
+              <div>
+                <div className="flex items-center gap-3 text-xs mb-1.5 text-slate-500">
+                  <span className="font-medium text-slate-600">乖離率 BIAS</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-amber-500 inline-block" />BIAS6</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-blue-500 inline-block" />BIAS12</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-purple-500 inline-block" />BIAS24</span>
+                </div>
+                <ResponsiveContainer width="100%" height={150}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
+                    <YAxis tick={{ fontSize: 11 }} width={56} />
+                    <Tooltip formatter={(value, name) => [`${fmtNum(Number(value))}%`, String(name)]} />
+                    <ReferenceLine y={0} stroke="#e2e8f0" />
+                    <Line type="monotone" dataKey="bias6" stroke="#f59e0b" dot={false} strokeWidth={1.5} connectNulls />
+                    <Line type="monotone" dataKey="bias12" stroke="#3b82f6" dot={false} strokeWidth={1.5} connectNulls />
+                    <Line type="monotone" dataKey="bias24" stroke="#a855f7" dot={false} strokeWidth={1.5} connectNulls />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
