@@ -820,10 +820,11 @@ export default function TwStockPage() {
   const displayVolume = liveQuote ? liveQuote.volume : last?.volume;
 
   // K線主圖用 Brush 拖曳選取範圍，其餘同步圖表沒有自己的 Brush，改用這個切好的資料顯示同樣的範圍
-  const visibleRows = useMemo(
-    () => (brushRange ? rows.slice(brushRange.startIndex, brushRange.endIndex + 1) : rows),
-    [rows, brushRange]
-  );
+  const visibleRows = useMemo(() => {
+    if (!brushRange) return rows;
+    const sliced = rows.slice(brushRange.startIndex, brushRange.endIndex + 1);
+    return sliced.length > 0 ? sliced : rows;
+  }, [rows, brushRange]);
 
   // 法人買賣超趨勢圖資料：統一算出「每日值+累計值」，不管選的是哪個指標都用同一套邏輯畫圖
   const selectedFlowMetric = FLOW_METRICS.find((m) => m.key === flowMetric)!;
@@ -1100,7 +1101,12 @@ export default function TwStockPage() {
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                 <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} width={56} />
                 <Tooltip
-                  formatter={(value, name) => [fmtNum(Number(value)), String(name)]}
+                  formatter={(value, name) => {
+                    if (name === "range" && Array.isArray(value)) {
+                      return [`${fmtNum(Number(value[0]))} - ${fmtNum(Number(value[1]))}`, "區間"];
+                    }
+                    return [fmtNum(Number(value)), String(name)];
+                  }}
                   labelFormatter={(label) => label}
                 />
                 <Bar dataKey="range" shape={CandleShape} isAnimationActive={false} />
@@ -1115,9 +1121,15 @@ export default function TwStockPage() {
                   height={22}
                   stroke="#a5b4fc"
                   travellerWidth={8}
-                  onChange={(r) =>
-                    setBrushRange({ startIndex: r.startIndex ?? 0, endIndex: r.endIndex ?? rows.length - 1 })
-                  }
+                  onChange={(r) => {
+                    const lastIdx = rows.length - 1;
+                    let start = Number.isFinite(r.startIndex) ? (r.startIndex as number) : 0;
+                    let end = Number.isFinite(r.endIndex) ? (r.endIndex as number) : lastIdx;
+                    if (start > end) [start, end] = [end, start];
+                    start = Math.min(Math.max(start, 0), lastIdx);
+                    end = Math.min(Math.max(end, 0), lastIdx);
+                    setBrushRange({ startIndex: start, endIndex: end });
+                  }}
                 />
                 <DrawingLayer
                   horizontalLines={horizontalLines}
