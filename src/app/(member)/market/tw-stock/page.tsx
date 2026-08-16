@@ -1060,6 +1060,62 @@ export default function TwStockPage() {
 
   // rows 一定要記憶化：陣列參照要穩定，否則 recharts 的 Brush 會誤判成「資料變了」而中斷拖曳手勢。
   const rows = useMemo(() => (data ? buildChartRows(data.quotes) : []), [data]);
+
+  // K線Brush預設縮放區間：換股票／換週期時預設只顯示最近一段（約25%資料），
+  // 不然一開始整個2年份K棒擠在一起看不清楚，使用者還是可以拖曳/滾輪調整回完整區間
+  const [brushRange, setBrushRange] = useState<{ startIndex: number; endIndex: number } | null>(null);
+  useEffect(() => {
+    if (rows.length === 0) {
+      setBrushRange(null);
+      return;
+    }
+    const defaultWindow = Math.max(20, Math.round(rows.length * 0.25));
+    setBrushRange({ startIndex: Math.max(0, rows.length - defaultWindow), endIndex: rows.length - 1 });
+  }, [data?.code, chartInterval, rows.length]);
+
+  // K線圖滾輪縮放：滾輪往上（deltaY<0）放大（縮小可見區間）、往下縮小（放大可見區間），
+  // 以目前可見區間為基準縮放，不是每次都從頭算，這樣連續滾動才會平順。
+  // React的onWheel預設是passive listener、裡面呼叫preventDefault會被瀏覽器擋掉並噴console錯誤，
+  // 所以改用ref+原生addEventListener手動掛非passive的監聽器。
+  const rowsLenRef = useRef(rows.length);
+  rowsLenRef.current = rows.length;
+  const brushRangeRef = useRef(brushRange);
+  brushRangeRef.current = brushRange;
+
+  // 這個div是跟著K線圖一起條件渲染的（要等data載入才存在），用一般 useEffect(fn, [])
+  // 掛listener的話，effect在外層元件第一次mount時就跑完了、那時候div根本還不存在、ref.current
+  // 還是null，之後div才出現也不會重新觸發（deps是空陣列）。改用callback ref，
+  // 每次這個DOM節點掛上/卸下時React都會呼叫，不受條件渲染時機影響。
+  const chartWheelCallbackRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const total = rowsLenRef.current;
+      if (total === 0) return;
+      e.preventDefault();
+      const cur = brushRangeRef.current;
+      const curStart = cur?.startIndex ?? 0;
+      const curEnd = cur?.endIndex ?? total - 1;
+      const windowSize = curEnd - curStart + 1;
+      const step = Math.max(1, Math.round(windowSize * 0.1));
+      let newStart = curStart;
+      let newEnd = curEnd;
+      if (e.deltaY < 0) {
+        newStart = curStart + step;
+        newEnd = curEnd - step;
+      } else {
+        newStart = curStart - step;
+        newEnd = curEnd + step;
+      }
+      newStart = Math.max(0, newStart);
+      newEnd = Math.min(total - 1, newEnd);
+      if (newEnd - newStart < 9) return; // 至少留10個資料點，避免縮到看不到東西
+      setBrushRange({ startIndex: newStart, endIndex: newEnd });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    // React callback ref 沒有內建卸載回呼，用 WeakMap 也是多此一舉——這個 div 隨股票資料整個
+    // 卸載時，元素本身連同它的 listener 會被瀏覽器一起回收，不會造成洩漏。
+  }, []);
+
   const last = rows[rows.length - 1];
   const prev = rows[rows.length - 2];
   const change = last && prev ? last.close - prev.close : null;
@@ -1586,6 +1642,7 @@ export default function TwStockPage() {
               )}
             </div>
 
+            <div ref={chartWheelCallbackRef}>
             <ResponsiveContainer width="100%" height={380}>
               <ComposedChart
                 key={`${data.code}-${chartInterval}`}
@@ -1615,7 +1672,23 @@ export default function TwStockPage() {
                 <Line type="monotone" dataKey="ma120" stroke="#94a3b8" dot={false} strokeWidth={1.5} connectNulls />
                 <Line type="monotone" dataKey="bbUpper" stroke="#c7d2fe" dot={false} strokeWidth={1} connectNulls strokeDasharray="4 3" />
                 <Line type="monotone" dataKey="bbLower" stroke="#c7d2fe" dot={false} strokeWidth={1} connectNulls strokeDasharray="4 3" />
-                <Brush dataKey="date" height={22} stroke="#a5b4fc" travellerWidth={8} />
+                <Brush
+                  dataKey="date"
+                  height={22}
+                  stroke="#a5b4fc"
+                  travellerWidth={8}
+                  startIndex={brushRange?.startIndex}
+                  endIndex={brushRange?.endIndex}
+                  onChange={(r) => {
+                    const lastIdx = rows.length - 1;
+                    let start = Number.isFinite(r.startIndex) ? (r.startIndex as number) : 0;
+                    let end = Number.isFinite(r.endIndex) ? (r.endIndex as number) : lastIdx;
+                    if (start > end) [start, end] = [end, start];
+                    start = Math.min(Math.max(start, 0), lastIdx);
+                    end = Math.min(Math.max(end, 0), lastIdx);
+                    setBrushRange({ startIndex: start, endIndex: end });
+                  }}
+                />
                 <DrawingLayer
                   horizontalLines={horizontalLines}
                   trendLines={trendLines}
@@ -1627,8 +1700,9 @@ export default function TwStockPage() {
                 />
               </ComposedChart>
             </ResponsiveContainer>
+            </div>
             <p className="text-[11px] text-slate-400 mt-2">
-              拖曳圖表下方灰色區塊可縮放時間區間，套用到下方所有同步圖表；游標移到圖上會顯示當下價位，畫線工具可標記價位或趨勢線
+              拖曳圖表下方灰色區塊或滑鼠滾輪可縮放時間區間，套用到下方所有同步圖表；游標移到圖上會顯示當下價位，畫線工具可標記價位或趨勢線
             </p>
           </div>
 
