@@ -313,3 +313,23 @@ model StockMarginSnapshot {
   @@unique([code, date])
   @@index([code])
 }
+
+// 集保股權分散表沒有歷史查詢功能（每次都只回傳最新一週），只能每次查詢時逐週snapshot累積，
+// 沒辦法像三大法人／融資融券那樣主動往回補歷史。
+model StockRetailRatioSnapshot {
+  id                  String   @id @default(cuid())
+  code                String
+  date                String
+  totalShares         Float
+  totalHolders        Int
+  below20LotsShares   Float
+  below20LotsHolders  Int
+  below50LotsShares   Float
+  below50LotsHolders  Int
+  below100LotsShares  Float
+  below100LotsHolders Int
+  capturedAt          DateTime @default(now())
+
+  @@unique([code, date])
+  @@index([code])
+}

@@ -1,6 +1,10 @@
+import { prisma } from "@/lib/prisma";
+
 // 集保結算所公開資料「集保戶股權分散表」(dataset 1-5)：免費、不需金鑰，但是「全部上市櫃股票、
 // 全部17個持股級距」一次回傳（約4千檔*17級距），沒有單一股票查詢的參數，只能整包抓回來自己篩。
 // 每週最後一個營業日結算一次，不是每天更新，所以在記憶體裡快取一段時間，不用每次查詢都重抓一次大檔。
+// 這個端點也不支援歷史日期查詢（試過 date= 參數會被忽略，永遠回傳最新一週），沒辦法像三大法人
+// 那樣主動往回補歷史，只能每次查詢時把當週資料存一筆snapshot，靠使用者查詢慢慢逐週累積出趨勢。
 const TDCC_URL = "https://openapi.tdcc.com.tw/v1/opendata/1-5";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6小時（資料本來就是週更，快取久一點也不會拿到舊資料）
 
@@ -71,6 +75,40 @@ export interface RetailShareholderRatio {
   ratioPercent: number;
 }
 
+function sumTiers(tiers: ShareholderTier[], upToTier: number) {
+  const rows = tiers.filter((t) => t.tier >= 1 && t.tier <= upToTier);
+  return {
+    shares: rows.reduce((s, t) => s + t.shares, 0),
+    holders: rows.reduce((s, t) => s + t.holders, 0),
+  };
+}
+
+// 每次查詢時把當週三個門檻(20/50/100張)的加總都存起來（不只存使用者當下選的那個），
+// 這樣趨勢圖不管使用者切哪個門檻都有歷史可看，不用等使用者剛好選過那個門檻才會有資料。
+async function snapshotIfNeeded(code: string, dist: ShareholderDistribution, totalRow: ShareholderTier) {
+  if (!dist.date) return;
+  const below20 = sumTiers(dist.tiers, TIER_CUTOFF[20]);
+  const below50 = sumTiers(dist.tiers, TIER_CUTOFF[50]);
+  const below100 = sumTiers(dist.tiers, TIER_CUTOFF[100]);
+  const data = {
+    totalShares: totalRow.shares,
+    totalHolders: totalRow.holders,
+    below20LotsShares: below20.shares,
+    below20LotsHolders: below20.holders,
+    below50LotsShares: below50.shares,
+    below50LotsHolders: below50.holders,
+    below100LotsShares: below100.shares,
+    below100LotsHolders: below100.holders,
+  };
+  await prisma.stockRetailRatioSnapshot
+    .upsert({
+      where: { code_date: { code, date: dist.date } },
+      update: data,
+      create: { code, date: dist.date, ...data },
+    })
+    .catch(() => {});
+}
+
 export async function fetchRetailShareholderRatio(
   code: string,
   thresholdLots: 20 | 50 | 100
@@ -82,17 +120,41 @@ export async function fetchRetailShareholderRatio(
   const totalRow = dist.tiers.find((t) => t.tier === TOTAL_TIER);
   if (!totalRow || totalRow.shares === 0) return null;
 
-  const cutoff = TIER_CUTOFF[thresholdLots];
-  const belowRows = dist.tiers.filter((t) => t.tier >= 1 && t.tier <= cutoff);
-  const belowShares = belowRows.reduce((s, t) => s + t.shares, 0);
-  const belowHolders = belowRows.reduce((s, t) => s + t.holders, 0);
+  await snapshotIfNeeded(code, dist, totalRow);
+
+  const below = sumTiers(dist.tiers, TIER_CUTOFF[thresholdLots]);
 
   return {
     date: dist.date,
     totalShares: totalRow.shares,
     totalHolders: totalRow.holders,
-    belowThresholdShares: belowShares,
-    belowThresholdHolders: belowHolders,
-    ratioPercent: (belowShares / totalRow.shares) * 100,
+    belowThresholdShares: below.shares,
+    belowThresholdHolders: below.holders,
+    ratioPercent: (below.shares / totalRow.shares) * 100,
   };
+}
+
+export interface RetailRatioHistoryPoint {
+  date: string;
+  ratioPercent: number;
+  holders: number;
+}
+
+export async function fetchRetailRatioHistory(
+  code: string,
+  thresholdLots: 20 | 50 | 100
+): Promise<RetailRatioHistoryPoint[]> {
+  const rows = await prisma.stockRetailRatioSnapshot.findMany({
+    where: { code },
+    orderBy: { date: "asc" },
+  });
+  const sharesKey = `below${thresholdLots}LotsShares` as const;
+  const holdersKey = `below${thresholdLots}LotsHolders` as const;
+  return rows
+    .filter((r) => r.totalShares > 0)
+    .map((r) => ({
+      date: r.date,
+      ratioPercent: (r[sharesKey] / r.totalShares) * 100,
+      holders: r[holdersKey],
+    }));
 }

@@ -173,6 +173,12 @@ interface RetailRatio {
   ratioPercent: number;
 }
 
+interface RetailRatioHistoryPoint {
+  date: string;
+  ratioPercent: number;
+  holders: number;
+}
+
 interface MarketRankingRow {
   code: string;
   name: string;
@@ -601,6 +607,21 @@ export default function TwStockPage() {
         setRetailRatio(await r.json());
       })
       .catch(() => setRetailRatioError("查詢失敗"));
+  }, [data?.code, retailThreshold]);
+
+  // 散戶持股比率趨勢：集保資料沒有歷史查詢功能，只能靠每次查詢時逐週存snapshot慢慢累積，
+  // 剛開始可能只有1個資料點，之後每週查詢會多一個點
+  const [retailHistory, setRetailHistory] = useState<RetailRatioHistoryPoint[] | null>(null);
+  useEffect(() => {
+    if (!data?.code) {
+      setRetailHistory(null);
+      return;
+    }
+    setRetailHistory(null);
+    fetch(`/api/market/tw-stock/${data.code}/retail-ratio-history?threshold=${retailThreshold}`)
+      .then((r) => (r.ok ? r.json() : { history: [] }))
+      .then((body) => setRetailHistory(body.history ?? []))
+      .catch(() => setRetailHistory([]));
   }, [data?.code, retailThreshold]);
 
   // 三大法人買賣超、融資融券餘額表格：可收合展開，表格資料量大時先收起來比較清爽
@@ -1610,6 +1631,31 @@ export default function TwStockPage() {
             ) : (
               <div className="flex items-center justify-center h-16 text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl">
                 載入中...
+              </div>
+            )}
+
+            {/* 散戶持股比率趨勢：集保資料沒有歷史查詢功能，只能每次查詢逐週累積snapshot，
+                剛開始資料點很少是正常現象，不是bug */}
+            {retailHistory && retailHistory.length > 0 && (
+              <div className="mt-5 pt-4 border-t border-slate-50">
+                <ResponsiveContainer width="100%" height={140}>
+                  <ComposedChart data={retailHistory} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
+                    <YAxis tick={{ fontSize: 11 }} width={48} unit="%" domain={["auto", "auto"]} />
+                    <Tooltip
+                      formatter={(value, name) =>
+                        name === "ratioPercent" ? [`${Number(value).toFixed(2)}%`, "占比"] : [value, String(name)]
+                      }
+                    />
+                    <Line type="monotone" dataKey="ratioPercent" stroke="#6366f1" dot={{ r: 3 }} strokeWidth={1.5} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                {retailHistory.length < 3 && (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    集保資料每週更新一次，目前只累積了 {retailHistory.length} 個資料點，之後每週查詢會多一個點、趨勢會愈來愈完整
+                  </p>
+                )}
               </div>
             )}
           </div>
