@@ -333,3 +333,19 @@ model StockRetailRatioSnapshot {
   @@unique([code, date])
   @@index([code])
 }
+
+// 全市場買超/賣超前15名（共30檔）逐日存檔：每次「即時成交量排行」頁面被查詢時，把當天上榜的
+// 30檔（買超前15+賣超前15）連同收盤價一起存一筆，用公司代碼+日期當key，方便日後回顧某檔股票
+// 哪些天上過榜、當天收盤價多少。只存有上榜的那30檔，沒上榜的股票不會有紀錄。
+model MarketRankingSnapshot {
+  id         String   @id @default(cuid())
+  code       String
+  name       String
+  date       String
+  closePrice Float?
+  netLots    Int
+  capturedAt DateTime @default(now())
+
+  @@unique([code, date])
+  @@index([date])
+}

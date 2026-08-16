@@ -90,6 +90,7 @@ export interface InstitutionalRanking {
   date: string;
   buyTop: InstitutionalRankingRow[];
   sellTop: InstitutionalRankingRow[];
+  all: InstitutionalRankingRow[];
 }
 
 // 全市場買賣超前N名：T86 在 selectType=ALL 時本來就是「當天全部上市股票」的彙總表，
@@ -114,8 +115,11 @@ export async function fetchInstitutionalRanking(limit = 15, maxDaysBack = 10): P
         .map((r): InstitutionalRankingRow | null => {
           const code = r[0]?.trim();
           const name = r[1]?.trim();
-          // T86 也包含 ETF／權證等英數混合代碼，這裡只留一般股票（4-6碼純數字），跟其餘功能查得到的代碼格式一致
+          // T86 也包含 ETF／權證的籌碼資料：ETF等英數混合代碼(00403A)已經被純數字regex擋掉，
+          // 但認購/認售權證的代碼也是純數字(常見6碼)、regex擋不掉，得另外靠「名稱一定帶購/售」
+          // 這個台股權證命名的固定慣例來排除，不然全市場清單裡九成都會是權證、不是真正的股票。
           if (!code || !name || !/^\d{4,6}$/.test(code)) return null;
+          if (name.includes("購") || name.includes("售")) return null;
           const totalNet = num(r[18]);
           return { code, name, netLots: Math.round(totalNet / 1000) };
         })
@@ -127,12 +131,43 @@ export async function fetchInstitutionalRanking(limit = 15, maxDaysBack = 10): P
         date: formatDisplayDate(dateStr),
         buyTop: sorted.slice(0, limit),
         sellTop: sorted.slice(-limit).reverse(),
+        all: sorted,
       };
     } catch {
       continue;
     }
   }
   return null;
+}
+
+// 全市場當日收盤價：STOCK_DAY_ALL 是CSV格式（不是JSON，response=json參數對這個端點沒作用），
+// 一樣是「當天全部上市股票」一次回傳，跟T86是同一天的資料，用同一個日期字串直接對得起來。
+// 日期欄位是民國年（例如1150814=2026-08-14），要自己轉換成西元。
+export async function fetchClosePrices(codes: string[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (codes.length === 0) return result;
+  const wanted = new Set(codes);
+
+  try {
+    const res = await fetch("https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json", {
+      headers: TWSE_HEADERS,
+      cache: "no-store",
+    });
+    if (!res.ok) return result;
+    const text = await res.text();
+    const lines = text.trim().split("\n");
+    // 第一行是欄位標題（日期,證券代號,證券名稱,成交股數,成交金額,開盤價,最高價,最低價,收盤價,漲跌價差,成交筆數）
+    for (const line of lines.slice(1)) {
+      const cells = line.split('","').map((c) => c.replace(/^"|"$/g, ""));
+      const code = cells[1]?.trim();
+      if (!code || !wanted.has(code)) continue;
+      const close = parseFloat(cells[8]);
+      if (Number.isFinite(close)) result.set(code, close);
+    }
+  } catch {
+    // 拿不到收盤價就靜默放棄，讓呼叫端自己決定要不要照樣存（沒有收盤價的欄位）
+  }
+  return result;
 }
 
 // MI_MARGN 融資融券彙總欄位（單位：張）：0代號 1名稱 2-7融資(買進/賣出/現金償還/前日餘額/今日餘額/限額) 8-13融券(同上) 14資券互抵
