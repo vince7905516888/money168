@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { fetchInstitutionalRanking, fetchClosePrices } from "@/lib/tw-stock-flow";
+import { fetchInstitutionalRanking } from "@/lib/tw-stock-flow";
+import { fetchClosePrices } from "@/lib/tw-stock-chip";
 
 export async function GET() {
   const session = await auth();

@@ -349,3 +349,19 @@ model MarketRankingSnapshot {
   @@unique([code, date])
   @@index([date])
 }
+
+// 期交所三大法人期貨未平倉逐日存檔：每次台股頁被查詢時，把當天三大法人（自營商/投信/外資）
+// 在各期貨契約（臺股期貨、電子期貨、金融期貨等）的多空未平倉都存一筆，用契約+身份別+日期當key。
+model FuturesPositionSnapshot {
+  id                 String   @id @default(cuid())
+  date               String
+  contractCode       String
+  item               String // 自營商/投信/外資
+  longOpenInterest   Int
+  shortOpenInterest  Int
+  netOpenInterest    Int
+  capturedAt         DateTime @default(now())
+
+  @@unique([date, contractCode, item])
+  @@index([contractCode, item])
+}

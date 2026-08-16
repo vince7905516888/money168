@@ -140,35 +140,8 @@ export async function fetchInstitutionalRanking(limit = 15, maxDaysBack = 10): P
   return null;
 }
 
-// 全市場當日收盤價：STOCK_DAY_ALL 是CSV格式（不是JSON，response=json參數對這個端點沒作用），
-// 一樣是「當天全部上市股票」一次回傳，跟T86是同一天的資料，用同一個日期字串直接對得起來。
-// 日期欄位是民國年（例如1150814=2026-08-14），要自己轉換成西元。
-export async function fetchClosePrices(codes: string[]): Promise<Map<string, number>> {
-  const result = new Map<string, number>();
-  if (codes.length === 0) return result;
-  const wanted = new Set(codes);
-
-  try {
-    const res = await fetch("https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json", {
-      headers: TWSE_HEADERS,
-      cache: "no-store",
-    });
-    if (!res.ok) return result;
-    const text = await res.text();
-    const lines = text.trim().split("\n");
-    // 第一行是欄位標題（日期,證券代號,證券名稱,成交股數,成交金額,開盤價,最高價,最低價,收盤價,漲跌價差,成交筆數）
-    for (const line of lines.slice(1)) {
-      const cells = line.split('","').map((c) => c.replace(/^"|"$/g, ""));
-      const code = cells[1]?.trim();
-      if (!code || !wanted.has(code)) continue;
-      const close = parseFloat(cells[8]);
-      if (Number.isFinite(close)) result.set(code, close);
-    }
-  } catch {
-    // 拿不到收盤價就靜默放棄，讓呼叫端自己決定要不要照樣存（沒有收盤價的欄位）
-  }
-  return result;
-}
+// 全市場當日收盤價：移到 tw-stock-chip.ts 的 fetchClosePrices（跟當沖比共用同一份 STOCK_DAY_ALL
+// 解析邏輯，避免同樣的CSV抓取/解析程式碼寫兩份）。
 
 // MI_MARGN 融資融券彙總欄位（單位：張）：0代號 1名稱 2-7融資(買進/賣出/現金償還/前日餘額/今日餘額/限額) 8-13融券(同上) 14資券互抵
 export async function fetchMarginDays(cleanCode: string, dateStrs: string[], concurrency = 4): Promise<MarginDayRow[]> {

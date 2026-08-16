@@ -212,6 +212,56 @@ interface VolumeRankRow {
   totalVolume: number;
 }
 
+interface FuturesPosition {
+  contractCode: string;
+  item: string;
+  longOpenInterest: number;
+  shortOpenInterest: number;
+  netOpenInterest: number;
+}
+
+interface FuturesPositionsResult {
+  date: string;
+  positions: FuturesPosition[];
+}
+
+interface ForeignHoldingRatio {
+  date: string;
+  issuedShares: number;
+  foreignShares: number;
+  foreignHoldingPercent: number;
+}
+
+interface LendingAvailability {
+  availableVolume: number;
+}
+
+interface DayTradingRatio {
+  date: string;
+  dayTradingShares: number;
+  totalShares: number;
+  ratioPercent: number | null;
+}
+
+interface TradingAlert {
+  type: "注意" | "處置";
+  date: string;
+  reason: string;
+  detail?: string;
+}
+
+interface ExDividendNotice {
+  date: string;
+  type: string;
+  cashDividend: number | null;
+  stockDividendRatio: string | null;
+}
+
+interface MaterialAnnouncement {
+  date: string;
+  subject: string;
+}
+
 interface MarketRankingRow {
   code: string;
   name: string;
@@ -694,6 +744,73 @@ export default function TwStockPage() {
       .catch(() => setVolumeRanking(null));
   }, []);
 
+  // 期貨三大法人未平倉（台指期空單等）：跟目前查詢的股票無關，市場總體指標，進頁面就抓一次
+  const [futuresPositions, setFuturesPositions] = useState<FuturesPositionsResult | null>(null);
+  useEffect(() => {
+    fetch("/api/market/futures-positions")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setFuturesPositions)
+      .catch(() => setFuturesPositions(null));
+  }, []);
+
+  // 個股籌碼補充資料：外資持股比率／借券餘額／當沖比，跟目前查詢的股票有關
+  const [foreignHolding, setForeignHolding] = useState<ForeignHoldingRatio | null>(null);
+  const [lending, setLending] = useState<LendingAvailability | null>(null);
+  const [dayTrading, setDayTrading] = useState<DayTradingRatio | null>(null);
+  useEffect(() => {
+    if (!data?.code) {
+      setForeignHolding(null);
+      setLending(null);
+      setDayTrading(null);
+      return;
+    }
+    setForeignHolding(null);
+    setLending(null);
+    setDayTrading(null);
+    fetch(`/api/market/tw-stock/${data.code}/foreign-holding`).then((r) => (r.ok ? r.json() : null)).then(setForeignHolding).catch(() => {});
+    fetch(`/api/market/tw-stock/${data.code}/lending`).then((r) => (r.ok ? r.json() : null)).then(setLending).catch(() => {});
+    fetch(`/api/market/tw-stock/${data.code}/day-trading`).then((r) => (r.ok ? r.json() : null)).then(setDayTrading).catch(() => {});
+  }, [data?.code]);
+
+  // 注意股／處置股警示：異常交易風險提示
+  const [tradingAlerts, setTradingAlerts] = useState<TradingAlert[]>([]);
+  useEffect(() => {
+    if (!data?.code) {
+      setTradingAlerts([]);
+      return;
+    }
+    fetch(`/api/market/tw-stock/${data.code}/alerts`)
+      .then((r) => (r.ok ? r.json() : { alerts: [] }))
+      .then((body) => setTradingAlerts(body.alerts ?? []))
+      .catch(() => setTradingAlerts([]));
+  }, [data?.code]);
+
+  // 除權除息預告
+  const [exDividendNotices, setExDividendNotices] = useState<ExDividendNotice[]>([]);
+  useEffect(() => {
+    if (!data?.code) {
+      setExDividendNotices([]);
+      return;
+    }
+    fetch(`/api/market/tw-stock/${data.code}/ex-dividend`)
+      .then((r) => (r.ok ? r.json() : { notices: [] }))
+      .then((body) => setExDividendNotices(body.notices ?? []))
+      .catch(() => setExDividendNotices([]));
+  }, [data?.code]);
+
+  // 每日重大訊息：最新公告
+  const [announcements, setAnnouncements] = useState<MaterialAnnouncement[]>([]);
+  useEffect(() => {
+    if (!data?.code) {
+      setAnnouncements([]);
+      return;
+    }
+    fetch(`/api/market/tw-stock/${data.code}/announcements`)
+      .then((r) => (r.ok ? r.json() : { announcements: [] }))
+      .then((body) => setAnnouncements(body.announcements ?? []))
+      .catch(() => setAnnouncements([]));
+  }, [data?.code]);
+
   // 三大法人買賣超、融資融券餘額表格：可收合展開，表格資料量大時先收起來比較清爽
   const [institutionalCollapsed, setInstitutionalCollapsed] = useState(false);
   const [marginCollapsed, setMarginCollapsed] = useState(false);
@@ -1133,12 +1250,61 @@ export default function TwStockPage() {
         </div>
       )}
 
+      {/* 期貨三大法人未平倉：跟目前查詢的股票無關，市場總體籌碼指標，走期交所TAIFEX（跟證交所是不同單位） */}
+      {futuresPositions && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-700">期貨三大法人未平倉（臺股期貨）</h3>
+            <span className="text-[11px] text-slate-400">{futuresPositions.date}</span>
+          </div>
+          <div className="grid grid-cols-3 divide-x divide-slate-50">
+            {futuresPositions.positions
+              .filter((p) => p.contractCode === "臺股期貨")
+              .map((p) => (
+                <div key={p.item} className="px-5 py-4 text-center">
+                  <div className="text-xs text-slate-400 mb-1">{p.item}</div>
+                  <div className={`text-lg font-bold ${p.netOpenInterest >= 0 ? "text-red-500" : "text-green-600"}`}>
+                    {p.netOpenInterest >= 0 ? "+" : ""}
+                    {p.netOpenInterest.toLocaleString("zh-TW")}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    多 {p.longOpenInterest.toLocaleString("zh-TW")}／空 {p.shortOpenInterest.toLocaleString("zh-TW")}
+                  </div>
+                </div>
+              ))}
+          </div>
+          <p className="text-[11px] text-slate-400 px-5 py-2.5">資料源：臺灣期貨交易所，正值代表淨多單、負值代表淨空單</p>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl px-4 py-3 mb-6">{error}</div>
       )}
 
       {data && last && (
         <>
+          {/* 注意股／處置股警示：異常交易風險提示，放最上面比較顯眼 */}
+          {tradingAlerts.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 mb-4">
+              {tradingAlerts.map((a, idx) => (
+                <div key={idx} className={idx > 0 ? "mt-3 pt-3 border-t border-amber-200" : ""}>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                        a.type === "處置" ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {a.type}股
+                    </span>
+                    <span className="text-xs text-slate-500">{a.date}</span>
+                  </div>
+                  <div className="text-sm text-amber-900 mt-1">{a.reason}</div>
+                  {a.detail && <div className="text-xs text-amber-700 mt-0.5">{a.detail}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* 報價卡 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
             <div className="flex items-baseline gap-3 flex-wrap">
@@ -1146,6 +1312,11 @@ export default function TwStockPage() {
                 {data.code} {data.name}
               </h2>
               <span className="text-xs text-slate-400">{data.market === "TW" ? "上市" : "上櫃"} · {last.date}</span>
+              {exDividendNotices.length > 0 && (
+                <span className="text-[11px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">
+                  {exDividendNotices[0].type}：{exDividendNotices[0].date}
+                </span>
+              )}
               {liveQuote ? (
                 <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium">即時</span>
               ) : (
@@ -1234,6 +1405,53 @@ export default function TwStockPage() {
                 : "資料源：Yahoo Finance，可能延遲（即時報價服務暫時無法取得）"}
             </p>
           </div>
+
+          {/* 籌碼補充：外資持股比率／借券餘額／當沖比 */}
+          {(foreignHolding || lending || dayTrading) && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+              <div className="text-sm font-semibold text-slate-700 mb-3">籌碼補充</div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                {foreignHolding && (
+                  <div>
+                    <div className="text-xs text-slate-400 mb-0.5">外資持股比率</div>
+                    <div className="text-lg font-bold text-slate-800">{foreignHolding.foreignHoldingPercent.toFixed(2)}%</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">{foreignHolding.date}</div>
+                  </div>
+                )}
+                {lending && (
+                  <div>
+                    <div className="text-xs text-slate-400 mb-0.5">可借券賣出股數</div>
+                    <div className="text-lg font-bold text-slate-800">{lending.availableVolume.toLocaleString("zh-TW")}</div>
+                  </div>
+                )}
+                {dayTrading && (
+                  <div>
+                    <div className="text-xs text-slate-400 mb-0.5">當沖比</div>
+                    <div className="text-lg font-bold text-slate-800">
+                      {dayTrading.ratioPercent != null ? `${dayTrading.ratioPercent.toFixed(2)}%` : "—"}
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">{dayTrading.date}</div>
+                  </div>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">資料源：證交所公開資料</p>
+            </div>
+          )}
+
+          {/* 最新公告：每日重大訊息 */}
+          {announcements.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+              <div className="text-sm font-semibold text-slate-700 mb-3">最新公告</div>
+              <div className="divide-y divide-slate-50">
+                {announcements.slice(0, 5).map((a, idx) => (
+                  <div key={idx} className="py-2.5 text-sm">
+                    <div className="text-xs text-slate-400 mb-0.5">{a.date}</div>
+                    <div className="text-slate-700 whitespace-pre-line">{a.subject}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 今日走勢圖：永豐1分鐘K棒，只有當天走勢，多天K線圖仍是下面的Yahoo Finance那張 */}
           {intradayBars && intradayBars.length > 0 && (
