@@ -27,10 +27,22 @@ const ON_DEMAND_BACKFILL_CAP = 125; // 最多主動幫忙補到 6 個月（125 �
 // 併發2），且只有使用者主動切換到超過1個月的區間時才觸發，靠使用者多次操作慢慢把歷史補齊，
 // 不奢望一次補滿，換取穩定不被證交所封鎖。
 const BACKFILL_BATCH_CALENDAR_DAYS = 20;
+// 一個批次約補14個交易日；同一個請求裡連續補好幾批（批次之間停一下，不是同時併發），比起「每次
+// 只補一批、要使用者手動切來切去點很多次才補得到」體驗好很多。實測過兩組參數（併發2/間隔1.2秒、
+// 併發1/間隔3.5秒），都是補了約3批（~40個交易日）後連續兩批就開始被證交所擋（回應變空）——代表
+// 這是證交所在一段時間內的「累計」請求量限制，不是單批併發數或間隔快慢的問題，放慢節奏並沒有明顯
+// 幫助，所以維持較快的參數（時間換不到更多資料，不用讓使用者多等）。碰到連續空批次就提早停止
+// （見下方 consecutiveEmptyBatches），不會傻傻補到 MAX 批次。
 const BACKFILL_CONCURRENCY = 2;
+const MAX_BACKFILL_BATCHES_PER_REQUEST = 6;
+const BACKFILL_BATCH_DELAY_MS = 1200;
 
 function toDateOnly(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function backfillIfNeeded(cleanCode: string, period: string) {
@@ -38,46 +50,59 @@ async function backfillIfNeeded(cleanCode: string, period: string) {
 
   const target = Math.min(PERIOD_TRADING_DAYS[period] ?? PERIOD_TRADING_DAYS["1m"], ON_DEMAND_BACKFILL_CAP);
 
-  const [instCount, oldestInst] = await Promise.all([
-    prisma.stockInstitutionalSnapshot.count({ where: { code: cleanCode } }),
-    prisma.stockInstitutionalSnapshot.findFirst({ where: { code: cleanCode }, orderBy: { date: "asc" } }),
-  ]);
-  if (instCount >= target) return; // 已經累積夠了，不用再往回補
+  let consecutiveEmptyBatches = 0;
+  for (let iter = 0; iter < MAX_BACKFILL_BATCHES_PER_REQUEST; iter++) {
+    const [instCount, oldestInst] = await Promise.all([
+      prisma.stockInstitutionalSnapshot.count({ where: { code: cleanCode } }),
+      prisma.stockInstitutionalSnapshot.findFirst({ where: { code: cleanCode }, orderBy: { date: "asc" } }),
+    ]);
+    if (instCount >= target) return; // 已經累積夠了，不用再往回補
 
-  const walkStart = oldestInst ? new Date(`${oldestInst.date}T00:00:00`) : new Date();
-  if (oldestInst) walkStart.setDate(walkStart.getDate() - 1); // 從已累積的最早一天再往前一天開始補一小批
+    const walkStart = oldestInst ? new Date(`${oldestInst.date}T00:00:00`) : new Date();
+    if (oldestInst) walkStart.setDate(walkStart.getDate() - 1); // 從已累積的最早一天再往前一天開始補一小批
 
-  const candidateDates = Array.from({ length: BACKFILL_BATCH_CALENDAR_DAYS }, (_, i) => {
-    const d = new Date(walkStart);
-    d.setDate(d.getDate() - i);
-    return toDateStr(d);
-  });
+    const candidateDates = Array.from({ length: BACKFILL_BATCH_CALENDAR_DAYS }, (_, i) => {
+      const d = new Date(walkStart);
+      d.setDate(d.getDate() - i);
+      return toDateStr(d);
+    });
 
-  const [institutional, margin] = await Promise.all([
-    fetchInstitutionalDays(cleanCode, candidateDates, BACKFILL_CONCURRENCY),
-    fetchMarginDays(cleanCode, candidateDates, BACKFILL_CONCURRENCY),
-  ]);
+    const [institutional, margin] = await Promise.all([
+      fetchInstitutionalDays(cleanCode, candidateDates, BACKFILL_CONCURRENCY),
+      fetchMarginDays(cleanCode, candidateDates, BACKFILL_CONCURRENCY),
+    ]);
 
-  await Promise.all([
-    ...institutional.map((row) =>
-      prisma.stockInstitutionalSnapshot
-        .upsert({
-          where: { code_date: { code: cleanCode, date: row.date } },
-          update: { ...row },
-          create: { code: cleanCode, ...row },
-        })
-        .catch(() => {})
-    ),
-    ...margin.map((row) =>
-      prisma.stockMarginSnapshot
-        .upsert({
-          where: { code_date: { code: cleanCode, date: row.date } },
-          update: { ...row },
-          create: { code: cleanCode, ...row },
-        })
-        .catch(() => {})
-    ),
-  ]);
+    await Promise.all([
+      ...institutional.map((row) =>
+        prisma.stockInstitutionalSnapshot
+          .upsert({
+            where: { code_date: { code: cleanCode, date: row.date } },
+            update: { ...row },
+            create: { code: cleanCode, ...row },
+          })
+          .catch(() => {})
+      ),
+      ...margin.map((row) =>
+        prisma.stockMarginSnapshot
+          .upsert({
+            where: { code_date: { code: cleanCode, date: row.date } },
+            update: { ...row },
+            create: { code: cleanCode, ...row },
+          })
+          .catch(() => {})
+      ),
+    ]);
+
+    // 連續兩批都完全沒補到新資料，代表可能已經到資料源最早範圍或暫時被擋，停止避免白等
+    if (institutional.length === 0 && margin.length === 0) {
+      consecutiveEmptyBatches++;
+      if (consecutiveEmptyBatches >= 2) return;
+    } else {
+      consecutiveEmptyBatches = 0;
+    }
+
+    if (iter < MAX_BACKFILL_BATCHES_PER_REQUEST - 1) await sleep(BACKFILL_BATCH_DELAY_MS);
+  }
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ code: string }> }) {
