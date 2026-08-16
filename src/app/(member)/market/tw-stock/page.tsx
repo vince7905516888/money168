@@ -164,6 +164,15 @@ interface ChipRanking {
   profitLoss: number; // 損益（萬）
 }
 
+interface RetailRatio {
+  date: string;
+  totalShares: number;
+  totalHolders: number;
+  belowThresholdShares: number;
+  belowThresholdHolders: number;
+  ratioPercent: number;
+}
+
 interface MarketRankingRow {
   code: string;
   name: string;
@@ -570,8 +579,29 @@ export default function TwStockPage() {
       .finally(() => setFlowLoading(false));
   }, [data?.code, flowPeriod]);
 
-  // 散戶持股比率：門檻可調整，但目前找不到能對上台股代碼的免費集保資料源，先留 UI、資料待確認
+  // 散戶持股比率：資料源為集保結算所公開資料「集保戶股權分散表」，每週更新一次
   const [retailThreshold, setRetailThreshold] = useState("20");
+  const [retailRatio, setRetailRatio] = useState<RetailRatio | null>(null);
+  const [retailRatioError, setRetailRatioError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!data?.code) {
+      setRetailRatio(null);
+      setRetailRatioError(null);
+      return;
+    }
+    setRetailRatio(null);
+    setRetailRatioError(null);
+    fetch(`/api/market/tw-stock/${data.code}/retail-ratio?threshold=${retailThreshold}`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          setRetailRatioError(body.error || "查詢失敗");
+          return;
+        }
+        setRetailRatio(await r.json());
+      })
+      .catch(() => setRetailRatioError("查詢失敗"));
+  }, [data?.code, retailThreshold]);
 
   // 三大法人買賣超、融資融券餘額表格：可收合展開，表格資料量大時先收起來比較清爽
   const [institutionalCollapsed, setInstitutionalCollapsed] = useState(false);
@@ -1540,7 +1570,7 @@ export default function TwStockPage() {
               ))}
           </div>
 
-          {/* 散戶持股比率：門檻可調整，但目前沒有能對上台股代碼的免費集保資料源，先留 UI 版位 */}
+          {/* 散戶持股比率：資料源集保結算所「集保戶股權分散表」，每週更新一次 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-slate-700">散戶持股比率</h3>
@@ -1557,9 +1587,31 @@ export default function TwStockPage() {
                 </select>
               </div>
             </div>
-            <div className="flex items-center justify-center h-16 text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl">
-              尚未串接集保股權分散資料源，僅保留版位（門檻選單已可切換）
-            </div>
+            {retailRatioError ? (
+              <div className="flex items-center justify-center h-16 text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                {retailRatioError}
+              </div>
+            ) : retailRatio ? (
+              <div className="flex items-center gap-8 flex-wrap">
+                <div>
+                  <div className="text-3xl font-bold text-indigo-600">{retailRatio.ratioPercent.toFixed(2)}%</div>
+                  <div className="text-xs text-slate-400 mt-1">持股 {retailThreshold} 張以下股東，占集保庫存比例</div>
+                </div>
+                <div className="text-sm text-slate-600">
+                  <div>{retailRatio.belowThresholdHolders.toLocaleString("zh-TW")} 人</div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    共 {retailRatio.totalHolders.toLocaleString("zh-TW")} 位集保股東
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-400 ml-auto">
+                  資料日期：{retailRatio.date}｜資料源：集保結算所 集保戶股權分散表
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-16 text-sm text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                載入中...
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
