@@ -79,10 +79,12 @@ export function fetchVolumeRanking(): Promise<VolumeRankRow[] | null> {
   return callGateway<VolumeRankRow[]>("/scanners/volume", 5000);
 }
 
-export function fetchTodayKbars(code: string): Promise<IntradayBar[] | null> {
-  return callGateway<IntradayBar[]>(`/kbars/${code}`, 8000);
+export function fetchTodayKbars(code: string, date?: string): Promise<IntradayBar[] | null> {
+  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  return callGateway<IntradayBar[]>(`/kbars/${code}${qs}`, 8000);
 }
 
-export function fetchTickRatio(code: string): Promise<TickRatio | null> {
-  return callGateway<TickRatio>(`/tick-ratio/${code}`, 15000);
+export function fetchTickRatio(code: string, date?: string): Promise<TickRatio | null> {
+  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  return callGateway<TickRatio>(`/tick-ratio/${code}${qs}`, 15000);
 }
