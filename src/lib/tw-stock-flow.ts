@@ -80,6 +80,61 @@ export async function fetchInstitutionalDays(
   return fetched.filter((r): r is InstitutionalDayRow => r != null);
 }
 
+export interface InstitutionalRankingRow {
+  code: string;
+  name: string;
+  netLots: number;
+}
+
+export interface InstitutionalRanking {
+  date: string;
+  buyTop: InstitutionalRankingRow[];
+  sellTop: InstitutionalRankingRow[];
+}
+
+// 全市場買賣超前N名：T86 在 selectType=ALL 時本來就是「當天全部上市股票」的彙總表，
+// 跟單一股票查詢（fetchInstitutionalDays）共用同一份原始資料，只是這裡不篩代碼、改成排序取前後N名。
+export async function fetchInstitutionalRanking(limit = 15, maxDaysBack = 10): Promise<InstitutionalRanking | null> {
+  const today = new Date();
+  for (let i = 0; i < maxDaysBack; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = toDateStr(d);
+    try {
+      const res = await fetch(`https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALL&response=json`, {
+        headers: TWSE_HEADERS,
+        cache: "no-store",
+      });
+      if (!res.ok) continue;
+      const json = await res.json();
+      const rows: string[][] | undefined = json?.data;
+      if (!rows || rows.length === 0) continue;
+
+      const parsed = rows
+        .map((r): InstitutionalRankingRow | null => {
+          const code = r[0]?.trim();
+          const name = r[1]?.trim();
+          // T86 也包含 ETF／權證等英數混合代碼，這裡只留一般股票（4-6碼純數字），跟其餘功能查得到的代碼格式一致
+          if (!code || !name || !/^\d{4,6}$/.test(code)) return null;
+          const totalNet = num(r[18]);
+          return { code, name, netLots: Math.round(totalNet / 1000) };
+        })
+        .filter((r): r is InstitutionalRankingRow => r != null && r.netLots !== 0);
+      if (parsed.length === 0) continue;
+
+      const sorted = [...parsed].sort((a, b) => b.netLots - a.netLots);
+      return {
+        date: formatDisplayDate(dateStr),
+        buyTop: sorted.slice(0, limit),
+        sellTop: sorted.slice(-limit).reverse(),
+      };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 // MI_MARGN 融資融券彙總欄位（單位：張）：0代號 1名稱 2-7融資(買進/賣出/現金償還/前日餘額/今日餘額/限額) 8-13融券(同上) 14資券互抵
 export async function fetchMarginDays(cleanCode: string, dateStrs: string[], concurrency = 4): Promise<MarginDayRow[]> {
   const fetched = await fetchWithConcurrency(dateStrs, concurrency, async (dateStr) => {

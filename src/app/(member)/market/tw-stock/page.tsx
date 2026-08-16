@@ -164,6 +164,18 @@ interface ChipRanking {
   profitLoss: number; // 損益（萬）
 }
 
+interface MarketRankingRow {
+  code: string;
+  name: string;
+  netLots: number;
+}
+
+interface MarketRanking {
+  date: string;
+  buyTop: MarketRankingRow[];
+  sellTop: MarketRankingRow[];
+}
+
 interface ChartRow extends Quote {
   range: [number, number];
   ma5: number | null;
@@ -656,6 +668,15 @@ export default function TwStockPage() {
 
   const isWatched = data ? watchlist.some((w) => w.code === data.code) : false;
 
+  // 全市場三大法人買賣超前15名：跟搜尋的股票無關，進頁面就抓當天（或最近一個交易日）全市場排行
+  const [marketRanking, setMarketRanking] = useState<MarketRanking | null>(null);
+  useEffect(() => {
+    fetch("/api/market/tw-stock/institutional-ranking")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setMarketRanking)
+      .catch(() => {});
+  }, []);
+
   // 觀察名單按鈕一律顯示（不管會員層級），沒有權限的話點了顯示提示而不是直接隱藏功能
   const [showWatchlistLockedHint, setShowWatchlistLockedHint] = useState(false);
 
@@ -907,6 +928,57 @@ export default function TwStockPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* 全市場三大法人買賣超前15名：跟目前查詢的股票無關，點列可直接切換查詢該檔 */}
+      {marketRanking && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-red-600">全市場買超前15名</h3>
+              <span className="text-[11px] text-slate-400">{marketRanking.date}</span>
+            </div>
+            <div className="divide-y divide-slate-50">
+              {marketRanking.buyTop.map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  onClick={() => selectWatchStock(r.code)}
+                  className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
+                >
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-slate-700">{r.name}</span>
+                    <span className="text-xs text-slate-400">{r.code}</span>
+                  </span>
+                  <span className="text-red-500 font-semibold">+{r.netLots.toLocaleString("zh-TW")}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-emerald-700">全市場賣超前15名</h3>
+              <span className="text-[11px] text-slate-400">{marketRanking.date}</span>
+            </div>
+            <div className="divide-y divide-slate-50">
+              {marketRanking.sellTop.map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  onClick={() => selectWatchStock(r.code)}
+                  className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
+                >
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-slate-700">{r.name}</span>
+                    <span className="text-xs text-slate-400">{r.code}</span>
+                  </span>
+                  <span className="text-green-600 font-semibold">{r.netLots.toLocaleString("zh-TW")}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 -mt-2 md:col-span-2">資料源：證交所 T86（僅涵蓋上市，依三大法人合計買賣超排序），點列可直接查詢該檔</p>
         </div>
       )}
 
