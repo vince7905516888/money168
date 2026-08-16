@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { authFetch } from "@/lib/api-fetch";
 
 interface BankSummary {
   name: string;
@@ -234,7 +235,7 @@ export default function BanksPage() {
       return;
     }
     setSaving(true);
-    const res = await fetch("/api/transactions", {
+    const res = await authFetch("/api/transactions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...form, note: buildNote(), source: "BANK" }),
@@ -242,7 +243,7 @@ export default function BanksPage() {
     if (isInvestmentCat && investmentType && res.ok) {
       const txData = await res.json();
       if (txData.id) {
-        await fetch("/api/investments", {
+        await authFetch("/api/investments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type: investmentType, amount: form.amount, transactionId: txData.id }),
@@ -257,14 +258,14 @@ export default function BanksPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆記錄？")) return;
-    await fetch(`/api/transactions/${id}`, { method: "DELETE" });
+    await authFetch(`/api/transactions/${id}`, { method: "DELETE" });
     fetchAll();
   };
 
   const handleAddBank = async (target: typeof addBankTarget) => {
     if (!addBankInput.trim()) return;
     setAddBankLoading(true);
-    const res = await fetch("/api/user-banks", {
+    const res = await authFetch("/api/user-banks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addBankInput.trim() }),
@@ -285,7 +286,7 @@ export default function BanksPage() {
   const handleAddThirdParty = async (target: typeof addTPTarget) => {
     if (!addTPInput.trim()) return;
     setAddTPLoading(true);
-    const res = await fetch("/api/user-third-parties", {
+    const res = await authFetch("/api/user-third-parties", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addTPInput.trim() }),

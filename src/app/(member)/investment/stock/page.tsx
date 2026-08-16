@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { authFetch } from "@/lib/api-fetch";
 
 interface Investment {
   id: string;
@@ -137,7 +138,7 @@ export default function StockPage() {
   const handleAddBroker = async () => {
     if (!addBrokerInput.trim()) return;
     setAddBrokerLoading(true);
-    const res = await fetch("/api/user-brokers", {
+    const res = await authFetch("/api/user-brokers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addBrokerInput.trim() }),
@@ -191,7 +192,7 @@ export default function StockPage() {
       return;
     }
     setAddSaving(true);
-    await fetch("/api/investments", {
+    await authFetch("/api/investments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -232,7 +233,7 @@ export default function StockPage() {
     e.preventDefault();
     if (!editing) return;
     setSaving(true);
-    const res = await fetch(`/api/investments/${editing.id}`, {
+    const res = await authFetch(`/api/investments/${editing.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editForm),
@@ -249,7 +250,7 @@ export default function StockPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆投資記錄？")) return;
-    await fetch(`/api/investments/${id}`, { method: "DELETE" });
+    await authFetch(`/api/investments/${id}`, { method: "DELETE" });
     fetchAll();
   };
 

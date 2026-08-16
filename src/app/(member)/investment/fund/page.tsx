@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { authFetch } from "@/lib/api-fetch";
 
 interface Investment {
   id: string;
@@ -96,7 +97,7 @@ export default function FundPage() {
   const handleAddBank = async () => {
     if (!addBankInput.trim()) return;
     setAddBankLoading(true);
-    const res = await fetch("/api/user-banks", {
+    const res = await authFetch("/api/user-banks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addBankInput.trim() }),
@@ -114,7 +115,7 @@ export default function FundPage() {
   const handleAddFundName = async () => {
     if (!addFundNameInput.trim()) return;
     setAddFundNameLoading(true);
-    const res = await fetch("/api/user-funds", {
+    const res = await authFetch("/api/user-funds", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addFundNameInput.trim() }),
@@ -131,7 +132,7 @@ export default function FundPage() {
 
   const handleDeleteFundName = async (id: string) => {
     if (!confirm("確定要刪除這個基金名稱？(不會刪除已經新增的投資記錄)")) return;
-    await fetch(`/api/user-funds/${id}`, { method: "DELETE" });
+    await authFetch(`/api/user-funds/${id}`, { method: "DELETE" });
     setUserFunds((prev) => prev.filter((f) => f.id !== id));
   };
 
@@ -179,7 +180,7 @@ export default function FundPage() {
       return;
     }
     setAddSaving(true);
-    await fetch("/api/investments", {
+    await authFetch("/api/investments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -218,7 +219,7 @@ export default function FundPage() {
     e.preventDefault();
     if (!editing) return;
     setSaving(true);
-    const res = await fetch(`/api/investments/${editing.id}`, {
+    const res = await authFetch(`/api/investments/${editing.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editForm),
@@ -235,7 +236,7 @@ export default function FundPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆投資記錄？")) return;
-    await fetch(`/api/investments/${id}`, { method: "DELETE" });
+    await authFetch(`/api/investments/${id}`, { method: "DELETE" });
     fetchAll();
   };
 

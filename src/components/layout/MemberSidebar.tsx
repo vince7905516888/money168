@@ -25,7 +25,7 @@ type Block =
   | { type: "link"; item: NavItem; order: number }
   | { type: "section"; name: string; items: NavItem[]; order: number };
 
-export default function MemberSidebar({ userName }: { userName: string }) {
+export default function MemberSidebar({ userName }: { userName: string | null }) {
   const pathname = usePathname();
   const { collapsed, toggle, expand } = useSidebar();
   const visibleItems = useVisibleNavItems();
@@ -174,21 +174,40 @@ export default function MemberSidebar({ userName }: { userName: string }) {
 
       {/* User */}
       <div className="border-t border-slate-100 pt-4 mt-4">
-        <div className={`flex items-center gap-3 mb-3 ${collapsed ? "justify-center" : "px-3"}`}>
-          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm flex-shrink-0">
-            {userName?.charAt(0)?.toUpperCase()}
-          </div>
-          {!collapsed && <span className="text-sm font-medium text-slate-700 truncate">{userName}</span>}
-        </div>
-        <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
-          title="登出"
-          className={`w-full py-2.5 rounded-xl text-sm font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 transition-all ${
-            collapsed ? "text-center px-0" : "text-left px-3"
-          }`}
-        >
-          {collapsed ? "⎋" : "登出"}
-        </button>
+        {userName ? (
+          <>
+            <div className={`flex items-center gap-3 mb-3 ${collapsed ? "justify-center" : "px-3"}`}>
+              <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm flex-shrink-0">
+                {userName.charAt(0).toUpperCase()}
+              </div>
+              {!collapsed && <span className="text-sm font-medium text-slate-700 truncate">{userName}</span>}
+            </div>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              title="登出"
+              className={`w-full py-2.5 rounded-xl text-sm font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 transition-all ${
+                collapsed ? "text-center px-0" : "text-left px-3"
+              }`}
+            >
+              {collapsed ? "⎋" : "登出"}
+            </button>
+          </>
+        ) : (
+          <>
+            {!collapsed && (
+              <p className="px-3 text-xs text-slate-400 mb-2">瀏覽模式：登入後才能新增/編輯資料</p>
+            )}
+            <Link
+              href="/login"
+              title="登入"
+              className={`block w-full py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all ${
+                collapsed ? "text-center px-0" : "text-center px-3"
+              }`}
+            >
+              {collapsed ? "→" : "登入 / 註冊"}
+            </Link>
+          </>
+        )}
       </div>
     </aside>
   );

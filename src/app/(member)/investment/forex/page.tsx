@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { authFetch } from "@/lib/api-fetch";
 
 interface Investment {
   id: string;
@@ -105,7 +106,7 @@ export default function ForexPage() {
   const handleAddBank = async () => {
     if (!addBankInput.trim()) return;
     setAddBankLoading(true);
-    const res = await fetch("/api/user-banks", {
+    const res = await authFetch("/api/user-banks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addBankInput.trim() }),
@@ -261,7 +262,7 @@ export default function ForexPage() {
     const needsRate = addForm.flowType === "BUY" || addForm.flowType === "CONVERT_BACK" || addForm.flowType === "ADJUSTMENT";
 
     setAddSaving(true);
-    const res = await fetch("/api/investments", {
+    const res = await authFetch("/api/investments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -301,7 +302,7 @@ export default function ForexPage() {
     e.preventDefault();
     if (!editing) return;
     setSaving(true);
-    const res = await fetch(`/api/investments/${editing.id}`, {
+    const res = await authFetch(`/api/investments/${editing.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editForm),
@@ -318,7 +319,7 @@ export default function ForexPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆投資記錄？")) return;
-    await fetch(`/api/investments/${id}`, { method: "DELETE" });
+    await authFetch(`/api/investments/${id}`, { method: "DELETE" });
     fetchAll();
   };
 

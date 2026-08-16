@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { authFetch } from "@/lib/api-fetch";
 
 interface Investment {
   id: string;
@@ -80,7 +81,7 @@ export default function CryptoPage() {
   const handleAddExchange = async () => {
     if (!addExchangeInput.trim()) return;
     setAddExchangeLoading(true);
-    const res = await fetch("/api/user-exchanges", {
+    const res = await authFetch("/api/user-exchanges", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addExchangeInput.trim() }),
@@ -97,7 +98,7 @@ export default function CryptoPage() {
 
   const handleDeleteExchange = async (id: string) => {
     if (!confirm("確定要刪除這個交易所？(不會刪除已經新增的投資記錄)")) return;
-    await fetch(`/api/user-exchanges/${id}`, { method: "DELETE" });
+    await authFetch(`/api/user-exchanges/${id}`, { method: "DELETE" });
     setUserExchanges((prev) => prev.filter((e) => e.id !== id));
   };
 
@@ -134,7 +135,7 @@ export default function CryptoPage() {
       return;
     }
     setAddSaving(true);
-    const res = await fetch("/api/investments", {
+    const res = await authFetch("/api/investments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -179,7 +180,7 @@ export default function CryptoPage() {
     e.preventDefault();
     if (!editing) return;
     setSaving(true);
-    const res = await fetch(`/api/investments/${editing.id}`, {
+    const res = await authFetch(`/api/investments/${editing.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editForm),
@@ -196,7 +197,7 @@ export default function CryptoPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆投資記錄？")) return;
-    await fetch(`/api/investments/${id}`, { method: "DELETE" });
+    await authFetch(`/api/investments/${id}`, { method: "DELETE" });
     fetchAll();
   };
 

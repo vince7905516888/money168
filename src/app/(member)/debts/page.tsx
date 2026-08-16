@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { authFetch } from "@/lib/api-fetch";
 
 interface Debt {
   id: string;
@@ -85,7 +86,7 @@ export default function DebtsPage() {
   const handleAddCategory = async () => {
     if (!addCategoryInput.trim()) return;
     setAddCategoryLoading(true);
-    const res = await fetch("/api/user-debt-categories", {
+    const res = await authFetch("/api/user-debt-categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addCategoryInput.trim() }),
@@ -102,14 +103,14 @@ export default function DebtsPage() {
 
   const handleDeleteCategory = async (id: string) => {
     if (!confirm("確定要刪除這個分類？(不會刪除已經新增的負債記錄)")) return;
-    await fetch(`/api/user-debt-categories/${id}`, { method: "DELETE" });
+    await authFetch(`/api/user-debt-categories/${id}`, { method: "DELETE" });
     setCategories((prev) => prev.filter((c) => c.id !== id));
   };
 
   const handleAddBank = async () => {
     if (!addBankInput.trim()) return;
     setAddBankLoading(true);
-    const res = await fetch("/api/user-banks", {
+    const res = await authFetch("/api/user-banks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addBankInput.trim() }),
@@ -161,7 +162,7 @@ export default function DebtsPage() {
       return;
     }
     setAddSaving(true);
-    const res = await fetch("/api/debts", {
+    const res = await authFetch("/api/debts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -197,7 +198,7 @@ export default function DebtsPage() {
     e.preventDefault();
     if (!editing) return;
     setSaving(true);
-    const res = await fetch(`/api/debts/${editing.id}`, {
+    const res = await authFetch(`/api/debts/${editing.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editForm),
@@ -214,7 +215,7 @@ export default function DebtsPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆負債記錄？")) return;
-    await fetch(`/api/debts/${id}`, { method: "DELETE" });
+    await authFetch(`/api/debts/${id}`, { method: "DELETE" });
     fetchAll();
   };
 

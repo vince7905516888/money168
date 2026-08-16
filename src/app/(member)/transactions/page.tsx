@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { authFetch } from "@/lib/api-fetch";
 
 interface Category {
   id: string;
@@ -242,7 +243,7 @@ export default function TransactionsPage() {
     setSaving(true);
     const url = editing ? `/api/transactions/${editing.id}` : "/api/transactions";
     const method = editing ? "PUT" : "POST";
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...form, note: buildNote(), currency: currencyLabel }),
@@ -251,7 +252,7 @@ export default function TransactionsPage() {
     if (!editing && isInvestmentCat && investmentType && res.ok) {
       const txData = await res.json();
       if (txData.id) {
-        await fetch("/api/investments", {
+        await authFetch("/api/investments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -270,14 +271,14 @@ export default function TransactionsPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆記錄？")) return;
-    await fetch(`/api/transactions/${id}`, { method: "DELETE" });
+    await authFetch(`/api/transactions/${id}`, { method: "DELETE" });
     fetchAll();
   };
 
   const handleAddBank = async (target: typeof addBankTarget) => {
     if (!addBankInput.trim()) return;
     setAddBankLoading(true);
-    const res = await fetch("/api/user-banks", {
+    const res = await authFetch("/api/user-banks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addBankInput.trim() }),
@@ -299,7 +300,7 @@ export default function TransactionsPage() {
   const handleAddThirdParty = async (target: typeof addTPTarget) => {
     if (!addTPInput.trim()) return;
     setAddTPLoading(true);
-    const res = await fetch("/api/user-third-parties", {
+    const res = await authFetch("/api/user-third-parties", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: addTPInput.trim() }),

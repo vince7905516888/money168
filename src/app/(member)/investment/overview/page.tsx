@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { authFetch } from "@/lib/api-fetch";
 
 type InvestmentType = "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD" | "REALESTATE" | "INSURANCE";
 
@@ -177,7 +178,7 @@ export default function InvestmentOverviewPage() {
     const existing = savedRates.find((r) => r.currency === currency);
     if (existing && existing.rate === rateVal) return;
     setRateSavingCurrency(currency);
-    const res = await fetch("/api/user-exchange-rates", {
+    const res = await authFetch("/api/user-exchange-rates", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ currency, rate: rateVal }),

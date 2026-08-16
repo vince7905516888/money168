@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { NAV_ITEMS, FEATURE_ITEMS, type NavItem } from "@/lib/nav-items";
 
-export async function getVisibleNavItems(userId: string, role: string): Promise<NavItem[]> {
+export async function getVisibleNavItems(userId: string | null, role: string | null): Promise<NavItem[]> {
+  // 未登入訪客：側邊欄照樣顯示全部頁面（包含台灣股市、會員資料管理），點下去才會被個別
+  // 頁面自己的 layout.tsx 導去登入頁（見 market/tw-stock、profile 底下的 layout.tsx）。
+  // 這裡故意不過濾掉那兩個頁面：如果過濾掉，PagePermissionGuard 會把它們當成「權限不足」
+  // 又搶著導到 /transactions，跟頁面自己的登入導向互搶，導致最後跑錯地方。
+  if (!userId || !role) return NAV_ITEMS;
   if (role === "ADMIN") return NAV_ITEMS;
 
   const [user, navConfigs, tierAccessAll] = await Promise.all([

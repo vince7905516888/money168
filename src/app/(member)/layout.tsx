@@ -13,16 +13,16 @@ export default async function MemberLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
-  if (!session) redirect("/login");
-  if (session.user.role === "ADMIN") redirect("/admin/dashboard");
+  if (session?.user.role === "ADMIN") redirect("/admin/dashboard");
 
-  const visibleItems = await getVisibleNavItems(session.user.id, session.user.role);
+  // 未登入訪客也能瀏覽大部分頁面（空白範例畫面），實際寫入操作會在頁面內被 API 擋下導去登入頁
+  const visibleItems = await getVisibleNavItems(session?.user.id ?? null, session?.user.role ?? null);
 
   return (
     <div className="flex min-h-screen bg-slate-50">
       <NavPermissionProvider visibleItems={visibleItems}>
         <SidebarProvider storageKey="member-sidebar-collapsed">
-          <MemberSidebar userName={session.user.name} />
+          <MemberSidebar userName={session?.user.name ?? null} />
           <MainArea>
             <PagePermissionGuard>{children}</PagePermissionGuard>
           </MainArea>
