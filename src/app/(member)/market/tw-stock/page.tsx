@@ -572,9 +572,8 @@ export default function TwStockPage() {
   const [showDMI, setShowDMI] = useState(false);
   const [showBIAS, setShowBIAS] = useState(false);
 
-  // K線週期（60分K/日線/週線/月線）與縮放：縮放用 Brush 拖曳選取範圍，套用到所有同步圖表
+  // K線週期（60分K/日線/週線/月線）
   const [chartInterval, setChartInterval] = useState<ChartInterval>("1d");
-  const [brushRange, setBrushRange] = useState<{ startIndex: number; endIndex: number } | null>(null);
 
   // K線畫線工具（水平價位線／趨勢線）與游標標價
   const [drawTool, setDrawTool] = useState<DrawTool>("none");
@@ -697,7 +696,6 @@ export default function TwStockPage() {
     setMargin([]);
     setFundamentals(null);
     setProfile(null);
-    setBrushRange(null);
     // 換股票時法人買賣超趨勢圖區間重置回1個月：避免補歷史的請求跟上面法人資料的請求同時打證交所，
     // 併發太高證交所會直接擋（實測回應 428），拆開來個別請求量都在安全範圍內。
     setFlowPeriod("1m");
@@ -801,8 +799,7 @@ export default function TwStockPage() {
     fetchStock(code, chartInterval);
   };
 
-  // rows 一定要記憶化：Brush 拖曳時 onChange 會不斷更新 brushRange 觸發重繪，
-  // 如果每次重繪都重算出新的陣列參照，recharts 的 Brush 會誤判成「資料變了」而中斷拖曳手勢。
+  // rows 一定要記憶化：陣列參照要穩定，否則 recharts 的 Brush 會誤判成「資料變了」而中斷拖曳手勢。
   const rows = useMemo(() => (data ? buildChartRows(data.quotes) : []), [data]);
   const last = rows[rows.length - 1];
   const prev = rows[rows.length - 2];
@@ -819,12 +816,9 @@ export default function TwStockPage() {
   const displayLow = liveQuote ? liveQuote.low : last?.low;
   const displayVolume = liveQuote ? liveQuote.volume : last?.volume;
 
-  // K線主圖用 Brush 拖曳選取範圍，其餘同步圖表沒有自己的 Brush，改用這個切好的資料顯示同樣的範圍
-  const visibleRows = useMemo(() => {
-    if (!brushRange) return rows;
-    const sliced = rows.slice(brushRange.startIndex, brushRange.endIndex + 1);
-    return sliced.length > 0 ? sliced : rows;
-  }, [rows, brushRange]);
+  // K線主圖用 Brush 拖曳選取範圍；其餘同步圖表都吃同一份完整 rows、掛同一個 syncId，
+  // recharts 會自動把 Brush 選取的索引範圍套用到所有同步圖表上，不用自己再手動切一次資料
+  // （手動切過的資料如果再被 recharts 內部同步邏輯套用一次索引，範圍會對不上變成空陣列）。
 
   // 法人買賣超趨勢圖資料：統一算出「每日值+累計值」，不管選的是哪個指標都用同一套邏輯畫圖
   const selectedFlowMetric = FLOW_METRICS.find((m) => m.key === flowMetric)!;
@@ -1116,21 +1110,7 @@ export default function TwStockPage() {
                 <Line type="monotone" dataKey="ma120" stroke="#94a3b8" dot={false} strokeWidth={1.5} connectNulls />
                 <Line type="monotone" dataKey="bbUpper" stroke="#c7d2fe" dot={false} strokeWidth={1} connectNulls strokeDasharray="4 3" />
                 <Line type="monotone" dataKey="bbLower" stroke="#c7d2fe" dot={false} strokeWidth={1} connectNulls strokeDasharray="4 3" />
-                <Brush
-                  dataKey="date"
-                  height={22}
-                  stroke="#a5b4fc"
-                  travellerWidth={8}
-                  onChange={(r) => {
-                    const lastIdx = rows.length - 1;
-                    let start = Number.isFinite(r.startIndex) ? (r.startIndex as number) : 0;
-                    let end = Number.isFinite(r.endIndex) ? (r.endIndex as number) : lastIdx;
-                    if (start > end) [start, end] = [end, start];
-                    start = Math.min(Math.max(start, 0), lastIdx);
-                    end = Math.min(Math.max(end, 0), lastIdx);
-                    setBrushRange({ startIndex: start, endIndex: end });
-                  }}
-                />
+                <Brush dataKey="date" height={22} stroke="#a5b4fc" travellerWidth={8} />
                 <DrawingLayer
                   horizontalLines={horizontalLines}
                   trendLines={trendLines}
@@ -1151,7 +1131,7 @@ export default function TwStockPage() {
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
             <div className="text-xs text-slate-400 mb-2">成交量</div>
             <ResponsiveContainer width="100%" height={120}>
-              <BarChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+              <BarChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                 <YAxis tick={{ fontSize: 11 }} width={56} />
                 <Tooltip formatter={(value) => [Number(value).toLocaleString("zh-TW"), "成交量"]} />
@@ -1194,7 +1174,7 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-purple-500 inline-block" />J</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis tick={{ fontSize: 11 }} width={56} />
@@ -1214,7 +1194,7 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-indigo-500 inline-block" />RSI</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={56} />
@@ -1236,14 +1216,14 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-slate-300 inline-block" />柱狀圖</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis tick={{ fontSize: 11 }} width={56} />
                     <Tooltip formatter={(value, name) => [fmtNum(Number(value)), String(name)]} />
                     <ReferenceLine y={0} stroke="#e2e8f0" />
                     <Bar dataKey="macdHist" isAnimationActive={false}>
-                      {visibleRows.map((r, idx) => (
+                      {rows.map((r, idx) => (
                         <Cell key={idx} fill={(r.macdHist ?? 0) >= 0 ? "#fca5a5" : "#86efac"} />
                       ))}
                     </Bar>
@@ -1263,7 +1243,7 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-slate-500 inline-block" />ADX</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis tick={{ fontSize: 11 }} width={56} />
@@ -1285,7 +1265,7 @@ export default function TwStockPage() {
                   <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-purple-500 inline-block" />BIAS24</span>
                 </div>
                 <ResponsiveContainer width="100%" height={150}>
-                  <ComposedChart data={visibleRows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                     <YAxis tick={{ fontSize: 11 }} width={56} />
