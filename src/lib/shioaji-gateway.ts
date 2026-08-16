@@ -15,17 +15,50 @@ export interface LiveQuote {
   buyPrice: number;
   sellPrice: number;
   ts: number;
+  averagePrice: number;
+  totalAmount: number;
+  buyVolume: number;
+  sellVolume: number;
+  volumeRatio: number;
+  yesterdayVolume: number;
+  tickType: "Buy" | "Sell" | string;
 }
 
-export async function fetchLiveQuote(code: string): Promise<LiveQuote | null> {
+export interface VolumeRankRow {
+  code: string;
+  name: string;
+  close: number;
+  changePrice: number;
+  volume: number;
+  totalVolume: number;
+}
+
+export interface IntradayBar {
+  ts: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface TickRatio {
+  date: string;
+  buyVolume: number;
+  sellVolume: number;
+  buyRatio: number | null;
+  tickCount: number;
+}
+
+async function callGateway<T>(path: string, timeoutMs: number): Promise<T | null> {
   const gatewayUrl = process.env.SHIOAJI_GATEWAY_URL;
   const gatewaySecret = process.env.SHIOAJI_GATEWAY_SECRET;
   if (!gatewayUrl || !gatewaySecret) return null;
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`${gatewayUrl}/quote/${code}`, {
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(`${gatewayUrl}${path}`, {
       headers: { "X-Gateway-Secret": gatewaySecret },
       signal: controller.signal,
       cache: "no-store",
@@ -36,4 +69,20 @@ export async function fetchLiveQuote(code: string): Promise<LiveQuote | null> {
   } catch {
     return null;
   }
+}
+
+export function fetchLiveQuote(code: string): Promise<LiveQuote | null> {
+  return callGateway<LiveQuote>(`/quote/${code}`, 4000);
+}
+
+export function fetchVolumeRanking(): Promise<VolumeRankRow[] | null> {
+  return callGateway<VolumeRankRow[]>("/scanners/volume", 5000);
+}
+
+export function fetchTodayKbars(code: string): Promise<IntradayBar[] | null> {
+  return callGateway<IntradayBar[]>(`/kbars/${code}`, 8000);
+}
+
+export function fetchTickRatio(code: string): Promise<TickRatio | null> {
+  return callGateway<TickRatio>(`/tick-ratio/${code}`, 15000);
 }

@@ -46,6 +46,13 @@ interface LiveQuote {
   buyPrice: number;
   sellPrice: number;
   ts: number;
+  averagePrice: number;
+  totalAmount: number;
+  buyVolume: number;
+  sellVolume: number;
+  volumeRatio: number;
+  yesterdayVolume: number;
+  tickType: string;
 }
 
 interface StockData {
@@ -177,6 +184,32 @@ interface RetailRatioHistoryPoint {
   date: string;
   ratioPercent: number;
   holders: number;
+}
+
+interface TickRatio {
+  date: string;
+  buyVolume: number;
+  sellVolume: number;
+  buyRatio: number | null;
+  tickCount: number;
+}
+
+interface IntradayBar {
+  ts: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+interface VolumeRankRow {
+  code: string;
+  name: string;
+  close: number;
+  changePrice: number;
+  volume: number;
+  totalVolume: number;
 }
 
 interface MarketRankingRow {
@@ -624,6 +657,43 @@ export default function TwStockPage() {
       .catch(() => setRetailHistory([]));
   }, [data?.code, retailThreshold]);
 
+  // 內外盤比：永豐逐筆成交(ticks)在閘道端就聚合好了，這裡拿到的已經是算好的結果
+  const [tickRatio, setTickRatio] = useState<TickRatio | null>(null);
+  useEffect(() => {
+    if (!data?.code) {
+      setTickRatio(null);
+      return;
+    }
+    setTickRatio(null);
+    fetch(`/api/market/tw-stock/${data.code}/tick-ratio`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setTickRatio)
+      .catch(() => setTickRatio(null));
+  }, [data?.code]);
+
+  // 今日走勢圖：永豐1分鐘K棒，只有這個粒度、沒有日線彙總，只拿來畫「當天」走勢
+  const [intradayBars, setIntradayBars] = useState<IntradayBar[] | null>(null);
+  useEffect(() => {
+    if (!data?.code) {
+      setIntradayBars(null);
+      return;
+    }
+    setIntradayBars(null);
+    fetch(`/api/market/tw-stock/${data.code}/intraday`)
+      .then((r) => (r.ok ? r.json() : { bars: [] }))
+      .then((body) => setIntradayBars(body.bars ?? []))
+      .catch(() => setIntradayBars([]));
+  }, [data?.code]);
+
+  // 即時成交量排行：走永豐scanners，跟目前查詢的股票無關，進頁面就抓一次
+  const [volumeRanking, setVolumeRanking] = useState<VolumeRankRow[] | null>(null);
+  useEffect(() => {
+    fetch("/api/market/tw-stock/volume-ranking")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => setVolumeRanking(body?.ranking ?? null))
+      .catch(() => setVolumeRanking(null));
+  }, []);
+
   // 三大法人買賣超、融資融券餘額表格：可收合展開，表格資料量大時先收起來比較清爽
   const [institutionalCollapsed, setInstitutionalCollapsed] = useState(false);
   const [marginCollapsed, setMarginCollapsed] = useState(false);
@@ -1033,6 +1103,36 @@ export default function TwStockPage() {
         </div>
       )}
 
+      {/* 即時成交量排行：走永豐Shioaji scanners，跟上面T86買賣超前15名不同——這個是盤中即時成交量排行，
+          不是收盤後才有的法人籌碼資料 */}
+      {volumeRanking && volumeRanking.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+          <div className="px-5 py-3 bg-indigo-50 border-b border-indigo-100">
+            <h3 className="text-sm font-semibold text-indigo-600">即時成交量排行</h3>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {volumeRanking.map((r) => (
+              <button
+                key={r.code}
+                type="button"
+                onClick={() => selectWatchStock(r.code)}
+                className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
+              >
+                <span className="flex items-baseline gap-2">
+                  <span className="text-slate-700">{r.name}</span>
+                  <span className="text-xs text-slate-400">{r.code}</span>
+                </span>
+                <span className="flex items-baseline gap-3">
+                  <span className={r.changePrice >= 0 ? "text-red-500" : "text-green-600"}>{fmtNum(r.close)}</span>
+                  <span className="text-slate-500">{r.totalVolume.toLocaleString("zh-TW")}張</span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-400 px-5 py-2.5">資料源：永豐證券 Shioaji 即時成交量排行，點列可直接查詢該檔</p>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl px-4 py-3 mb-6">{error}</div>
       )}
@@ -1093,12 +1193,76 @@ export default function TwStockPage() {
               <div><div className="text-xs text-slate-400 mb-0.5">最低</div>{fmtNum(displayLow)}</div>
               <div><div className="text-xs text-slate-400 mb-0.5">成交量</div>{displayVolume?.toLocaleString("zh-TW") ?? "—"}</div>
             </div>
+            {liveQuote && (
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-4 mt-4 pt-4 border-t border-slate-50 text-sm">
+                <div>
+                  <div className="text-xs text-slate-400 mb-0.5">買一</div>
+                  {fmtNum(liveQuote.buyPrice)}
+                  <span className="text-xs text-slate-400 ml-1">{liveQuote.buyVolume.toLocaleString("zh-TW")}張</span>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400 mb-0.5">賣一</div>
+                  {fmtNum(liveQuote.sellPrice)}
+                  <span className="text-xs text-slate-400 ml-1">{liveQuote.sellVolume.toLocaleString("zh-TW")}張</span>
+                </div>
+                <div><div className="text-xs text-slate-400 mb-0.5">均價</div>{fmtNum(liveQuote.averagePrice)}</div>
+                <div><div className="text-xs text-slate-400 mb-0.5">昨量</div>{liveQuote.yesterdayVolume.toLocaleString("zh-TW")}</div>
+                <div><div className="text-xs text-slate-400 mb-0.5">量比</div>{fmtNum(liveQuote.volumeRatio)}</div>
+                <div>
+                  <div className="text-xs text-slate-400 mb-0.5">成交值</div>
+                  {(liveQuote.totalAmount / 1e8).toFixed(2)}億
+                </div>
+              </div>
+            )}
+            {tickRatio && tickRatio.buyRatio != null && (
+              <div className="mt-4 pt-4 border-t border-slate-50">
+                <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5">
+                  <span>內外盤比（{tickRatio.date}，共{tickRatio.tickCount.toLocaleString("zh-TW")}筆）</span>
+                  <span>
+                    外盤 {tickRatio.buyRatio.toFixed(1)}%／內盤 {(100 - tickRatio.buyRatio).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-2 rounded-full overflow-hidden flex bg-slate-100">
+                  <div className="bg-red-400" style={{ width: `${tickRatio.buyRatio}%` }} />
+                  <div className="bg-green-500" style={{ width: `${100 - tickRatio.buyRatio}%` }} />
+                </div>
+              </div>
+            )}
             <p className="text-[11px] text-slate-400 mt-3">
               {liveQuote
                 ? "即時報價來源：永豐證券 Shioaji"
                 : "資料源：Yahoo Finance，可能延遲（即時報價服務暫時無法取得）"}
             </p>
           </div>
+
+          {/* 今日走勢圖：永豐1分鐘K棒，只有當天走勢，多天K線圖仍是下面的Yahoo Finance那張 */}
+          {intradayBars && intradayBars.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+              <div className="text-sm font-semibold text-slate-700 mb-3">今日走勢圖</div>
+              <ResponsiveContainer width="100%" height={180}>
+                <ComposedChart data={intradayBars} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis
+                    dataKey="ts"
+                    tick={{ fontSize: 11 }}
+                    minTickGap={40}
+                    tickFormatter={(ts) =>
+                      new Date(ts / 1e6).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Taipei" })
+                    }
+                  />
+                  <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} width={56} />
+                  <Tooltip
+                    labelFormatter={(ts) =>
+                      new Date(Number(ts) / 1e6).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Taipei" })
+                    }
+                    formatter={(value, name) => [fmtNum(Number(value)), name === "close" ? "價格" : String(name)]}
+                  />
+                  <Line type="monotone" dataKey="close" stroke="#6366f1" dot={false} strokeWidth={1.5} connectNulls />
+                </ComposedChart>
+              </ResponsiveContainer>
+              <p className="text-[11px] text-slate-400 mt-2">資料源：永豐證券 Shioaji 1分鐘K棒（僅當天）</p>
+            </div>
+          )}
 
           {/* 個股基本資料：董事長/總經理/資本額等公司登記資訊，來自證交所/櫃買中心公開資料 */}
           {profile && (
