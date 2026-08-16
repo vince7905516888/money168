@@ -31,12 +31,30 @@ interface Quote {
   volume: number;
 }
 
+// 永豐證券即時報價：透過內部 shioaji-gateway 服務取得，比 Yahoo Finance 的延遲資料更即時，
+// 閘道打不通時後端會回傳 null，前端這時自動退回用 K線最後一筆（Yahoo）資料顯示。
+interface LiveQuote {
+  code: string;
+  market: "TW" | "TWO";
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  changePrice: number;
+  changeRate: number;
+  volume: number;
+  buyPrice: number;
+  sellPrice: number;
+  ts: number;
+}
+
 interface StockData {
   code: string;
   market: "TW" | "TWO";
   name: string;
   currency: string;
   quotes: Quote[];
+  liveQuote: LiveQuote | null;
 }
 
 // 個股基本面統計：營收/EPS(季)/本益比/殖利率來自證交所公開資料，
@@ -791,6 +809,16 @@ export default function TwStockPage() {
   const change = last && prev ? last.close - prev.close : null;
   const changePct = last && prev ? (change! / prev.close) * 100 : null;
 
+  // 報價卡優先顯示永豐即時報價（liveQuote），閘道打不通時自動退回K線最後一筆（Yahoo，可能延遲）
+  const liveQuote = data?.liveQuote ?? null;
+  const displayClose = liveQuote ? liveQuote.close : last?.close;
+  const displayChange = liveQuote ? liveQuote.changePrice : change;
+  const displayChangePct = liveQuote ? liveQuote.changeRate : changePct;
+  const displayOpen = liveQuote ? liveQuote.open : last?.open;
+  const displayHigh = liveQuote ? liveQuote.high : last?.high;
+  const displayLow = liveQuote ? liveQuote.low : last?.low;
+  const displayVolume = liveQuote ? liveQuote.volume : last?.volume;
+
   // K線主圖用 Brush 拖曳選取範圍，其餘同步圖表沒有自己的 Brush，改用這個切好的資料顯示同樣的範圍
   const visibleRows = useMemo(
     () => (brushRange ? rows.slice(brushRange.startIndex, brushRange.endIndex + 1) : rows),
@@ -900,6 +928,11 @@ export default function TwStockPage() {
                 {data.code} {data.name}
               </h2>
               <span className="text-xs text-slate-400">{data.market === "TW" ? "上市" : "上櫃"} · {last.date}</span>
+              {liveQuote ? (
+                <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium">即時</span>
+              ) : (
+                <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 font-medium">延遲</span>
+              )}
               <div className="ml-auto relative">
                 <button
                   type="button"
@@ -929,19 +962,24 @@ export default function TwStockPage() {
               </div>
             </div>
             <div className="flex items-baseline gap-3 mt-2">
-              <span className="text-3xl font-bold text-slate-900">{fmtNum(last.close)}</span>
-              {change != null && changePct != null && (
-                <span className={`text-sm font-semibold ${change >= 0 ? "text-red-500" : "text-green-600"}`}>
-                  {change >= 0 ? "▲" : "▼"} {fmtNum(Math.abs(change))} ({fmtNum(Math.abs(changePct))}%)
+              <span className="text-3xl font-bold text-slate-900">{fmtNum(displayClose)}</span>
+              {displayChange != null && displayChangePct != null && (
+                <span className={`text-sm font-semibold ${displayChange >= 0 ? "text-red-500" : "text-green-600"}`}>
+                  {displayChange >= 0 ? "▲" : "▼"} {fmtNum(Math.abs(displayChange))} ({fmtNum(Math.abs(displayChangePct))}%)
                 </span>
               )}
             </div>
             <div className="grid grid-cols-4 gap-4 mt-4 text-sm">
-              <div><div className="text-xs text-slate-400 mb-0.5">開盤</div>{fmtNum(last.open)}</div>
-              <div><div className="text-xs text-slate-400 mb-0.5">最高</div>{fmtNum(last.high)}</div>
-              <div><div className="text-xs text-slate-400 mb-0.5">最低</div>{fmtNum(last.low)}</div>
-              <div><div className="text-xs text-slate-400 mb-0.5">成交量</div>{last.volume?.toLocaleString("zh-TW") ?? "—"}</div>
+              <div><div className="text-xs text-slate-400 mb-0.5">開盤</div>{fmtNum(displayOpen)}</div>
+              <div><div className="text-xs text-slate-400 mb-0.5">最高</div>{fmtNum(displayHigh)}</div>
+              <div><div className="text-xs text-slate-400 mb-0.5">最低</div>{fmtNum(displayLow)}</div>
+              <div><div className="text-xs text-slate-400 mb-0.5">成交量</div>{displayVolume?.toLocaleString("zh-TW") ?? "—"}</div>
             </div>
+            <p className="text-[11px] text-slate-400 mt-3">
+              {liveQuote
+                ? "即時報價來源：永豐證券 Shioaji"
+                : "資料源：Yahoo Finance，可能延遲（即時報價服務暫時無法取得）"}
+            </p>
           </div>
 
           {/* 個股基本資料：董事長/總經理/資本額等公司登記資訊，來自證交所/櫃買中心公開資料 */}

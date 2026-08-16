@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { lookupStockName } from "@/lib/tw-stock-directory";
+import { fetchLiveQuote } from "@/lib/shioaji-gateway";
 
 // K線週期對應的 Yahoo Finance interval/range：週期越大，抓的歷史範圍越長，
 // 方便搭配前端新增的縮放(Brush)功能回顧更長的歷史。
@@ -83,7 +84,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
   }
 
   const meta = result.meta ?? {};
-  const chineseName = await lookupStockName(cleanCode).catch(() => null);
+  const [chineseName, liveQuote] = await Promise.all([
+    lookupStockName(cleanCode).catch(() => null),
+    fetchLiveQuote(cleanCode),
+  ]);
 
   return NextResponse.json({
     code: cleanCode,
@@ -91,5 +95,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
     name: chineseName || meta.longName || meta.shortName || cleanCode,
     currency: meta.currency ?? "TWD",
     quotes,
+    liveQuote,
   });
 }
