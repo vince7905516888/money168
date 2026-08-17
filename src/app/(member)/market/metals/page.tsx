@@ -3,6 +3,15 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import CandlestickChart, { type Candle, type IndicatorKey } from "@/components/market/CandlestickChart";
 
+// COMEX期貨報價，Twelve Data免費版只開放黃金，白銀/鉑金/鈀金鎖在付費方案，
+// 改用不限額度、免金鑰的 Yahoo Finance 期貨報價（見 src/lib/precious-metals.ts）。
+const METALS = [
+  { value: "GOLD", label: "黃金 GC=F" },
+  { value: "SILVER", label: "白銀 SI=F" },
+  { value: "PLATINUM", label: "鉑金 PL=F" },
+  { value: "PALLADIUM", label: "鈀金 PA=F" },
+];
+
 const INTERVALS = [
   { value: "15m", label: "15分鐘" },
   { value: "1h", label: "1小時" },
@@ -26,7 +35,8 @@ interface Ticker {
   lowPrice: number;
 }
 
-export default function GoldMarketPage() {
+export default function MetalsMarketPage() {
+  const [metal, setMetal] = useState("GOLD");
   const [interval, setInterval_] = useState("1d");
   const [candles, setCandles] = useState<Candle[]>([]);
   const [ticker, setTicker] = useState<Ticker | null>(null);
@@ -58,8 +68,8 @@ export default function GoldMarketPage() {
     setError("");
     try {
       const [klinesRes, tickerRes] = await Promise.all([
-        fetch(`/api/market/gold/klines?interval=${interval}`),
-        fetch(`/api/market/gold/ticker`),
+        fetch(`/api/market/metals/klines?metal=${metal}&interval=${interval}`),
+        fetch(`/api/market/metals/ticker?metal=${metal}`),
       ]);
       const klinesData = await klinesRes.json();
       const tickerData = await tickerRes.json();
@@ -71,7 +81,7 @@ export default function GoldMarketPage() {
     } finally {
       setLoading(false);
     }
-  }, [interval]);
+  }, [metal, interval]);
 
   useEffect(() => {
     load();
@@ -87,11 +97,20 @@ export default function GoldMarketPage() {
   return (
     <div className="max-w-5xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">市場行情 · 黃金</h1>
-        <p className="text-slate-500 text-sm mt-1">國際金價 XAU/USD，K線、均線、布林通道與技術指標，資料來源：Twelve Data</p>
+        <h1 className="text-2xl font-bold text-slate-900">市場行情 · 貴金屬</h1>
+        <p className="text-slate-500 text-sm mt-1">COMEX期貨報價（美元計價），K線、均線、布林通道與技術指標，資料來源：Yahoo Finance</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-6">
+        <select
+          value={metal}
+          onChange={(e) => setMetal(e.target.value)}
+          className="border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm font-medium text-slate-700 focus:border-indigo-400 transition-colors"
+        >
+          {METALS.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
         <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
           {INTERVALS.map((i) => (
             <button
@@ -146,7 +165,7 @@ export default function GoldMarketPage() {
       {ticker && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">最新金價</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">最新價格</div>
             <div className="text-2xl font-bold text-slate-900 mt-1">${fmtUsd(ticker.lastPrice)}</div>
           </div>
           <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
@@ -177,7 +196,7 @@ export default function GoldMarketPage() {
           <div className="h-[400px] flex items-center justify-center text-red-500 text-sm">{error}</div>
         ) : (
           <>
-            <CandlestickChart data={candles} indicators={indicators} />
+            <CandlestickChart data={candles} indicators={indicators} formatPrice={fmtUsd} />
             {indicators.length > 0 && (
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs mt-3 pt-3 border-t border-slate-50 text-slate-500">
                 {indicators.includes("KDJ") && (

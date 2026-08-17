@@ -203,7 +203,7 @@ export default function ForexMarketPage() {
           <div className="h-[400px] flex items-center justify-center text-red-500 text-sm">{error}</div>
         ) : (
           <>
-            <CandlestickChart data={candles} indicators={indicators} />
+            <CandlestickChart data={candles} indicators={indicators} formatPrice={fmt} />
             {indicators.length > 0 && (
               <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs mt-3 pt-3 border-t border-slate-50 text-slate-500">
                 {indicators.includes("KDJ") && (

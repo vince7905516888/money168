@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createChart,
   CandlestickSeries,
@@ -9,6 +9,7 @@ import {
   type IChartApi,
   type ISeriesApi,
   type UTCTimestamp,
+  type MouseEventParams,
 } from "lightweight-charts";
 import {
   computeMA,
@@ -39,7 +40,15 @@ function toLineData(times: UTCTimestamp[], values: (number | null)[]) {
     .filter((d): d is { time: UTCTimestamp; value: number } => d.value != null);
 }
 
-export default function CandlestickChart({ data, indicators = [] }: { data: Candle[]; indicators?: IndicatorKey[] }) {
+export default function CandlestickChart({
+  data,
+  indicators = [],
+  formatPrice = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: Math.abs(n) < 1 ? 6 : Math.abs(n) < 100 ? 4 : 2 }),
+}: {
+  data: Candle[];
+  indicators?: IndicatorKey[];
+  formatPrice?: (n: number) => string;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -51,6 +60,7 @@ export default function CandlestickChart({ data, indicators = [] }: { data: Cand
     bbUpper: ISeriesApi<"Line">;
     bbLower: ISeriesApi<"Line">;
   } | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<Candle | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -99,6 +109,18 @@ export default function CandlestickChart({ data, indicators = [] }: { data: Cand
     candleSeriesRef.current = candleSeries;
     overlaySeriesRef.current = overlays;
 
+    // 游標移到K棒上顯示當根開高低收，固定顯示在圖表上方（不用浮動tooltip擋住K棒），
+    // 滑鼠移開就退回顯示最新一根（見下方 render 的 displayInfo）。
+    const handleCrosshairMove = (param: MouseEventParams) => {
+      const point = param.seriesData.get(candleSeries);
+      if (!param.time || !point || !("open" in point)) {
+        setHoverInfo(null);
+        return;
+      }
+      setHoverInfo({ time: param.time as number, open: point.open, high: point.high, low: point.low, close: point.close });
+    };
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+
     const handleResize = () => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     };
@@ -106,6 +128,7 @@ export default function CandlestickChart({ data, indicators = [] }: { data: Cand
 
     return () => {
       window.removeEventListener("resize", handleResize);
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -182,5 +205,26 @@ export default function CandlestickChart({ data, indicators = [] }: { data: Cand
     chart.timeScale().setVisibleLogicalRange({ from: -1, to: data.length });
   }, [data, indicators]);
 
-  return <div ref={containerRef} className="w-full" />;
+  const displayInfo = hoverInfo ?? (data.length > 0 ? data[data.length - 1] : null);
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-3 text-xs mb-2 h-5">
+        {displayInfo ? (
+          <>
+            <span className="font-semibold text-slate-700">
+              {new Date(displayInfo.time * 1000).toLocaleString("zh-TW", { hour12: false })}
+            </span>
+            <span className="text-slate-500">開 {formatPrice(displayInfo.open)}</span>
+            <span className="text-red-500">高 {formatPrice(displayInfo.high)}</span>
+            <span className="text-green-600">低 {formatPrice(displayInfo.low)}</span>
+            <span className="text-slate-700 font-medium">收 {formatPrice(displayInfo.close)}</span>
+          </>
+        ) : (
+          <span className="text-slate-300">游標移到圖上顯示當根開高低收</span>
+        )}
+      </div>
+      <div ref={containerRef} className="w-full" />
+    </div>
+  );
 }
