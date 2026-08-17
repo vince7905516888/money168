@@ -65,18 +65,22 @@ function calcRow(row: StrategyRow, feeRate: number) {
   const currentPrice = parseFloat(row.currentPrice) || 0;
   const discount = row.discount === "" ? 1 : parseFloat(row.discount) || 0;
 
-  const totalAmount = shares > 0 && avgPrice > 0 ? shares * avgPrice : null;
-  if (totalAmount == null || currentPrice <= 0) {
+  const costBasis = shares > 0 && avgPrice > 0 ? shares * avgPrice : null;
+  if (costBasis == null) {
+    return { totalAmount: null as number | null, profitLoss: null as number | null, returnRate: null as number | null };
+  }
+  const buyFee = costBasis * feeRate * discount;
+  const totalAmount = costBasis + buyFee; // 總額：含第一次買進的手續費，等於實際投入成本
+
+  if (currentPrice <= 0) {
     return { totalAmount, profitLoss: null as number | null, returnRate: null as number | null };
   }
 
   const marketValue = shares * currentPrice;
-  const buyFee = totalAmount * feeRate * discount;
   const sellFee = marketValue * feeRate * discount;
   const tax = marketValue * STOCK_TAX_RATE;
-  const profitLoss = marketValue - totalAmount - buyFee - sellFee - tax;
-  const investedCost = totalAmount + buyFee;
-  const returnRate = investedCost > 0 ? profitLoss / investedCost : null;
+  const profitLoss = marketValue - totalAmount - sellFee - tax;
+  const returnRate = totalAmount > 0 ? profitLoss / totalAmount : null;
 
   return { totalAmount, profitLoss, returnRate };
 }
@@ -451,8 +455,9 @@ export default function StrategyPage() {
       </div>
 
       <p className="text-xs text-slate-400 mt-3">
-        盈虧 = (股數 × 當前 − 股數 × 均價) − 買進手續費 − 賣出手續費 − 證券交易稅（賣出方向課徵0.3%）；
-        手續費 = 成交金額 × {(feeRate * 100).toFixed(4)}% × 折扣（1 = 無折扣，0.6 = 6折）；報酬率 = 盈虧 ÷ (投入成本 + 買進手續費)
+        總額 = 股數 × 均價 + 買進手續費（已計入每次買進累積的手續費）；
+        盈虧 = (股數 × 當前) − 總額 − 賣出手續費 − 證券交易稅（賣出方向課徵0.3%）；
+        手續費 = 成交金額 × {(feeRate * 100).toFixed(4)}% × 折扣（1 = 無折扣，0.6 = 6折）；報酬率 = 盈虧 ÷ 總額
       </p>
     </div>
   );
