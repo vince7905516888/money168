@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   const { code } = await req.json();
   const cleanCode = String(code ?? "").trim();
-  if (!/^\d{4,6}$/.test(cleanCode)) {
+  if (!/^\d{4,6}[A-Z]?$/.test(cleanCode)) {
     return NextResponse.json({ error: "股票代碼格式錯誤" }, { status: 400 });
   }
 

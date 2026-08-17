@@ -119,8 +119,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const { code } = await params;
-  const cleanCode = code.trim();
-  if (!/^\d{4,6}$/.test(cleanCode)) {
+  const cleanCode = code.trim().toUpperCase();
+  // 台股ETF代碼常見帶英文字母後綴（例如00722B債券ETF、00631L槓桿、00632R反向），
+  // 純數字限制會把這些代碼擋掉，改成允許最後一碼是英文字母。
+  if (!/^\d{4,6}[A-Z]?$/.test(cleanCode)) {
     return NextResponse.json({ error: "股票代碼格式錯誤" }, { status: 400 });
   }
 
