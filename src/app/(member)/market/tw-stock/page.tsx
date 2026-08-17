@@ -831,6 +831,8 @@ export default function TwStockPage() {
   const [trendLines, setTrendLines] = useState<TrendLine[]>([]);
   const [pendingTrendPoint, setPendingTrendPoint] = useState<{ x: string; y: number } | null>(null);
   const [hoverPrice, setHoverPrice] = useState<number | null>(null);
+  // 游標移到K線圖上時顯示的日期/均線/布林通道數值，固定顯示在圖表上方（不用浮動tooltip擋住K棒）
+  const [hoverInfo, setHoverInfo] = useState<ChartRow | null>(null);
   // DrawingLayer（recharts hooks 只能在 ComposedChart 底下的子元件呼叫）每次渲染會把目前的
   // 像素→價格反查函式寫進這個 ref，<ComposedChart> 自己的 onClick/onMouseMove 再讀出來用
   const chartScaleRef = useRef<{ yInverse: (px: number) => unknown } | null>(null);
@@ -865,9 +867,14 @@ export default function TwStockPage() {
     const yInverse = chartScaleRef.current?.yInverse;
     if (!yInverse || state?.activeCoordinate?.y == null) {
       setHoverPrice(null);
-      return;
+    } else {
+      setHoverPrice(yInverse(state.activeCoordinate.y) as number);
     }
-    setHoverPrice(yInverse(state.activeCoordinate.y) as number);
+    // 游標資訊改成固定顯示在圖表上方（見hoverInfo），不用浮動tooltip擋住K棒。
+    // 這個recharts版本的onMouseMove state沒有帶activePayload，只有activeLabel（X軸的日期值），
+    // 用它回頭比對rows找出當天完整資料。
+    const row = state?.activeLabel != null ? rows.find((r) => r.date === state.activeLabel) : undefined;
+    setHoverInfo(row ?? null);
   };
 
   const toggleDrawTool = (tool: DrawTool) => {
@@ -1225,58 +1232,7 @@ export default function TwStockPage() {
         </div>
       )}
 
-      {/* 全市場三大法人買賣超前15名：跟目前查詢的股票無關，點列可直接切換查詢該檔 */}
-      {marketRanking && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-red-600">全市場買超前15名</h3>
-              <span className="text-[11px] text-slate-400">{marketRanking.date}</span>
-            </div>
-            <div className="divide-y divide-slate-50">
-              {marketRanking.buyTop.map((r) => (
-                <button
-                  key={r.code}
-                  type="button"
-                  onClick={() => selectWatchStock(r.code)}
-                  className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
-                >
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-slate-700">{r.name}</span>
-                    <span className="text-xs text-slate-400">{r.code}</span>
-                  </span>
-                  <span className="text-red-500 font-semibold">+{r.netLots.toLocaleString("zh-TW")}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-emerald-700">全市場賣超前15名</h3>
-              <span className="text-[11px] text-slate-400">{marketRanking.date}</span>
-            </div>
-            <div className="divide-y divide-slate-50">
-              {marketRanking.sellTop.map((r) => (
-                <button
-                  key={r.code}
-                  type="button"
-                  onClick={() => selectWatchStock(r.code)}
-                  className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
-                >
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-slate-700">{r.name}</span>
-                    <span className="text-xs text-slate-400">{r.code}</span>
-                  </span>
-                  <span className="text-green-600 font-semibold">{r.netLots.toLocaleString("zh-TW")}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <p className="text-[11px] text-slate-400 -mt-2 md:col-span-2">資料源：證交所 T86（僅涵蓋上市，依三大法人合計買賣超排序），點列可直接查詢該檔</p>
-        </div>
-      )}
-
-      {/* 即時成交量排行：走永豐Shioaji scanners，跟上面T86買賣超前15名不同——這個是盤中即時成交量排行，
+      {/* 即時成交量排行：走永豐Shioaji scanners，跟下面T86買賣超前15名不同——這個是盤中即時成交量排行，
           不是收盤後才有的法人籌碼資料 */}
       {volumeRanking && volumeRanking.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
@@ -1642,6 +1598,24 @@ export default function TwStockPage() {
               )}
             </div>
 
+            {/* 游標資訊列：固定顯示在圖表上方，不用浮動tooltip（會擋住K棒），滑開圖表時顯示提示文字 */}
+            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs mb-2 min-h-[1.25rem]">
+              {hoverInfo ? (
+                <>
+                  <span className="font-semibold text-slate-700">{hoverInfo.date}</span>
+                  <span className="text-amber-500">MA5 {fmtNum(hoverInfo.ma5)}</span>
+                  <span className="text-blue-500">MA20 {fmtNum(hoverInfo.ma20)}</span>
+                  <span className="text-purple-500">MA60 {fmtNum(hoverInfo.ma60)}</span>
+                  <span className="text-slate-400">MA120 {fmtNum(hoverInfo.ma120)}</span>
+                  <span className="text-indigo-300">bbUpper {fmtNum(hoverInfo.bbUpper)}</span>
+                  <span className="text-indigo-300">bbLower {fmtNum(hoverInfo.bbLower)}</span>
+                  <span className="text-slate-500">區間 {fmtNum(hoverInfo.low)} - {fmtNum(hoverInfo.high)}</span>
+                </>
+              ) : (
+                <span className="text-slate-300">游標移到圖上顯示當日均線/布林通道數值</span>
+              )}
+            </div>
+
             <div ref={chartWheelCallbackRef}>
             <ResponsiveContainer width="100%" height={380}>
               <ComposedChart
@@ -1651,20 +1625,17 @@ export default function TwStockPage() {
                 margin={{ top: 4, right: 56, left: 0, bottom: 4 }}
                 onClick={handleChartClick}
                 onMouseMove={handleChartMouseMove}
-                onMouseLeave={() => setHoverPrice(null)}
+                onMouseLeave={() => {
+                  setHoverPrice(null);
+                  setHoverInfo(null);
+                }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
                 <YAxis domain={["auto", "auto"]} tick={{ fontSize: 11 }} width={56} />
-                <Tooltip
-                  formatter={(value, name) => {
-                    if (name === "range" && Array.isArray(value)) {
-                      return [`${fmtNum(Number(value[0]))} - ${fmtNum(Number(value[1]))}`, "區間"];
-                    }
-                    return [fmtNum(Number(value)), String(name)];
-                  }}
-                  labelFormatter={(label) => label}
-                />
+                {/* 浮動提示框內容改成不渲染（content回傳null），改用上面固定的hoverInfo資訊列顯示，
+                    避免游標移到圖上時提示框擋住K棒；十字準心游標效果(cursor)照舊保留 */}
+                <Tooltip content={() => null} />
                 <Bar dataKey="range" shape={CandleShape} isAnimationActive={false} />
                 <Line type="monotone" dataKey="ma5" stroke="#fbbf24" dot={false} strokeWidth={1.5} connectNulls />
                 <Line type="monotone" dataKey="ma20" stroke="#3b82f6" dot={false} strokeWidth={1.5} connectNulls />
@@ -2150,6 +2121,58 @@ export default function TwStockPage() {
             <ChipTable rows={sellRanking} />
           </div>
         </>
+      )}
+
+      {/* 全市場三大法人買賣超前15名：跟目前查詢的股票無關（不受上面股票搜尋結果影響），
+          放在頁面最下面，點列可直接切換查詢該檔 */}
+      {marketRanking && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-red-600">全市場買超前15名</h3>
+              <span className="text-[11px] text-slate-400">{marketRanking.date}</span>
+            </div>
+            <div className="divide-y divide-slate-50">
+              {marketRanking.buyTop.map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  onClick={() => selectWatchStock(r.code)}
+                  className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
+                >
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-slate-700">{r.name}</span>
+                    <span className="text-xs text-slate-400">{r.code}</span>
+                  </span>
+                  <span className="text-red-500 font-semibold">+{r.netLots.toLocaleString("zh-TW")}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-emerald-700">全市場賣超前15名</h3>
+              <span className="text-[11px] text-slate-400">{marketRanking.date}</span>
+            </div>
+            <div className="divide-y divide-slate-50">
+              {marketRanking.sellTop.map((r) => (
+                <button
+                  key={r.code}
+                  type="button"
+                  onClick={() => selectWatchStock(r.code)}
+                  className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
+                >
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-slate-700">{r.name}</span>
+                    <span className="text-xs text-slate-400">{r.code}</span>
+                  </span>
+                  <span className="text-green-600 font-semibold">{r.netLots.toLocaleString("zh-TW")}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 -mt-2 md:col-span-2">資料源：證交所 T86（僅涵蓋上市，依三大法人合計買賣超排序），點列可直接查詢該檔</p>
+        </div>
       )}
     </div>
   );
