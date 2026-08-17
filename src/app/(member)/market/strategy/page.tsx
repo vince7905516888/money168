@@ -94,6 +94,35 @@ export default function StrategyPage() {
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
 
+  // 表格左右拖曳捲動：欄位太多，滑鼠在表格空白處（不是輸入框裡）按住拖曳可以左右移動，
+  // 不影響一般點輸入框打字；輸入框裡按住拖曳還是正常的文字選取行為
+  const [isDragging, setIsDragging] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<{ startX: number; scrollLeft: number } | null>(null);
+
+  const handleTableMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    dragStateRef.current = { startX: e.clientX, scrollLeft: el.scrollLeft };
+    setIsDragging(true);
+  };
+  const handleTableMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = scrollRef.current;
+    const drag = dragStateRef.current;
+    if (!el || !drag) return;
+    e.preventDefault();
+    el.scrollLeft = drag.scrollLeft - (e.clientX - drag.startX);
+  };
+  const stopTableDrag = () => {
+    dragStateRef.current = null;
+    setIsDragging(false);
+  };
+  useEffect(() => {
+    window.addEventListener("mouseup", stopTableDrag);
+    return () => window.removeEventListener("mouseup", stopTableDrag);
+  }, []);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     const [entriesRes, feeRes] = await Promise.all([
@@ -208,7 +237,14 @@ export default function StrategyPage() {
             <button onClick={handleAdd} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆</button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            ref={scrollRef}
+            className={`overflow-x-auto select-none ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
+            onMouseDown={handleTableMouseDown}
+            onMouseMove={handleTableMouseMove}
+            onMouseUp={stopTableDrag}
+            onMouseLeave={stopTableDrag}
+          >
             <table className="text-xs border-collapse">
               <thead>
                 <tr className="text-[11px] text-slate-400 bg-slate-50 whitespace-nowrap">
