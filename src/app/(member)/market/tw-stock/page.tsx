@@ -225,6 +225,13 @@ interface FuturesPositionsResult {
   positions: FuturesPosition[];
 }
 
+interface FuturesPositionHistoryRow {
+  date: string;
+  dealerNet: number | null;
+  trustNet: number | null;
+  foreignNet: number | null;
+}
+
 interface ForeignHoldingRatio {
   date: string;
   issuedShares: number;
@@ -744,13 +751,23 @@ export default function TwStockPage() {
       .catch(() => setVolumeRanking(null));
   }, []);
 
-  // 期貨三大法人未平倉（台指期空單等）：跟目前查詢的股票無關，市場總體指標，進頁面就抓一次
+  // 期貨三大法人未平倉（台指期空單等）：跟目前查詢的股票無關，市場總體指標，進頁面就抓一次；
+  // 歷史查詢功能期交所沒有，靠逐日快照累積（見 futures-positions/history），查得到的天數
+  // 取決於這個頁面被打開過幾天，不是一次就能補滿。
   const [futuresPositions, setFuturesPositions] = useState<FuturesPositionsResult | null>(null);
   useEffect(() => {
     fetch("/api/market/futures-positions")
       .then((r) => (r.ok ? r.json() : null))
       .then(setFuturesPositions)
       .catch(() => setFuturesPositions(null));
+  }, []);
+
+  const [futuresHistory, setFuturesHistory] = useState<FuturesPositionHistoryRow[] | null>(null);
+  useEffect(() => {
+    fetch("/api/market/futures-positions/history?days=30")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => setFuturesHistory(body?.history ?? null))
+      .catch(() => setFuturesHistory(null));
   }, []);
 
   // 個股籌碼補充資料：外資持股比率／借券餘額／當沖比，跟目前查詢的股票有關
@@ -1369,6 +1386,48 @@ export default function TwStockPage() {
               ))}
           </div>
           <p className="text-[11px] text-slate-400 px-5 py-2.5">資料源：臺灣期貨交易所，正值代表淨多單、負值代表淨空單</p>
+        </div>
+      )}
+
+      {/* 期貨三大法人未平倉逐日紀錄：期交所沒有歷史查詢功能，靠每天打開這頁順便存的快照累積，
+          天數會隨著使用天數增加，不是一次就有完整歷史 */}
+      {futuresHistory && futuresHistory.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-700">期貨三大法人未平倉每日紀錄（臺股期貨）</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-400 border-b border-slate-50">
+                  <th className="text-left font-semibold px-5 py-2.5">日期</th>
+                  <th className="text-right font-semibold px-5 py-2.5">自營商</th>
+                  <th className="text-right font-semibold px-5 py-2.5">投信</th>
+                  <th className="text-right font-semibold px-5 py-2.5">外資及陸資</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {futuresHistory.map((row) => (
+                  <tr key={row.date}>
+                    <td className="px-5 py-2 text-slate-600">{row.date}</td>
+                    {[row.dealerNet, row.trustNet, row.foreignNet].map((v, i) => (
+                      <td
+                        key={i}
+                        className={`text-right px-5 py-2 font-medium ${
+                          v == null ? "text-slate-300" : v >= 0 ? "text-red-500" : "text-green-600"
+                        }`}
+                      >
+                        {v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toLocaleString("zh-TW")}`}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-slate-400 px-5 py-2.5 border-t border-slate-50">
+            期交所無歷史查詢功能，紀錄只能靠每天造訪這頁逐日累積，天數會隨使用天數增加
+          </p>
         </div>
       )}
 
