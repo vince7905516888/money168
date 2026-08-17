@@ -815,12 +815,14 @@ export default function TwStockPage() {
   const [institutionalCollapsed, setInstitutionalCollapsed] = useState(false);
   const [marginCollapsed, setMarginCollapsed] = useState(false);
 
-  // 三個技術指標小窗口：都用同一個 syncId，滑鼠移到任一張圖，其他圖的十字線/提示會同步移動
+  // 技術指標小窗口：都用同一個 syncId，滑鼠移到任一張圖，其他圖的十字線/提示會同步移動；
+  // 最多同時勾選3個，選滿時其餘checkbox停用，避免疊太多圖看不清楚
   const [showKDJ, setShowKDJ] = useState(true);
   const [showRSI, setShowRSI] = useState(true);
   const [showMACD, setShowMACD] = useState(true);
   const [showDMI, setShowDMI] = useState(false);
   const [showBIAS, setShowBIAS] = useState(false);
+  const indicatorLimitReached = [showKDJ, showRSI, showMACD, showDMI, showBIAS].filter(Boolean).length >= 3;
 
   // K線週期（60分K/日線/週線/月線）
   const [chartInterval, setChartInterval] = useState<ChartInterval>("1d");
@@ -863,6 +865,33 @@ export default function TwStockPage() {
     }
   };
 
+  // K線圖按住左鍵拖曳可以左右移動可見區間（跟滾輪縮放互補：滾輪改變區間大小、拖曳改變區間位置）。
+  // 只有在沒有啟用畫線工具時才會拖動圖表，畫線工具啟用時滑鼠事件維持原本點一下標記價位的行為，
+  // 兩者不會互相干擾（畫線模式下 handleChartClick 才有作用，這裡的拖曳直接不啟動）。
+  const panStateRef = useRef<{ startIndex: number; brushStart: number; brushEnd: number } | null>(null);
+
+  const handleChartMouseDown = (state: any) => {
+    if (drawTool !== "none") return;
+    if (state?.activeLabel == null) return;
+    const idx = rows.findIndex((r) => r.date === state.activeLabel);
+    if (idx < 0) return;
+    const cur = brushRange ?? { startIndex: 0, endIndex: rows.length - 1 };
+    panStateRef.current = { startIndex: idx, brushStart: cur.startIndex, brushEnd: cur.endIndex };
+  };
+
+  const handleChartMouseUp = () => {
+    panStateRef.current = null;
+  };
+
+  // 保險：如果拖曳到圖表範圍外才放開左鍵，圖表自己的onMouseUp不會觸發，靠window層級的監聽器兜底清掉拖曳狀態
+  useEffect(() => {
+    const onWindowMouseUp = () => {
+      panStateRef.current = null;
+    };
+    window.addEventListener("mouseup", onWindowMouseUp);
+    return () => window.removeEventListener("mouseup", onWindowMouseUp);
+  }, []);
+
   const handleChartMouseMove = (state: any) => {
     const yInverse = chartScaleRef.current?.yInverse;
     if (!yInverse || state?.activeCoordinate?.y == null) {
@@ -875,6 +904,26 @@ export default function TwStockPage() {
     // 用它回頭比對rows找出當天完整資料。
     const row = state?.activeLabel != null ? rows.find((r) => r.date === state.activeLabel) : undefined;
     setHoverInfo(row ?? null);
+
+    const pan = panStateRef.current;
+    if (pan && state?.activeLabel != null && rows.length > 0) {
+      const idx = rows.findIndex((r) => r.date === state.activeLabel);
+      if (idx >= 0) {
+        const delta = idx - pan.startIndex;
+        const windowSize = pan.brushEnd - pan.brushStart;
+        let newStart = pan.brushStart - delta;
+        let newEnd = pan.brushEnd - delta;
+        const lastIdx = rows.length - 1;
+        if (newStart < 0) {
+          newStart = 0;
+          newEnd = windowSize;
+        } else if (newEnd > lastIdx) {
+          newEnd = lastIdx;
+          newStart = lastIdx - windowSize;
+        }
+        setBrushRange({ startIndex: newStart, endIndex: newEnd });
+      }
+    }
   };
 
   const toggleDrawTool = (tool: DrawTool) => {
@@ -1542,7 +1591,7 @@ export default function TwStockPage() {
             </div>
           )}
 
-          {/* K線 + 均線 + 布林通道 */}
+          {/* K線 + 均線 + 布林通道 + 成交量 + 技術指標：合併在同一張卡片裡 */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
             <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
               <div className="flex items-center gap-4 text-xs text-slate-500">
@@ -1624,11 +1673,15 @@ export default function TwStockPage() {
                 syncId={SYNC_ID}
                 margin={{ top: 4, right: 56, left: 0, bottom: 4 }}
                 onClick={handleChartClick}
+                onMouseDown={handleChartMouseDown}
+                onMouseUp={handleChartMouseUp}
                 onMouseMove={handleChartMouseMove}
                 onMouseLeave={() => {
                   setHoverPrice(null);
                   setHoverInfo(null);
+                  panStateRef.current = null;
                 }}
+                style={{ cursor: drawTool === "none" ? "grab" : undefined }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
@@ -1675,44 +1728,75 @@ export default function TwStockPage() {
             <p className="text-[11px] text-slate-400 mt-2">
               拖曳圖表下方灰色區塊或滑鼠滾輪可縮放時間區間，套用到下方所有同步圖表；游標移到圖上會顯示當下價位，畫線工具可標記價位或趨勢線
             </p>
-          </div>
 
-          {/* 成交量 */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
-            <div className="text-xs text-slate-400 mb-2">成交量</div>
-            <ResponsiveContainer width="100%" height={120}>
-              <BarChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
-                <YAxis tick={{ fontSize: 11 }} width={56} />
-                <Tooltip formatter={(value) => [Number(value).toLocaleString("zh-TW"), "成交量"]} />
-                <Bar dataKey="volume" fill="#94a3b8" isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+            {/* 成交量：跟K線圖合併在同一張卡片裡 */}
+            <div className="mt-6 pt-6 border-t border-slate-50">
+              <div className="text-xs text-slate-400 mb-2">成交量</div>
+              <ResponsiveContainer width="100%" height={120}>
+                <BarChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
+                  <YAxis tick={{ fontSize: 11 }} width={56} />
+                  <Tooltip formatter={(value) => [Number(value).toLocaleString("zh-TW"), "成交量"]} />
+                  <Bar dataKey="volume" fill="#94a3b8" isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
 
-          {/* 技術指標小窗口：跟上面 K 線、成交量共用同一個 syncId 同步游標 */}
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
+            {/* 技術指標小窗口：跟上面K線、成交量共用同一個syncId同步游標，也合併進同一張卡片；
+                最多可複選3個一起看，選滿3個時其餘未勾選的checkbox會先停用，要取消一個才能再選新的 */}
+            <div className="mt-6 pt-6 border-t border-slate-50">
             <div className="flex items-center gap-4 text-xs mb-3 flex-wrap">
-              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
-                <input type="checkbox" checked={showKDJ} onChange={(e) => setShowKDJ(e.target.checked)} className="accent-indigo-500" />
+              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showKDJ ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
+                <input
+                  type="checkbox"
+                  checked={showKDJ}
+                  disabled={indicatorLimitReached && !showKDJ}
+                  onChange={(e) => setShowKDJ(e.target.checked)}
+                  className="accent-indigo-500"
+                />
                 KDJ
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
-                <input type="checkbox" checked={showRSI} onChange={(e) => setShowRSI(e.target.checked)} className="accent-indigo-500" />
+              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showRSI ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
+                <input
+                  type="checkbox"
+                  checked={showRSI}
+                  disabled={indicatorLimitReached && !showRSI}
+                  onChange={(e) => setShowRSI(e.target.checked)}
+                  className="accent-indigo-500"
+                />
                 RSI
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
-                <input type="checkbox" checked={showMACD} onChange={(e) => setShowMACD(e.target.checked)} className="accent-indigo-500" />
+              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showMACD ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
+                <input
+                  type="checkbox"
+                  checked={showMACD}
+                  disabled={indicatorLimitReached && !showMACD}
+                  onChange={(e) => setShowMACD(e.target.checked)}
+                  className="accent-indigo-500"
+                />
                 MACD
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
-                <input type="checkbox" checked={showDMI} onChange={(e) => setShowDMI(e.target.checked)} className="accent-indigo-500" />
+              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showDMI ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
+                <input
+                  type="checkbox"
+                  checked={showDMI}
+                  disabled={indicatorLimitReached && !showDMI}
+                  onChange={(e) => setShowDMI(e.target.checked)}
+                  className="accent-indigo-500"
+                />
                 DMI
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer text-slate-600">
-                <input type="checkbox" checked={showBIAS} onChange={(e) => setShowBIAS(e.target.checked)} className="accent-indigo-500" />
+              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showBIAS ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
+                <input
+                  type="checkbox"
+                  checked={showBIAS}
+                  disabled={indicatorLimitReached && !showBIAS}
+                  onChange={(e) => setShowBIAS(e.target.checked)}
+                  className="accent-indigo-500"
+                />
                 乖離率
               </label>
+              <span className="text-slate-300">最多同時顯示3個</span>
             </div>
 
             {showKDJ && (
@@ -1828,6 +1912,7 @@ export default function TwStockPage() {
                 </ResponsiveContainer>
               </div>
             )}
+            </div>
           </div>
 
           {/* 個股資訊（基本面）：營收/EPS(季)/本益比/殖利率為證交所公開資料真實數值，
