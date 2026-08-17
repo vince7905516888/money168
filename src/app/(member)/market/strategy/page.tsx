@@ -272,11 +272,10 @@ export default function StrategyPage() {
     </td>
   );
 
-  // 股票名稱/代碼/股數/均價：唯讀，避免誤輸入跟同步持股的資料打架，
-  // 只能透過「同步持股」帶入，或去股票投資頁面改原始交易紀錄
-  const readonlyCol = (value: string, align: "left" | "right", width = "w-20") => (
+  // 股票名稱/代碼/股數/均價/當前：唯讀，避免誤輸入跟自動同步/抓價的資料打架
+  const readonlyCol = (value: string, align: "left" | "right", width = "w-20", emptyHint = "用同步持股帶入") => (
     <td className={`px-2 py-2 border-b border-slate-50 text-slate-500 ${align === "right" ? "text-right" : "text-left"}`}>
-      <span className={`block truncate ${width}`}>{value || <span className="text-slate-300">用同步持股帶入</span>}</span>
+      <span className={`block truncate ${width}`}>{value || <span className="text-slate-300">{emptyHint}</span>}</span>
     </td>
   );
 
@@ -360,7 +359,7 @@ export default function StrategyPage() {
                   <th className="px-2 py-2.5 text-left font-semibold">方案</th>
                   <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，請用「同步持股」帶入">股數🔒</th>
                   <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，請用「同步持股」帶入">均價🔒</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">當前</th>
+                  <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，自動抓永豐/證交所報價">當前🔒</th>
                   <th className="px-2 py-2.5 text-left font-semibold">配息日</th>
                   <th className="px-2 py-2.5 text-right font-semibold">金額</th>
                   <th className="px-2 py-2.5 text-right font-semibold">折扣</th>
@@ -410,7 +409,7 @@ export default function StrategyPage() {
                       {textCol(row, "plan", "方案", "w-16")}
                       {readonlyCol(row.shares, "right", "w-24")}
                       {readonlyCol(row.avgPrice, "right", "w-24")}
-                      {numCol(row, "currentPrice", "當前", "w-24")}
+                      {readonlyCol(row.currentPrice, "right", "w-24", "自動抓報價")}
                       {textCol(row, "dividendDate", "配息日", "w-20")}
                       {numCol(row, "dividendAmount", "金額", "w-20")}
                       {numCol(row, "discount", "1", "w-16")}
