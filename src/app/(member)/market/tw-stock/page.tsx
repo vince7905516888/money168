@@ -764,11 +764,44 @@ export default function TwStockPage() {
 
   const [futuresHistory, setFuturesHistory] = useState<FuturesPositionHistoryRow[] | null>(null);
   useEffect(() => {
-    fetch("/api/market/futures-positions/history?days=30")
+    fetch("/api/market/futures-positions/history?days=20")
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => setFuturesHistory(body?.history ?? null))
       .catch(() => setFuturesHistory(null));
   }, []);
+
+  // 查看天數輸入框：20天以內直接換掉上面固定顯示的表格；超過20天改用彈跳視窗顯示，
+  // 避免自訂天數一多，表格把整個頁面撐得很長
+  const FUTURES_INLINE_MAX_DAYS = 20;
+  const [futuresDaysInput, setFuturesDaysInput] = useState(String(FUTURES_INLINE_MAX_DAYS));
+  const [futuresModalOpen, setFuturesModalOpen] = useState(false);
+  const [futuresModalDays, setFuturesModalDays] = useState(0);
+  const [futuresModalData, setFuturesModalData] = useState<FuturesPositionHistoryRow[] | null>(null);
+  const [futuresModalLoading, setFuturesModalLoading] = useState(false);
+  const applyFuturesDays = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = Math.min(Math.max(parseInt(futuresDaysInput, 10) || FUTURES_INLINE_MAX_DAYS, 1), 365);
+    setFuturesDaysInput(String(n));
+    if (n <= FUTURES_INLINE_MAX_DAYS) {
+      const res = await fetch(`/api/market/futures-positions/history?days=${n}`);
+      if (res.ok) {
+        const body = await res.json();
+        setFuturesHistory(body?.history ?? null);
+      }
+      return;
+    }
+    setFuturesModalDays(n);
+    setFuturesModalOpen(true);
+    setFuturesModalLoading(true);
+    try {
+      const res = await fetch(`/api/market/futures-positions/history?days=${n}`);
+      setFuturesModalData(res.ok ? (await res.json())?.history ?? [] : []);
+    } catch {
+      setFuturesModalData([]);
+    } finally {
+      setFuturesModalLoading(false);
+    }
+  };
 
   // 個股籌碼補充資料：外資持股比率／借券餘額／當沖比，跟目前查詢的股票有關
   const [foreignHolding, setForeignHolding] = useState<ForeignHoldingRatio | null>(null);
@@ -1390,44 +1423,71 @@ export default function TwStockPage() {
       )}
 
       {/* 期貨三大法人未平倉逐日紀錄：期交所沒有歷史查詢功能，靠每天打開這頁順便存的快照累積，
-          天數會隨著使用天數增加，不是一次就有完整歷史 */}
-      {futuresHistory && futuresHistory.length > 0 && (
+          天數會隨著使用天數增加，不是一次就有完整歷史。查看天數20天以內直接換掉表格，
+          超過20天改用彈跳視窗顯示，資料庫只保留最近365天（見 taifex.ts 寫入時順便清舊資料）。 */}
+      {futuresHistory && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
-          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
             <h3 className="text-sm font-semibold text-slate-700">期貨三大法人未平倉每日紀錄（臺股期貨）</h3>
+            <form onSubmit={applyFuturesDays} className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-400">查看天數</span>
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={futuresDaysInput}
+                onChange={(e) => setFuturesDaysInput(e.target.value)}
+                className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center focus:border-indigo-400 transition-colors"
+              />
+              <span className="text-xs text-slate-400">天（最多365）</span>
+              <button type="submit" className="text-xs text-indigo-600 font-medium hover:underline ml-1">查詢</button>
+            </form>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-slate-400 border-b border-slate-50">
-                  <th className="text-left font-semibold px-5 py-2.5">日期</th>
-                  <th className="text-right font-semibold px-5 py-2.5">自營商</th>
-                  <th className="text-right font-semibold px-5 py-2.5">投信</th>
-                  <th className="text-right font-semibold px-5 py-2.5">外資及陸資</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {futuresHistory.map((row) => (
-                  <tr key={row.date}>
-                    <td className="px-5 py-2 text-slate-600">{row.date}</td>
-                    {[row.dealerNet, row.trustNet, row.foreignNet].map((v, i) => (
-                      <td
-                        key={i}
-                        className={`text-right px-5 py-2 font-medium ${
-                          v == null ? "text-slate-300" : v >= 0 ? "text-red-500" : "text-green-600"
-                        }`}
-                      >
-                        {v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toLocaleString("zh-TW")}`}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {futuresHistory.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-slate-400">尚無資料</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <FuturesHistoryTable rows={futuresHistory} />
+            </div>
+          )}
           <p className="text-[11px] text-slate-400 px-5 py-2.5 border-t border-slate-50">
-            期交所無歷史查詢功能，紀錄只能靠每天造訪這頁逐日累積，天數會隨使用天數增加
+            期交所無歷史查詢功能，紀錄只能靠每天造訪這頁逐日累積，天數會隨使用天數增加；超過20天的查詢結果會用彈跳視窗顯示，資料庫只保留最近365天
           </p>
+        </div>
+      )}
+
+      {/* 查看天數超過20天：用彈跳視窗顯示完整結果，不把主頁面的表格撐得太長 */}
+      {futuresModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setFuturesModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="text-sm font-semibold text-slate-900">期貨三大法人未平倉 · 近{futuresModalDays}天</h3>
+              <button
+                type="button"
+                onClick={() => setFuturesModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto overflow-x-auto flex-1">
+              {futuresModalLoading ? (
+                <div className="px-5 py-10 text-center text-sm text-slate-400">載入中...</div>
+              ) : !futuresModalData || futuresModalData.length === 0 ? (
+                <div className="px-5 py-10 text-center text-sm text-slate-400">
+                  查無資料（資料庫目前累積的天數還不夠，會隨每天造訪這頁慢慢增加）
+                </div>
+              ) : (
+                <FuturesHistoryTable rows={futuresModalData} />
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -2352,6 +2412,39 @@ export default function TwStockPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// 主頁面固定顯示的表格跟彈跳視窗共用同一份列渲染邏輯，避免兩處各寫一次表格結構。
+function FuturesHistoryTable({ rows }: { rows: FuturesPositionHistoryRow[] }) {
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="text-xs text-slate-400 border-b border-slate-50">
+          <th className="text-left font-semibold px-5 py-2.5">日期</th>
+          <th className="text-right font-semibold px-5 py-2.5">自營商</th>
+          <th className="text-right font-semibold px-5 py-2.5">投信</th>
+          <th className="text-right font-semibold px-5 py-2.5">外資及陸資</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-50">
+        {rows.map((row) => (
+          <tr key={row.date}>
+            <td className="px-5 py-2 text-slate-600 whitespace-nowrap">{row.date}</td>
+            {[row.dealerNet, row.trustNet, row.foreignNet].map((v, i) => (
+              <td
+                key={i}
+                className={`text-right px-5 py-2 font-medium whitespace-nowrap ${
+                  v == null ? "text-slate-300" : v >= 0 ? "text-red-500" : "text-green-600"
+                }`}
+              >
+                {v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toLocaleString("zh-TW")}`}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

@@ -50,14 +50,19 @@ export async function fetchFuturesPositions(): Promise<FuturesPositionsResult | 
       netOpenInterest: num(r["OpenInterest(Net)"]),
     }));
 
-    // 逐日存檔：每個契約+身份別一筆，已存過的當天資料靠 skipDuplicates 跳過
+    // 逐日存檔：每個契約+身份別一筆，已存過的當天資料靠 skipDuplicates 跳過；
+    // 順便清掉365天以前的舊資料，只保留最近一年，避免這張表無限長下去
     try {
       await prisma.futuresPositionSnapshot.createMany({
         data: positions.map((p) => ({ date, ...p })),
         skipDuplicates: true,
       });
+      const retentionCutoff = new Date();
+      retentionCutoff.setDate(retentionCutoff.getDate() - 365);
+      const cutoffStr = `${retentionCutoff.getFullYear()}-${String(retentionCutoff.getMonth() + 1).padStart(2, "0")}-${String(retentionCutoff.getDate()).padStart(2, "0")}`;
+      await prisma.futuresPositionSnapshot.deleteMany({ where: { date: { lt: cutoffStr } } });
     } catch {
-      // 存檔失敗不影響本次查詢結果
+      // 存檔/清理失敗不影響本次查詢結果
     }
 
     return { date, positions };
