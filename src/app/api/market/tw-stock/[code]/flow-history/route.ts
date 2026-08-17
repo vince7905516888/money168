@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { toDateStr, fetchInstitutionalDays, fetchMarginDays } from "@/lib/tw-stock-flow";
+import { fetchTpexInstitutionalDays, fetchTpexMarginDays } from "@/lib/tw-stock-flow-tpex";
+import { getStockDirectory } from "@/lib/tw-stock-directory";
 
 // 法人買賣超趨勢圖用的區間：證交所沒有「單一股票歷史區間」查詢功能，長區間（1年/3年）
 // 一樣得靠逐日累積（見 institutional/route.ts）；但 1個月~6個月（約120個交易日內）在使用者
@@ -45,8 +47,11 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function backfillIfNeeded(cleanCode: string, period: string) {
+async function backfillIfNeeded(cleanCode: string, period: string, isTwo: boolean) {
   if (period === "1m") return; // 預設區間不額外補，避免跟 institutional/route.ts 的請求同時打
+
+  const fetchInstDays = isTwo ? fetchTpexInstitutionalDays : fetchInstitutionalDays;
+  const fetchMgnDays = isTwo ? fetchTpexMarginDays : fetchMarginDays;
 
   const target = Math.min(PERIOD_TRADING_DAYS[period] ?? PERIOD_TRADING_DAYS["1m"], ON_DEMAND_BACKFILL_CAP);
 
@@ -68,8 +73,8 @@ async function backfillIfNeeded(cleanCode: string, period: string) {
     });
 
     const [institutional, margin] = await Promise.all([
-      fetchInstitutionalDays(cleanCode, candidateDates, BACKFILL_CONCURRENCY),
-      fetchMarginDays(cleanCode, candidateDates, BACKFILL_CONCURRENCY),
+      fetchInstDays(cleanCode, candidateDates, BACKFILL_CONCURRENCY),
+      fetchMgnDays(cleanCode, candidateDates, BACKFILL_CONCURRENCY),
     ]);
 
     await Promise.all([
@@ -117,7 +122,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
 
   const periodParam = req.nextUrl.searchParams.get("period") ?? "1m";
 
-  await backfillIfNeeded(cleanCode, periodParam);
+  const directory = await getStockDirectory();
+  const isTwo = directory.find((s) => s.code === cleanCode)?.market === "TWO";
+  await backfillIfNeeded(cleanCode, periodParam, isTwo);
 
   const days = PERIOD_CUTOFF_DAYS[periodParam] ?? PERIOD_CUTOFF_DAYS["1m"];
   const cutoff = new Date();
