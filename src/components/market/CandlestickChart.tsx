@@ -74,12 +74,10 @@ export default function CandlestickChart({ data }: { data: Candle[] }) {
         close: c.close,
       }))
     );
-    const timeScale = chartRef.current?.timeScale();
-    timeScale?.fitContent();
-    // fitContent 會讓最左/最右的K棒緊貼容器邊緣，視覺上像被裁掉一半，兩側各留1根K棒寬的空白。
-    const range = timeScale?.getVisibleLogicalRange();
-    if (timeScale && range) {
-      timeScale.setVisibleLogicalRange({ from: range.from - 1, to: range.to + 1 });
+    // 直接依資料筆數設定可視範圍，兩側各留1根K棒空白，不用fitContent()後再讀回目前範圍
+    // 來調整——那個讀回值有時還是舊資料的範圍，算出來的位移會把部分K棒擠出畫面外。
+    if (data.length > 0) {
+      chartRef.current?.timeScale().setVisibleLogicalRange({ from: -1, to: data.length });
     }
   }, [data]);
 
