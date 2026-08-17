@@ -823,6 +823,29 @@ export default function TwStockPage() {
   const [showDMI, setShowDMI] = useState(false);
   const [showBIAS, setShowBIAS] = useState(false);
   const indicatorLimitReached = [showKDJ, showRSI, showMACD, showDMI, showBIAS].filter(Boolean).length >= 3;
+  const [indicatorDropdownOpen, setIndicatorDropdownOpen] = useState(false);
+  const indicatorOptions = [
+    { key: "KDJ", label: "KDJ", checked: showKDJ, setChecked: setShowKDJ },
+    { key: "RSI", label: "RSI", checked: showRSI, setChecked: setShowRSI },
+    { key: "MACD", label: "MACD", checked: showMACD, setChecked: setShowMACD },
+    { key: "DMI", label: "DMI", checked: showDMI, setChecked: setShowDMI },
+    { key: "BIAS", label: "乖離率", checked: showBIAS, setChecked: setShowBIAS },
+  ] as const;
+  const selectedIndicatorLabels = indicatorOptions.filter((o) => o.checked).map((o) => o.label);
+  // 下拉選單裡有好幾個checkbox，原本用觸發按鈕的onBlur關閉，結果點選單裡任一個checkbox都會讓
+  // 按鈕失焦、150ms後就把選單關掉，變成每點一個指標選單就自動收起來、選不了第二個。改成偵測
+  // 「點擊發生在整個選單容器外面」才關閉，選單容器內（觸發按鈕+選項清單）不管點哪裡都不會關閉。
+  const indicatorDropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!indicatorDropdownOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (indicatorDropdownRef.current && !indicatorDropdownRef.current.contains(e.target as Node)) {
+        setIndicatorDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [indicatorDropdownOpen]);
 
   // K線週期（60分K/日線/週線/月線）
   const [chartInterval, setChartInterval] = useState<ChartInterval>("1d");
@@ -1743,60 +1766,45 @@ export default function TwStockPage() {
             </div>
 
             {/* 技術指標小窗口：跟上面K線、成交量共用同一個syncId同步游標，也合併進同一張卡片；
-                最多可複選3個一起看，選滿3個時其餘未勾選的checkbox會先停用，要取消一個才能再選新的 */}
+                改成下拉式選單勾選，最多可複選3個一起看，選滿3個時其餘未勾選的選項會先停用，
+                要取消一個才能再選新的 */}
             <div className="mt-6 pt-6 border-t border-slate-50">
-            <div className="flex items-center gap-4 text-xs mb-3 flex-wrap">
-              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showKDJ ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
-                <input
-                  type="checkbox"
-                  checked={showKDJ}
-                  disabled={indicatorLimitReached && !showKDJ}
-                  onChange={(e) => setShowKDJ(e.target.checked)}
-                  className="accent-indigo-500"
-                />
-                KDJ
-              </label>
-              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showRSI ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
-                <input
-                  type="checkbox"
-                  checked={showRSI}
-                  disabled={indicatorLimitReached && !showRSI}
-                  onChange={(e) => setShowRSI(e.target.checked)}
-                  className="accent-indigo-500"
-                />
-                RSI
-              </label>
-              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showMACD ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
-                <input
-                  type="checkbox"
-                  checked={showMACD}
-                  disabled={indicatorLimitReached && !showMACD}
-                  onChange={(e) => setShowMACD(e.target.checked)}
-                  className="accent-indigo-500"
-                />
-                MACD
-              </label>
-              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showDMI ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
-                <input
-                  type="checkbox"
-                  checked={showDMI}
-                  disabled={indicatorLimitReached && !showDMI}
-                  onChange={(e) => setShowDMI(e.target.checked)}
-                  className="accent-indigo-500"
-                />
-                DMI
-              </label>
-              <label className={`flex items-center gap-1.5 text-slate-600 ${indicatorLimitReached && !showBIAS ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
-                <input
-                  type="checkbox"
-                  checked={showBIAS}
-                  disabled={indicatorLimitReached && !showBIAS}
-                  onChange={(e) => setShowBIAS(e.target.checked)}
-                  className="accent-indigo-500"
-                />
-                乖離率
-              </label>
-              <span className="text-slate-300">最多同時顯示3個</span>
+            <div ref={indicatorDropdownRef} className="relative inline-block mb-3">
+              <button
+                type="button"
+                onClick={() => setIndicatorDropdownOpen((v) => !v)}
+                className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 hover:border-indigo-300 transition-colors min-w-[10rem] justify-between"
+              >
+                <span className="truncate">
+                  {selectedIndicatorLabels.length > 0 ? `技術指標：${selectedIndicatorLabels.join("、")}` : "選擇技術指標"}
+                </span>
+                <span className={`shrink-0 transition-transform ${indicatorDropdownOpen ? "rotate-180" : ""}`}>▾</span>
+              </button>
+              {indicatorDropdownOpen && (
+                <div className="absolute z-10 top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-40">
+                  {indicatorOptions.map((opt) => {
+                    const disabled = indicatorLimitReached && !opt.checked;
+                    return (
+                      <label
+                        key={opt.key}
+                        className={`flex items-center gap-2 px-3 py-1.5 text-xs text-slate-600 ${
+                          disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-slate-50"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={opt.checked}
+                          disabled={disabled}
+                          onChange={(e) => opt.setChecked(e.target.checked)}
+                          className="accent-indigo-500"
+                        />
+                        {opt.label}
+                      </label>
+                    );
+                  })}
+                  <div className="px-3 pt-1.5 mt-1 border-t border-slate-50 text-[11px] text-slate-300">最多同時顯示3個</div>
+                </div>
+              )}
             </div>
 
             {showKDJ && (
