@@ -33,7 +33,7 @@ export default function CandlestickChart({ data }: { data: Candle[] }) {
       },
       width: containerRef.current.clientWidth,
       height: 400,
-      timeScale: { timeVisible: true, borderColor: "#e2e8f0" },
+      timeScale: { timeVisible: true, borderColor: "#e2e8f0", rightOffset: 3 },
       rightPriceScale: { borderColor: "#e2e8f0" },
     });
 
@@ -74,7 +74,13 @@ export default function CandlestickChart({ data }: { data: Candle[] }) {
         close: c.close,
       }))
     );
-    chartRef.current?.timeScale().fitContent();
+    const timeScale = chartRef.current?.timeScale();
+    timeScale?.fitContent();
+    // fitContent 會讓最左/最右的K棒緊貼容器邊緣，視覺上像被裁掉一半，兩側各留1根K棒寬的空白。
+    const range = timeScale?.getVisibleLogicalRange();
+    if (timeScale && range) {
+      timeScale.setVisibleLogicalRange({ from: range.from - 1, to: range.to + 1 });
+    }
   }, [data]);
 
   return <div ref={containerRef} className="w-full" />;
