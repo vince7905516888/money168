@@ -35,6 +35,7 @@ model User {
   userCurrencies     UserCurrency[]
   userFundNavs       UserFundNav[]
   userWatchStocks    UserWatchStock[]
+  strategyEntries    InvestmentStrategyEntry[]
 }
 
 model UserBank {
@@ -154,6 +155,36 @@ model UserWatchStock {
   createdAt DateTime @default(now())
 
   @@unique([userId, code])
+}
+
+model InvestmentStrategyEntry {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  broker         String?
+  stockName      String?
+  stockCode      String?
+  plan           String?
+  shares         Float?
+  avgPrice       Float?
+  currentPrice   Float?
+  dividendDate   String?
+  dividendAmount Float?
+  discount       Float    @default(1)
+  futureLow      String?
+  futureMid      String?
+  futureHigh     String?
+  batch1         Float?
+  batch2         Float?
+  batch3         Float?
+  batch4         Float?
+  batch5         Float?
+  batch6         Float?
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model Category {

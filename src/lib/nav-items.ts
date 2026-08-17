@@ -20,6 +20,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "investment.realestate", label: "不動產投資", href: "/investment/realestate", section: "投資" },
   { key: "investment.insurance", label: "保險投資", href: "/investment/insurance", section: "投資" },
   { key: "market.tw-stock", label: "台灣股市", href: "/market/tw-stock", section: "市場行情" },
+  { key: "market.strategy", label: "投資策略", href: "/market/strategy", section: "市場行情" },
   { key: "profile", label: "會員資料管理", href: "/profile", section: null },
 ];
 
