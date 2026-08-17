@@ -33,7 +33,9 @@ export default function CandlestickChart({ data }: { data: Candle[] }) {
       },
       width: containerRef.current.clientWidth,
       height: 400,
-      timeScale: { timeVisible: true, borderColor: "#e2e8f0", rightOffset: 3 },
+      // fixLeftEdge/fixRightEdge：限制縮小/拖曳滾出資料範圍以外的空白區域——免費資料源
+      // 只給固定一段歷史，滾出去的空白不是「還有資料只是沒顯示」，鎖住範圍體驗才不會誤導。
+      timeScale: { timeVisible: true, borderColor: "#e2e8f0", rightOffset: 3, fixLeftEdge: true, fixRightEdge: true },
       rightPriceScale: { borderColor: "#e2e8f0" },
     });
 
