@@ -170,6 +170,22 @@ export default function StrategyPage() {
     });
   }, [fetchAll, handleRefreshPrices]);
 
+  // 從「股票投資」頁面算出來的目前持股（代碼/名稱/股數/均價）同步過來，同代碼的列只更新
+  // 這幾個欄位、其他手動欄位不動；沒有對應列的持股才新增一筆，之後不用重打一次
+  const [syncingHoldings, setSyncingHoldings] = useState(false);
+  const handleSyncHoldings = async () => {
+    setSyncingHoldings(true);
+    try {
+      const res = await authFetch("/api/investment-strategy/sync-holdings", { method: "POST" });
+      if (res.ok) {
+        await fetchAll();
+        await handleRefreshPrices();
+      }
+    } finally {
+      setSyncingHoldings(false);
+    }
+  };
+
   const handleChange = (id: string, field: keyof StrategyRow, value: string) => {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   };
@@ -263,6 +279,14 @@ export default function StrategyPage() {
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
+          <button
+            onClick={handleSyncHoldings}
+            disabled={syncingHoldings}
+            className="text-sm text-indigo-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
+            title="從「股票投資」頁面的目前持股同步代碼/股數/均價過來"
+          >
+            {syncingHoldings ? "同步中..." : "⇅ 同步持股"}
+          </button>
           <div className="text-right">
             <button
               onClick={handleRefreshPrices}

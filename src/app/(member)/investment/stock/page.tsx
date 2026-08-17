@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { computeHoldings } from "@/lib/stock-holdings";
 
 interface Investment {
   id: string;
@@ -38,51 +39,6 @@ const DEFAULT_BROKERS = [
   "台新證券", "日盛證券", "康和證券", "華南永昌證券", "第一金證券",
   "元富證券", "新光證券", "大昌證券",
 ];
-
-interface Holding {
-  key: string;
-  name: string;
-  code: string;
-  quantity: number;
-  cost: number;
-  avgPrice: number;
-}
-
-// 移動平均成本法：買進累加股數與成本，賣出則按賣出前的平均成本比例扣除，平均成本不變、只有股數與總成本下降
-function computeHoldings(investments: Investment[]): Holding[] {
-  const groups = new Map<string, { name: string; code: string; qty: number; cost: number }>();
-
-  const sorted = [...investments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  for (const inv of sorted) {
-    if (!inv.quantity || !inv.price) continue;
-    const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
-    if (!groups.has(key)) {
-      groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0 });
-    }
-    const g = groups.get(key)!;
-    if (inv.action === "BUY") {
-      g.qty += inv.quantity;
-      g.cost += inv.quantity * inv.price;
-    } else {
-      const avgCost = g.qty > 0 ? g.cost / g.qty : 0;
-      const sellQty = Math.min(inv.quantity, g.qty);
-      g.qty -= sellQty;
-      g.cost -= avgCost * sellQty;
-    }
-  }
-
-  return Array.from(groups.entries())
-    .filter(([, g]) => g.qty > 0.0001)
-    .map(([key, g]) => ({
-      key,
-      name: g.name,
-      code: g.code,
-      quantity: g.qty,
-      cost: g.cost,
-      avgPrice: g.cost / g.qty,
-    }));
-}
 
 const EMPTY_ADD_FORM = {
   name: "",
