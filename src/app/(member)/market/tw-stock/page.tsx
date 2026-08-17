@@ -985,14 +985,25 @@ export default function TwStockPage() {
 
   const isWatched = data ? watchlist.some((w) => w.code === data.code) : false;
 
-  // 全市場三大法人買賣超前15名：跟搜尋的股票無關，進頁面就抓當天（或最近一個交易日）全市場排行
+  // 全市場三大法人買賣超：跟搜尋的股票無關，進頁面就抓當天（或最近一個交易日）全市場排行；
+  // 買超/賣超用切換按鈕選一邊看（後端一次回兩邊，切換不用重打API），筆數用輸入框自訂、
+  // 送出才重打API（避免每打一個字就打一次）
   const [marketRanking, setMarketRanking] = useState<MarketRanking | null>(null);
+  const [rankingMode, setRankingMode] = useState<"buy" | "sell">("buy");
+  const [rankingLimit, setRankingLimit] = useState(15);
+  const [rankingLimitInput, setRankingLimitInput] = useState("15");
   useEffect(() => {
-    fetch("/api/market/tw-stock/institutional-ranking")
+    fetch(`/api/market/tw-stock/institutional-ranking?limit=${rankingLimit}`)
       .then((r) => (r.ok ? r.json() : null))
       .then(setMarketRanking)
       .catch(() => {});
-  }, []);
+  }, [rankingLimit]);
+  const applyRankingLimit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = Math.min(Math.max(parseInt(rankingLimitInput, 10) || 15, 1), 100);
+    setRankingLimitInput(String(n));
+    setRankingLimit(n);
+  };
 
   // 觀察名單按鈕一律顯示（不管會員層級），沒有權限的話點了顯示提示而不是直接隱藏功能
   const [showWatchlistLockedHint, setShowWatchlistLockedHint] = useState(false);
@@ -2218,55 +2229,67 @@ export default function TwStockPage() {
         </>
       )}
 
-      {/* 全市場三大法人買賣超前15名：跟目前查詢的股票無關（不受上面股票搜尋結果影響），
-          放在頁面最下面，點列可直接切換查詢該檔 */}
+      {/* 全市場三大法人買賣超：跟目前查詢的股票無關（不受上面股票搜尋結果影響），
+          放在頁面最下面，點列可直接切換查詢該檔；買超/賣超切換 + 筆數可自訂 */}
       {marketRanking && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-red-600">全市場買超前15名</h3>
-              <span className="text-[11px] text-slate-400">{marketRanking.date}</span>
-            </div>
-            <div className="divide-y divide-slate-50">
-              {marketRanking.buyTop.map((r) => (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
                 <button
-                  key={r.code}
                   type="button"
-                  onClick={() => selectWatchStock(r.code)}
-                  className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
+                  onClick={() => setRankingMode("buy")}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                    rankingMode === "buy" ? "bg-white text-red-600 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  }`}
                 >
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-slate-700">{r.name}</span>
-                    <span className="text-xs text-slate-400">{r.code}</span>
-                  </span>
-                  <span className="text-red-500 font-semibold">+{r.netLots.toLocaleString("zh-TW")}</span>
+                  全市場買超
                 </button>
-              ))}
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-emerald-700">全市場賣超前15名</h3>
-              <span className="text-[11px] text-slate-400">{marketRanking.date}</span>
-            </div>
-            <div className="divide-y divide-slate-50">
-              {marketRanking.sellTop.map((r) => (
                 <button
-                  key={r.code}
                   type="button"
-                  onClick={() => selectWatchStock(r.code)}
-                  className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
+                  onClick={() => setRankingMode("sell")}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                    rankingMode === "sell" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  }`}
                 >
-                  <span className="flex items-baseline gap-2">
-                    <span className="text-slate-700">{r.name}</span>
-                    <span className="text-xs text-slate-400">{r.code}</span>
-                  </span>
-                  <span className="text-green-600 font-semibold">{r.netLots.toLocaleString("zh-TW")}</span>
+                  全市場賣超
                 </button>
-              ))}
+              </div>
+              <form onSubmit={applyRankingLimit} className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-400">前</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={rankingLimitInput}
+                  onChange={(e) => setRankingLimitInput(e.target.value)}
+                  className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center focus:border-indigo-400 transition-colors"
+                />
+                <span className="text-xs text-slate-400">名</span>
+                <button type="submit" className="text-xs text-indigo-600 font-medium hover:underline ml-1">套用</button>
+              </form>
             </div>
+            <span className="text-[11px] text-slate-400">{marketRanking.date}</span>
           </div>
-          <p className="text-[11px] text-slate-400 -mt-2 md:col-span-2">資料源：證交所 T86（僅涵蓋上市，依三大法人合計買賣超排序），點列可直接查詢該檔</p>
+          <div className="divide-y divide-slate-50">
+            {(rankingMode === "buy" ? marketRanking.buyTop : marketRanking.sellTop).map((r) => (
+              <button
+                key={r.code}
+                type="button"
+                onClick={() => selectWatchStock(r.code)}
+                className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
+              >
+                <span className="flex items-baseline gap-2">
+                  <span className="text-slate-700">{r.name}</span>
+                  <span className="text-xs text-slate-400">{r.code}</span>
+                </span>
+                <span className={`font-semibold ${rankingMode === "buy" ? "text-red-500" : "text-green-600"}`}>
+                  {rankingMode === "buy" ? "+" : ""}{r.netLots.toLocaleString("zh-TW")}
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-400 px-5 py-2.5 border-t border-slate-50">資料源：證交所 T86（僅涵蓋上市，依三大法人合計買賣超排序），點列可直接查詢該檔</p>
         </div>
       )}
     </div>

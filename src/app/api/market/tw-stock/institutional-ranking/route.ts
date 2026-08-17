@@ -1,14 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { fetchInstitutionalRanking } from "@/lib/tw-stock-flow";
 import { fetchClosePrices } from "@/lib/tw-stock-chip";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
-  const ranking = await fetchInstitutionalRanking();
+  const limitParam = Number(req.nextUrl.searchParams.get("limit"));
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.trunc(limitParam), 1), 100) : 15;
+
+  const ranking = await fetchInstitutionalRanking(limit);
   if (!ranking) {
     return NextResponse.json({ error: "查無資料" }, { status: 404 });
   }
