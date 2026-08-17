@@ -59,15 +59,16 @@ function toRow(e: RawEntry): StrategyRow {
   };
 }
 
-function calcRow(row: StrategyRow, feeRate: number) {
+function calcRow(row: StrategyRow, feeRate: number, syncedTotal: number | undefined) {
   const shares = parseFloat(row.shares) || 0;
   const avgPrice = parseFloat(row.avgPrice) || 0;
   const currentPrice = parseFloat(row.currentPrice) || 0;
   const discount = row.discount === "" ? 1 : parseFloat(row.discount) || 0;
 
-  // 總額＝股數×均價，不額外加買進手續費——股數/均價是「同步持股」從股票投資頁帶過來的，
-  // 均價本身就是投資總額/股數，這樣算出來的總額才會跟股票投資頁「投資總額」欄位完全一致。
-  const totalAmount = shares > 0 && avgPrice > 0 ? shares * avgPrice : null;
+  // 總額優先用「股票投資」頁同一代碼底下所有交易紀錄的實際扣款金額加總（含手續費/稅/人工調帳），
+  // 這樣才會跟股票投資頁「淨投入金額」逐碼加總起來完全一致；股數×均價（不含手續費）只在
+  // 找不到對應交易紀錄時（例如手動新增、還沒同步過的列）當作備援估算值。
+  const totalAmount = syncedTotal != null ? syncedTotal : shares > 0 && avgPrice > 0 ? shares * avgPrice : null;
   if (totalAmount == null) {
     return { totalAmount: null as number | null, profitLoss: null as number | null, returnRate: null as number | null };
   }
@@ -91,6 +92,7 @@ export default function StrategyPage() {
   const [rows, setRows] = useState<StrategyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [feeRate, setFeeRate] = useState(DEFAULT_FEE_RATE);
+  const [netAmountByCode, setNetAmountByCode] = useState<Record<string, number>>({});
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
 
@@ -125,16 +127,29 @@ export default function StrategyPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [entriesRes, feeRes] = await Promise.all([
+    const [entriesRes, feeRes, stockInvRes] = await Promise.all([
       fetch("/api/investment-strategy"),
       fetch("/api/fee-settings"),
+      fetch("/api/investments?type=STOCK"),
     ]);
     const authenticated = entriesRes.status !== 401;
-    const [entriesData, feeData] = await Promise.all([entriesRes.json(), feeRes.json()]);
+    const [entriesData, feeData, stockInvData] = await Promise.all([entriesRes.json(), feeRes.json(), stockInvRes.json()]);
     setRows(Array.isArray(entriesData) ? entriesData.map(toRow) : []);
     const fees: { key: string; rate: number }[] = Array.isArray(feeData) ? feeData : [];
     const commission = fees.find((f) => f.key === "stock_commission");
     if (commission) setFeeRate(commission.rate / 100);
+
+    // 依代碼加總「股票投資」頁同一支股票所有交易紀錄的實際扣款金額（amount 已含手續費/稅/
+    // 人工調帳），讓「總額」跟股票投資頁「淨投入金額」逐碼加總起來完全一致，不用重新估算。
+    const stockInvestments: { code?: string | null; amount: number }[] = Array.isArray(stockInvData) ? stockInvData : [];
+    const netMap: Record<string, number> = {};
+    for (const inv of stockInvestments) {
+      const code = inv.code?.trim();
+      if (!code) continue;
+      netMap[code] = (netMap[code] ?? 0) + inv.amount;
+    }
+    setNetAmountByCode(netMap);
+
     setLoading(false);
     return authenticated;
   }, []);
@@ -240,7 +255,7 @@ export default function StrategyPage() {
     setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const calcs = rows.map((r) => calcRow(r, feeRate));
+  const calcs = rows.map((r) => calcRow(r, feeRate, r.stockCode ? netAmountByCode[r.stockCode.trim()] : undefined));
   const totalProfitLoss = calcs.reduce((s, c) => s + (c.profitLoss ?? 0), 0);
   const totalAmount = calcs.reduce((s, c) => s + (c.totalAmount ?? 0), 0);
 
@@ -286,7 +301,7 @@ export default function StrategyPage() {
           <h1 className="text-2xl font-bold text-slate-900">投資策略</h1>
           <p className="text-slate-500 text-sm mt-1">
             手動記錄持股策略與未來目標價；「當前」會自動抓證交所當日收盤價回填，不用手動輸入；
-            總額與「股票投資」頁的投資總額同步；盈虧／報酬率會自動扣除賣出手續費（依折扣）與證券交易稅計算
+            總額與「股票投資」頁的淨投入金額同步；盈虧／報酬率會自動扣除賣出手續費（依折扣）與證券交易稅計算
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -454,7 +469,8 @@ export default function StrategyPage() {
       </div>
 
       <p className="text-xs text-slate-400 mt-3">
-        總額 = 股數 × 均價，與「股票投資」頁「投資總額」欄位一致（用「同步持股」帶入股數/均價後自動同步，不含買進手續費）；
+        總額 = 同代碼在「股票投資」頁所有交易紀錄的實際扣款金額加總（含手續費/稅/人工調帳），
+        逐碼加總會完全等於股票投資頁「淨投入金額」；找不到對應交易紀錄的列才退回用股數×均價估算；
         盈虧 = (股數 × 當前) − 總額 − 賣出手續費 − 證券交易稅（賣出方向課徵0.3%）；
         手續費 = 成交金額 × {(feeRate * 100).toFixed(4)}% × 折扣（1 = 無折扣，0.6 = 6折）；報酬率 = 盈虧 ÷ 總額
       </p>
