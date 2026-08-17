@@ -3,23 +3,21 @@
 import { useEffect, useState, useCallback } from "react";
 import CandlestickChart, { type Candle } from "@/components/market/CandlestickChart";
 
+// Kraken沒有BNB（競爭對手交易所自家代幣，Kraken不上架），暫時只有這5個。
 const SYMBOLS = [
-  { value: "bitcoin", label: "BTC / USD" },
-  { value: "ethereum", label: "ETH / USD" },
-  { value: "binancecoin", label: "BNB / USD" },
-  { value: "solana", label: "SOL / USD" },
-  { value: "ripple", label: "XRP / USD" },
-  { value: "dogecoin", label: "DOGE / USD" },
+  { value: "BTC", label: "BTC / USD" },
+  { value: "ETH", label: "ETH / USD" },
+  { value: "SOL", label: "SOL / USD" },
+  { value: "XRP", label: "XRP / USD" },
+  { value: "DOGE", label: "DOGE / USD" },
 ];
 
-// CoinGecko 免費版不能自訂週期，是依查詢天數自動決定K棒粒度（見後端路由註解），
-// 這裡改成「天數區間」讓使用者選，而不是假裝能選任意的15分/1小時等週期。
 const INTERVALS = [
-  { value: "1d", label: "1天（30分K）" },
-  { value: "7d", label: "7天（4小時K）" },
-  { value: "30d", label: "30天（4小時K）" },
-  { value: "90d", label: "90天（4天K）" },
-  { value: "1y", label: "1年（4天K）" },
+  { value: "15m", label: "15分鐘" },
+  { value: "1h", label: "1小時" },
+  { value: "4h", label: "4小時" },
+  { value: "1d", label: "1天" },
+  { value: "1w", label: "1週" },
 ];
 
 interface Ticker {
@@ -31,7 +29,7 @@ interface Ticker {
 }
 
 export default function CryptoMarketPage() {
-  const [symbol, setSymbol] = useState("bitcoin");
+  const [symbol, setSymbol] = useState("BTC");
   const [interval, setInterval_] = useState("1d");
   const [candles, setCandles] = useState<Candle[]>([]);
   const [ticker, setTicker] = useState<Ticker | null>(null);
@@ -69,7 +67,7 @@ export default function CryptoMarketPage() {
     <div className="max-w-5xl">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">市場行情 · 虛擬貨幣</h1>
-        <p className="text-slate-500 text-sm mt-1">即時 K 線圖，資料來源：CoinGecko</p>
+        <p className="text-slate-500 text-sm mt-1">即時 K 線圖，資料來源：Kraken</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-6">
