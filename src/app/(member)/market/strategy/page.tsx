@@ -65,12 +65,12 @@ function calcRow(row: StrategyRow, feeRate: number) {
   const currentPrice = parseFloat(row.currentPrice) || 0;
   const discount = row.discount === "" ? 1 : parseFloat(row.discount) || 0;
 
-  const costBasis = shares > 0 && avgPrice > 0 ? shares * avgPrice : null;
-  if (costBasis == null) {
+  // 總額＝股數×均價，不額外加買進手續費——股數/均價是「同步持股」從股票投資頁帶過來的，
+  // 均價本身就是投資總額/股數，這樣算出來的總額才會跟股票投資頁「投資總額」欄位完全一致。
+  const totalAmount = shares > 0 && avgPrice > 0 ? shares * avgPrice : null;
+  if (totalAmount == null) {
     return { totalAmount: null as number | null, profitLoss: null as number | null, returnRate: null as number | null };
   }
-  const buyFee = costBasis * feeRate * discount;
-  const totalAmount = costBasis + buyFee; // 總額：含第一次買進的手續費，等於實際投入成本
 
   if (currentPrice <= 0) {
     return { totalAmount, profitLoss: null as number | null, returnRate: null as number | null };
@@ -286,7 +286,7 @@ export default function StrategyPage() {
           <h1 className="text-2xl font-bold text-slate-900">投資策略</h1>
           <p className="text-slate-500 text-sm mt-1">
             手動記錄持股策略與未來目標價；「當前」會自動抓證交所當日收盤價回填，不用手動輸入；
-            盈虧／報酬率會自動扣除買賣手續費（依折扣）與證券交易稅計算
+            總額與「股票投資」頁的投資總額同步；盈虧／報酬率會自動扣除賣出手續費（依折扣）與證券交易稅計算
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -454,7 +454,7 @@ export default function StrategyPage() {
       </div>
 
       <p className="text-xs text-slate-400 mt-3">
-        總額 = 股數 × 均價 + 買進手續費（已計入每次買進累積的手續費）；
+        總額 = 股數 × 均價，與「股票投資」頁「投資總額」欄位一致（用「同步持股」帶入股數/均價後自動同步，不含買進手續費）；
         盈虧 = (股數 × 當前) − 總額 − 賣出手續費 − 證券交易稅（賣出方向課徵0.3%）；
         手續費 = 成交金額 × {(feeRate * 100).toFixed(4)}% × 折扣（1 = 無折扣，0.6 = 6折）；報酬率 = 盈虧 ÷ 總額
       </p>
