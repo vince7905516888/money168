@@ -268,6 +268,14 @@ export default function StrategyPage() {
     </td>
   );
 
+  // 股票名稱/代碼/股數/均價：唯讀，避免誤輸入跟同步持股的資料打架，
+  // 只能透過「同步持股」帶入，或去股票投資頁面改原始交易紀錄
+  const readonlyCol = (value: string, align: "left" | "right", width = "w-20") => (
+    <td className={`px-2 py-2 border-b border-slate-50 text-slate-500 ${align === "right" ? "text-right" : "text-left"}`}>
+      <span className={`block truncate ${width}`}>{value || <span className="text-slate-300">用同步持股帶入</span>}</span>
+    </td>
+  );
+
   return (
     <div className="max-w-full">
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -343,11 +351,11 @@ export default function StrategyPage() {
                 <tr className="text-xs text-slate-400 bg-slate-50 whitespace-nowrap">
                   <th className="px-2 py-2.5 text-center font-semibold">排序</th>
                   <th className="px-2 py-2.5 text-left font-semibold">證券公司</th>
-                  <th className="px-2 py-2.5 text-left font-semibold">股票名稱</th>
-                  <th className="px-2 py-2.5 text-left font-semibold">股票代碼</th>
+                  <th className="px-2 py-2.5 text-left font-semibold" title="唯讀，請用「同步持股」帶入">股票名稱🔒</th>
+                  <th className="px-2 py-2.5 text-left font-semibold" title="唯讀，請用「同步持股」帶入">股票代碼🔒</th>
                   <th className="px-2 py-2.5 text-left font-semibold">方案</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">股數</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">均價</th>
+                  <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，請用「同步持股」帶入">股數🔒</th>
+                  <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，請用「同步持股」帶入">均價🔒</th>
                   <th className="px-2 py-2.5 text-right font-semibold">當前</th>
                   <th className="px-2 py-2.5 text-left font-semibold">配息日</th>
                   <th className="px-2 py-2.5 text-right font-semibold">金額</th>
@@ -393,11 +401,11 @@ export default function StrategyPage() {
                         </div>
                       </td>
                       {textCol(row, "broker", "券商", "w-20")}
-                      {textCol(row, "stockName", "名稱", "w-28")}
-                      {textCol(row, "stockCode", "代碼", "w-20")}
+                      {readonlyCol(row.stockName, "left", "w-28")}
+                      {readonlyCol(row.stockCode, "left", "w-20")}
                       {textCol(row, "plan", "方案", "w-16")}
-                      {numCol(row, "shares", "股數", "w-24")}
-                      {numCol(row, "avgPrice", "均價", "w-24")}
+                      {readonlyCol(row.shares, "right", "w-24")}
+                      {readonlyCol(row.avgPrice, "right", "w-24")}
                       {numCol(row, "currentPrice", "當前", "w-24")}
                       {textCol(row, "dividendDate", "配息日", "w-20")}
                       {numCol(row, "dividendAmount", "金額", "w-20")}
