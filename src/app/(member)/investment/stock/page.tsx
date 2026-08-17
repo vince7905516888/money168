@@ -51,6 +51,7 @@ const EMPTY_ADD_FORM = {
   feeRate: "0.1425",
   discount: "1",
   taxRate: "0.3",
+  feeAmount: "",
   adjustAmount: "",
   note: "",
 };
@@ -128,8 +129,11 @@ export default function StockPage() {
   const taxRate = parseFloat(addForm.taxRate) || 0;
   const principal = quantity * price;
   const calcFee = Math.round(principal * (feeRate / 100) * discount);
+  // 手續費金額：定期定額等扣款方式常常不是比照一般費率計算，填了就直接用這個金額，
+  // 不填才用費率*折扣自動試算
+  const fee = addForm.feeAmount !== "" ? (parseFloat(addForm.feeAmount) || 0) : calcFee;
   const calcTax = addForm.action === "SELL" ? Math.round(principal * (taxRate / 100)) : 0;
-  const calcSubtotal = addForm.action === "BUY" ? principal + calcFee : principal - calcFee - calcTax;
+  const calcSubtotal = addForm.action === "BUY" ? principal + fee : principal - fee - calcTax;
   // 調帳金額：如果填了就以此為準（實際扣款/入帳金額可能與試算有落差），否則採自動試算結果
   const subtotal = addForm.adjustAmount !== "" ? (parseFloat(addForm.adjustAmount) || 0) : calcSubtotal;
 
@@ -161,7 +165,7 @@ export default function StockPage() {
         quantity: addForm.quantity,
         price: addForm.price,
         discount: addForm.discount,
-        fee: calcFee,
+        fee,
         tax: calcTax,
         amount: addForm.action === "SELL" ? -subtotal : subtotal,
         note: addForm.note,
@@ -434,6 +438,15 @@ export default function StockPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費金額（選填）</label>
+                <input type="number" min="0" step="any" value={addForm.feeAmount}
+                  onChange={(e) => setAddForm({ ...addForm, feeAmount: e.target.value })}
+                  placeholder={`留空則用費率試算為 ${fmt(calcFee)}`}
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                <p className="text-[11px] text-slate-400 mt-1">定期定額等扣款方式常常不是比照一般費率算，可以直接輸入實際手續費金額覆蓋試算</p>
+              </div>
+
               {addForm.action === "SELL" && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">證券交易稅率 (%)</label>
@@ -465,7 +478,8 @@ export default function StockPage() {
                   <span>成交金額</span><span>{fmt(principal)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-500">
-                  <span>手續費</span><span>{fmt(calcFee)}</span>
+                  <span>手續費</span>
+                  <span>{fmt(fee)}{addForm.feeAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（手動輸入）</span>}</span>
                 </div>
                 {addForm.action === "SELL" && (
                   <div className="flex justify-between text-xs text-slate-500">
