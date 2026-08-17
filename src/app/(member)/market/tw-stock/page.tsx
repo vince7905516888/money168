@@ -1624,15 +1624,56 @@ export default function TwStockPage() {
                 <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-slate-400 inline-block" />MA120</span>
                 <span className="flex items-center gap-1"><span className="w-2.5 h-0.5 bg-indigo-300 inline-block" />布林通道</span>
               </div>
-              <select
-                value={chartInterval}
-                onChange={(e) => handleIntervalChange(e.target.value as ChartInterval)}
-                className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-400 transition-colors"
-              >
-                {INTERVAL_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2">
+                <select
+                  value={chartInterval}
+                  onChange={(e) => handleIntervalChange(e.target.value as ChartInterval)}
+                  className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-400 transition-colors"
+                >
+                  {INTERVAL_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                {/* 技術指標下拉選單：放在日K/週K切換旁邊，方便點選；最多可複選3個，
+                    選滿3個時其餘未勾選的選項會先停用，要取消一個才能再選新的 */}
+                <div ref={indicatorDropdownRef} className="relative inline-block">
+                  <button
+                    type="button"
+                    onClick={() => setIndicatorDropdownOpen((v) => !v)}
+                    className="flex items-center gap-2 px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 hover:border-indigo-300 transition-colors min-w-[9rem] justify-between"
+                  >
+                    <span className="truncate">
+                      {selectedIndicatorLabels.length > 0 ? `技術指標：${selectedIndicatorLabels.join("、")}` : "選擇技術指標"}
+                    </span>
+                    <span className={`shrink-0 transition-transform ${indicatorDropdownOpen ? "rotate-180" : ""}`}>▾</span>
+                  </button>
+                  {indicatorDropdownOpen && (
+                    <div className="absolute z-10 top-full right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-40">
+                      {indicatorOptions.map((opt) => {
+                        const disabled = indicatorLimitReached && !opt.checked;
+                        return (
+                          <label
+                            key={opt.key}
+                            className={`flex items-center gap-2 px-3 py-1.5 text-xs text-slate-600 ${
+                              disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-slate-50"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={opt.checked}
+                              disabled={disabled}
+                              onChange={(e) => opt.setChecked(e.target.checked)}
+                              className="accent-indigo-500"
+                            />
+                            {opt.label}
+                          </label>
+                        );
+                      })}
+                      <div className="px-3 pt-1.5 mt-1 border-t border-slate-50 text-[11px] text-slate-300">最多同時顯示3個</div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -1766,47 +1807,8 @@ export default function TwStockPage() {
             </div>
 
             {/* 技術指標小窗口：跟上面K線、成交量共用同一個syncId同步游標，也合併進同一張卡片；
-                改成下拉式選單勾選，最多可複選3個一起看，選滿3個時其餘未勾選的選項會先停用，
-                要取消一個才能再選新的 */}
+                選單本身移到上方跟日K/週K切換放在一起，這裡只放實際勾選後顯示的子圖表 */}
             <div className="mt-6 pt-6 border-t border-slate-50">
-            <div ref={indicatorDropdownRef} className="relative inline-block mb-3">
-              <button
-                type="button"
-                onClick={() => setIndicatorDropdownOpen((v) => !v)}
-                className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600 hover:border-indigo-300 transition-colors min-w-[10rem] justify-between"
-              >
-                <span className="truncate">
-                  {selectedIndicatorLabels.length > 0 ? `技術指標：${selectedIndicatorLabels.join("、")}` : "選擇技術指標"}
-                </span>
-                <span className={`shrink-0 transition-transform ${indicatorDropdownOpen ? "rotate-180" : ""}`}>▾</span>
-              </button>
-              {indicatorDropdownOpen && (
-                <div className="absolute z-10 top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-40">
-                  {indicatorOptions.map((opt) => {
-                    const disabled = indicatorLimitReached && !opt.checked;
-                    return (
-                      <label
-                        key={opt.key}
-                        className={`flex items-center gap-2 px-3 py-1.5 text-xs text-slate-600 ${
-                          disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-slate-50"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={opt.checked}
-                          disabled={disabled}
-                          onChange={(e) => opt.setChecked(e.target.checked)}
-                          className="accent-indigo-500"
-                        />
-                        {opt.label}
-                      </label>
-                    );
-                  })}
-                  <div className="px-3 pt-1.5 mt-1 border-t border-slate-50 text-[11px] text-slate-300">最多同時顯示3個</div>
-                </div>
-              )}
-            </div>
-
             {showKDJ && (
               <div className="mb-4">
                 <div className="flex items-center gap-3 text-xs mb-1.5 text-slate-500">
