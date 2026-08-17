@@ -1,44 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const ALLOWED_INTERVALS = new Set(["15m", "1h", "4h", "1d", "1w"]);
-const SYMBOL_PATTERN = /^[A-Z0-9]{5,20}$/;
+// Binance 的公開 API 會擋美國地區的連線（法規限制），Railway 部署在美國機房，
+// 打 Binance 一律被 451 擋掉，改用不限地區、免金鑰的 CoinGecko。
+// 代價是只能拿到官方預先聚合好的K棒粒度（依查詢天數自動決定），不能像 Binance
+// 那樣自由指定 15分/1小時等任意週期，因此前端週期選單改成「天數區間」。
+const DAYS_BY_INTERVAL: Record<string, number> = {
+  "1d": 1,
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+  "1y": 365,
+};
+
+const ALLOWED_SYMBOLS = new Set(["bitcoin", "ethereum", "binancecoin", "solana", "ripple", "dogecoin"]);
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const symbol = (searchParams.get("symbol") || "BTCUSDT").toUpperCase();
+  const symbol = searchParams.get("symbol") || "bitcoin";
   const interval = searchParams.get("interval") || "1d";
-  const limit = Math.min(Number(searchParams.get("limit")) || 200, 500);
 
-  if (!SYMBOL_PATTERN.test(symbol)) {
-    return NextResponse.json({ error: "無效的交易對代碼" }, { status: 400 });
+  if (!ALLOWED_SYMBOLS.has(symbol)) {
+    return NextResponse.json({ error: "無效的幣別代碼" }, { status: 400 });
   }
-  if (!ALLOWED_INTERVALS.has(interval)) {
+  const days = DAYS_BY_INTERVAL[interval];
+  if (!days) {
     return NextResponse.json({ error: "無效的時間週期" }, { status: 400 });
   }
 
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const url = `https://api.coingecko.com/api/v3/coins/${symbol}/ohlc?vs_currency=usd&days=${days}`;
 
   try {
-    const res = await fetch(url, { next: { revalidate: 30 } });
+    const res = await fetch(url, { next: { revalidate: 60 } });
     if (!res.ok) {
-      return NextResponse.json({ error: "查無此交易對，或 Binance 目前無法連線" }, { status: 502 });
+      console.error(`CoinGecko OHLC ${res.status}: ${await res.text().catch(() => "")}`);
+      return NextResponse.json({ error: "查無此幣別，或資料來源目前無法連線" }, { status: 502 });
     }
-    const raw: unknown[] = await res.json();
+    const raw: [number, number, number, number, number][] = await res.json();
 
-    const candles = raw.map((row) => {
-      const r = row as [number, string, string, string, string, string, ...unknown[]];
-      return {
-        time: Math.floor(r[0] / 1000),
-        open: parseFloat(r[1]),
-        high: parseFloat(r[2]),
-        low: parseFloat(r[3]),
-        close: parseFloat(r[4]),
-        volume: parseFloat(r[5]),
-      };
-    });
+    const candles = raw.map(([time, open, high, low, close]) => ({
+      time: Math.floor(time / 1000),
+      open,
+      high,
+      low,
+      close,
+    }));
 
     return NextResponse.json({ symbol, interval, candles });
-  } catch {
-    return NextResponse.json({ error: "連線 Binance API 失敗" }, { status: 502 });
+  } catch (e) {
+    console.error("CoinGecko OHLC fetch failed:", e);
+    return NextResponse.json({ error: "連線資料來源失敗" }, { status: 502 });
   }
 }
