@@ -5,6 +5,7 @@ import { authFetch } from "@/lib/api-fetch";
 
 interface StrategyRow {
   id: string;
+  order: number;
   broker: string;
   stockName: string;
   stockCode: string;
@@ -31,16 +32,11 @@ type RawEntry = Record<string, string | number | null>;
 const STOCK_TAX_RATE = 0.003; // 證券交易稅 0.3%，僅賣出課徵
 const DEFAULT_FEE_RATE = 0.001425; // 手續費率 0.1425%（找不到後台設定時的預設值）
 
-const NUM_FIELDS = [
-  "shares", "avgPrice", "currentPrice", "dividendAmount", "discount",
-  "batch1", "batch2", "batch3", "batch4", "batch5", "batch6",
-] as const;
-const STR_FIELDS = ["broker", "stockName", "stockCode", "plan", "dividendDate", "futureLow", "futureMid", "futureHigh"] as const;
-
 function toRow(e: RawEntry): StrategyRow {
   const s = (k: string) => (e[k] == null ? "" : String(e[k]));
   return {
     id: String(e.id),
+    order: e.order == null ? 0 : Number(e.order),
     broker: s("broker"),
     stockName: s("stockName"),
     stockCode: s("stockCode"),
@@ -85,7 +81,7 @@ function calcRow(row: StrategyRow, feeRate: number) {
   return { totalAmount, profitLoss, returnRate };
 }
 
-const inputCls = "w-full min-w-0 bg-transparent border-0 focus:ring-1 focus:ring-indigo-300 rounded px-1.5 py-1 text-xs text-slate-700 focus:bg-indigo-50/50 transition-colors";
+const inputCls = "min-w-0 bg-transparent border-0 focus:ring-1 focus:ring-indigo-300 rounded px-2 py-2 text-sm text-slate-700 focus:bg-indigo-50/50 transition-colors";
 
 export default function StrategyPage() {
   const [rows, setRows] = useState<StrategyRow[]>([]);
@@ -150,6 +146,29 @@ export default function StrategyPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: row[field] }),
+    });
+  };
+
+  const handleMove = (index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (target < 0 || target >= rowsRef.current.length) return;
+    const current = [...rowsRef.current];
+    const a = current[index];
+    const b = current[target];
+    const orderA = a.order;
+    const orderB = b.order;
+    current[index] = { ...b, order: orderA };
+    current[target] = { ...a, order: orderB };
+    setRows(current);
+    authFetch(`/api/investment-strategy/${a.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: orderB }),
+    });
+    authFetch(`/api/investment-strategy/${b.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: orderA }),
     });
   };
 
@@ -245,30 +264,31 @@ export default function StrategyPage() {
             onMouseUp={stopTableDrag}
             onMouseLeave={stopTableDrag}
           >
-            <table className="text-xs border-collapse">
+            <table className="text-sm border-collapse">
               <thead>
-                <tr className="text-[11px] text-slate-400 bg-slate-50 whitespace-nowrap">
-                  <th className="px-2 py-2 text-left font-semibold">證券公司</th>
-                  <th className="px-2 py-2 text-left font-semibold">股票名稱</th>
-                  <th className="px-2 py-2 text-left font-semibold">股票代碼</th>
-                  <th className="px-2 py-2 text-left font-semibold">方案</th>
-                  <th className="px-2 py-2 text-right font-semibold">股數</th>
-                  <th className="px-2 py-2 text-right font-semibold">均價</th>
-                  <th className="px-2 py-2 text-right font-semibold">當前</th>
-                  <th className="px-2 py-2 text-left font-semibold">配息日</th>
-                  <th className="px-2 py-2 text-right font-semibold">金額</th>
-                  <th className="px-2 py-2 text-right font-semibold">折扣</th>
-                  <th className="px-2 py-2 text-right font-semibold">盈虧</th>
-                  <th className="px-2 py-2 text-right font-semibold">報酬率</th>
-                  <th className="px-2 py-2 text-center font-semibold" colSpan={3}>未來可到價格</th>
-                  <th className="px-2 py-2 text-right font-semibold">總額</th>
-                  <th className="px-2 py-2 text-right font-semibold">第一次</th>
-                  <th className="px-2 py-2 text-right font-semibold">第二次</th>
-                  <th className="px-2 py-2 text-right font-semibold">第三次</th>
-                  <th className="px-2 py-2 text-right font-semibold">第四次</th>
-                  <th className="px-2 py-2 text-right font-semibold">第五次</th>
-                  <th className="px-2 py-2 text-right font-semibold">第六次</th>
-                  <th className="px-2 py-2"></th>
+                <tr className="text-xs text-slate-400 bg-slate-50 whitespace-nowrap">
+                  <th className="px-2 py-2.5 text-center font-semibold">排序</th>
+                  <th className="px-2 py-2.5 text-left font-semibold">證券公司</th>
+                  <th className="px-2 py-2.5 text-left font-semibold">股票名稱</th>
+                  <th className="px-2 py-2.5 text-left font-semibold">股票代碼</th>
+                  <th className="px-2 py-2.5 text-left font-semibold">方案</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">股數</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">均價</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">當前</th>
+                  <th className="px-2 py-2.5 text-left font-semibold">配息日</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">金額</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">折扣</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">盈虧</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">報酬率</th>
+                  <th className="px-2 py-2.5 text-center font-semibold" colSpan={3}>未來可到價格</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">總額</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">第一次</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">第二次</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">第三次</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">第四次</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">第五次</th>
+                  <th className="px-2 py-2.5 text-right font-semibold">第六次</th>
+                  <th className="px-2 py-2.5"></th>
                 </tr>
               </thead>
               <tbody>
@@ -276,42 +296,64 @@ export default function StrategyPage() {
                   const calc = calcs[i];
                   return (
                     <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
-                      {textCol(row, "broker", "券商", "w-16")}
-                      {textCol(row, "stockName", "名稱", "w-24")}
-                      {textCol(row, "stockCode", "代碼", "w-16")}
-                      {textCol(row, "plan", "方案", "w-12")}
-                      {numCol(row, "shares", "股數", "w-16")}
-                      {numCol(row, "avgPrice", "均價", "w-20")}
-                      {numCol(row, "currentPrice", "當前", "w-20")}
-                      {textCol(row, "dividendDate", "配息日", "w-16")}
-                      {numCol(row, "dividendAmount", "金額", "w-16")}
-                      {numCol(row, "discount", "1", "w-12")}
-                      <td className={`px-2 py-1 text-right font-semibold whitespace-nowrap ${
+                      <td className="px-2 py-2 border-b border-slate-50">
+                        <div className="flex flex-col items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleMove(i, -1)}
+                            disabled={i === 0}
+                            className="text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-400 text-xs leading-none px-1.5 py-0.5 transition-colors"
+                            title="上移"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMove(i, 1)}
+                            disabled={i === rows.length - 1}
+                            className="text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-400 text-xs leading-none px-1.5 py-0.5 transition-colors"
+                            title="下移"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      </td>
+                      {textCol(row, "broker", "券商", "w-20")}
+                      {textCol(row, "stockName", "名稱", "w-28")}
+                      {textCol(row, "stockCode", "代碼", "w-20")}
+                      {textCol(row, "plan", "方案", "w-16")}
+                      {numCol(row, "shares", "股數", "w-24")}
+                      {numCol(row, "avgPrice", "均價", "w-24")}
+                      {numCol(row, "currentPrice", "當前", "w-24")}
+                      {textCol(row, "dividendDate", "配息日", "w-20")}
+                      {numCol(row, "dividendAmount", "金額", "w-20")}
+                      {numCol(row, "discount", "1", "w-16")}
+                      <td className={`px-2 py-2 text-right font-semibold whitespace-nowrap ${
                         calc.profitLoss == null ? "text-slate-300" : calc.profitLoss >= 0 ? "text-red-500" : "text-green-600"
                       }`}>
                         {calc.profitLoss == null ? "—" : fmt(calc.profitLoss)}
                       </td>
-                      <td className={`px-2 py-1 text-right font-semibold whitespace-nowrap ${
+                      <td className={`px-2 py-2 text-right font-semibold whitespace-nowrap ${
                         calc.returnRate == null ? "text-slate-300" : calc.returnRate >= 0 ? "text-red-500" : "text-green-600"
                       }`}>
                         {calc.returnRate == null ? "—" : `${(calc.returnRate * 100).toFixed(2)}%`}
                       </td>
-                      {textCol(row, "futureLow", "低", "w-14")}
-                      {textCol(row, "futureMid", "中", "w-14")}
-                      {textCol(row, "futureHigh", "高", "w-14")}
-                      <td className="px-2 py-1 text-right text-slate-500 whitespace-nowrap">
+                      {textCol(row, "futureLow", "低", "w-24")}
+                      {textCol(row, "futureMid", "中", "w-24")}
+                      {textCol(row, "futureHigh", "高", "w-24")}
+                      <td className="px-2 py-2 text-right text-slate-500 whitespace-nowrap">
                         {calc.totalAmount == null ? "—" : fmt(calc.totalAmount)}
                       </td>
-                      {numCol(row, "batch1", "-", "w-16")}
-                      {numCol(row, "batch2", "-", "w-16")}
-                      {numCol(row, "batch3", "-", "w-16")}
-                      {numCol(row, "batch4", "-", "w-16")}
-                      {numCol(row, "batch5", "-", "w-16")}
-                      {numCol(row, "batch6", "-", "w-16")}
-                      <td className="px-2 py-1">
+                      {numCol(row, "batch1", "-", "w-20")}
+                      {numCol(row, "batch2", "-", "w-20")}
+                      {numCol(row, "batch3", "-", "w-20")}
+                      {numCol(row, "batch4", "-", "w-20")}
+                      {numCol(row, "batch5", "-", "w-20")}
+                      {numCol(row, "batch6", "-", "w-20")}
+                      <td className="px-2 py-2">
                         <button
                           onClick={() => handleDelete(row.id)}
-                          className="text-slate-300 hover:text-red-500 transition-colors px-1"
+                          className="text-slate-300 hover:text-red-500 transition-colors px-1 text-base"
                           title="刪除"
                         >
                           ✕
@@ -326,7 +368,7 @@ export default function StrategyPage() {
         )}
       </div>
 
-      <p className="text-[11px] text-slate-400 mt-3">
+      <p className="text-xs text-slate-400 mt-3">
         盈虧 = (股數 × 當前 − 股數 × 均價) − 買進手續費 − 賣出手續費 − 證券交易稅（賣出方向課徵0.3%）；
         手續費 = 成交金額 × {(feeRate * 100).toFixed(4)}% × 折扣（1 = 無折扣，0.6 = 6折）；報酬率 = 盈虧 ÷ (投入成本 + 買進手續費)
       </p>

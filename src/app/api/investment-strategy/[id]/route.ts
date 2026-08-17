@@ -36,6 +36,10 @@ export async function PATCH(
   if ("discount" in data && (data.discount == null || Number.isNaN(data.discount))) {
     data.discount = 1;
   }
+  if ("order" in body) {
+    const o = Math.trunc(Number(body.order));
+    data.order = Number.isNaN(o) ? existing.order : o;
+  }
 
   const updated = await prisma.investmentStrategyEntry.update({
     where: { id },
