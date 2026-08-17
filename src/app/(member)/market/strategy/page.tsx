@@ -125,15 +125,50 @@ export default function StrategyPage() {
       fetch("/api/investment-strategy"),
       fetch("/api/fee-settings"),
     ]);
+    const authenticated = entriesRes.status !== 401;
     const [entriesData, feeData] = await Promise.all([entriesRes.json(), feeRes.json()]);
     setRows(Array.isArray(entriesData) ? entriesData.map(toRow) : []);
     const fees: { key: string; rate: number }[] = Array.isArray(feeData) ? feeData : [];
     const commission = fees.find((f) => f.key === "stock_commission");
     if (commission) setFeeRate(commission.rate / 100);
     setLoading(false);
+    return authenticated;
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [priceUpdatedAt, setPriceUpdatedAt] = useState<string | null>(null);
+
+  // 「當前」欄位自動抓證交所當日收盤價回填，不用每天手動輸入；
+  // 進頁面時自動抓一次，也保留手動按鈕可以隨時重新抓
+  const handleRefreshPrices = useCallback(async () => {
+    setRefreshingPrices(true);
+    try {
+      const res = await authFetch("/api/investment-strategy/refresh-prices", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        const updated: RawEntry[] = Array.isArray(data.updated) ? data.updated : [];
+        if (updated.length > 0) {
+          const map = new Map(updated.map((u) => [String(u.id), u]));
+          setRows((prev) =>
+            prev.map((r) => {
+              const u = map.get(r.id);
+              if (!u || u.currentPrice == null) return r;
+              return { ...r, currentPrice: String(u.currentPrice) };
+            })
+          );
+        }
+        setPriceUpdatedAt(new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }));
+      }
+    } finally {
+      setRefreshingPrices(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAll().then((authenticated) => {
+      if (authenticated) handleRefreshPrices();
+    });
+  }, [fetchAll, handleRefreshPrices]);
 
   const handleChange = (id: string, field: keyof StrategyRow, value: string) => {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
@@ -223,15 +258,30 @@ export default function StrategyPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">投資策略</h1>
           <p className="text-slate-500 text-sm mt-1">
-            手動記錄持股策略與未來目標價；盈虧／報酬率會自動扣除買賣手續費（依折扣）與證券交易稅計算
+            手動記錄持股策略與未來目標價；「當前」會自動抓證交所當日收盤價回填，不用手動輸入；
+            盈虧／報酬率會自動扣除買賣手續費（依折扣）與證券交易稅計算
           </p>
         </div>
-        <button
-          onClick={handleAdd}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors shrink-0"
-        >
-          + 新增一筆
-        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-right">
+            <button
+              onClick={handleRefreshPrices}
+              disabled={refreshingPrices}
+              className="text-sm text-indigo-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
+            >
+              {refreshingPrices ? "更新中..." : "↻ 更新當前股價"}
+            </button>
+            {priceUpdatedAt && !refreshingPrices && (
+              <div className="text-[11px] text-slate-400 mt-0.5">上次更新 {priceUpdatedAt}</div>
+            )}
+          </div>
+          <button
+            onClick={handleAdd}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
+          >
+            + 新增一筆
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-6 max-w-md">
