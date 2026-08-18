@@ -24,6 +24,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "market.forex", label: "外匯", href: "/market/forex", section: "市場行情" },
   { key: "market.crypto", label: "虛擬貨幣", href: "/market/crypto", section: "市場行情" },
   { key: "market.metals", label: "貴金屬", href: "/market/metals", section: "市場行情" },
+  { key: "assistant", label: "智能助理", href: "/assistant", section: null },
   { key: "profile", label: "會員資料管理", href: "/profile", section: null },
 ];
 

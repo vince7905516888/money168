@@ -12,6 +12,7 @@ const ICONS: Record<string, string> = {
   reports: "▦",
   debts: "📉",
   "investment.overview": "💼",
+  assistant: "🤖",
   profile: "👤",
 };
 
