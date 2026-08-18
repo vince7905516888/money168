@@ -8,6 +8,7 @@ import { useSidebar } from "./SidebarContext";
 
 const topItems = [
   { href: "/admin/dashboard", label: "後台總覽", icon: "◎" },
+  { href: "/admin/token-usage", label: "TOKEN使用量", icon: "🔢" },
 ];
 
 const settingsItemsAll = [

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 // gemini-2.5-flash 對新用戶已經被下架（呼叫會直接404，官方訊息指名改用這個），
 // 這裡固定用目前的正式版本，之後Google又下架的話要來這裡改。
@@ -67,6 +68,22 @@ export async function POST(req: NextRequest) {
     const reply = parts.map((p) => p.text ?? "").join("");
     if (!reply) {
       return NextResponse.json({ error: "AI 沒有回應內容，請再試一次" }, { status: 502 });
+    }
+
+    // 記一筆token用量供後台「TOKEN使用量」頁面彙總查詢，記錄失敗不影響本次回覆
+    const usage = data?.usageMetadata;
+    if (usage) {
+      await prisma.tokenUsageLog
+        .create({
+          data: {
+            userId: session.user.id,
+            model: GEMINI_MODEL,
+            promptTokens: usage.promptTokenCount ?? 0,
+            completionTokens: usage.candidatesTokenCount ?? 0,
+            totalTokens: usage.totalTokenCount ?? 0,
+          },
+        })
+        .catch((e) => console.error("token usage log failed:", e));
     }
 
     return NextResponse.json({ reply });

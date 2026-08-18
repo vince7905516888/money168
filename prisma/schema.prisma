@@ -36,6 +36,7 @@ model User {
   userFundNavs       UserFundNav[]
   userWatchStocks    UserWatchStock[]
   strategyEntries    InvestmentStrategyEntry[]
+  tokenUsageLogs     TokenUsageLog[]
 }
 
 model UserBank {
@@ -379,6 +380,23 @@ model MarketRankingSnapshot {
 
   @@unique([code, date])
   @@index([date])
+}
+
+// 每次呼叫Gemini（目前只有智能助理）都記一筆token用量，供後台「TOKEN使用量」頁面依會員
+// 彙總查詢，監控成本／抓濫用。feature欄位先留著，之後如果還有別的功能會呼叫AI才不用改表。
+model TokenUsageLog {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature          String   @default("assistant")
+  model            String
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 // 期交所三大法人期貨未平倉逐日存檔：每次台股頁被查詢時，把當天三大法人（自營商/投信/外資）
