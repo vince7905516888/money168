@@ -20,7 +20,17 @@ interface VideoSummary {
   createdAt: string;
 }
 
+interface MartingaleStrategy {
+  id: string;
+  name: string;
+  ratios: number[];
+  note: string | null;
+}
+
 const EMPTY_RULE_FORM = { code: "", name: "", condition: "ABOVE" as "ABOVE" | "BELOW", value: "", note: "" };
+const MAX_MARTINGALE_STEPS = 8;
+const MIN_MARTINGALE_STEPS = 2;
+const EMPTY_MARTINGALE_FORM = { name: "", note: "", ratios: ["1", "1"] };
 
 export default function StockMarketSettingsPage() {
   const { themeKey } = useAdminTheme();
@@ -39,6 +49,14 @@ export default function StockMarketSettingsPage() {
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState("");
 
+  const [martingales, setMartingales] = useState<MartingaleStrategy[]>([]);
+  const [martingalesLoading, setMartingalesLoading] = useState(true);
+  const [showAddMartingale, setShowAddMartingale] = useState(false);
+  const [martingaleForm, setMartingaleForm] = useState(EMPTY_MARTINGALE_FORM);
+  const [martingaleSaving, setMartingaleSaving] = useState(false);
+  const [editingMartingale, setEditingMartingale] = useState<MartingaleStrategy | null>(null);
+  const [editMartingaleForm, setEditMartingaleForm] = useState(EMPTY_MARTINGALE_FORM);
+
   const fetchRules = useCallback(async () => {
     setRulesLoading(true);
     const res = await fetch("/api/admin/stock-signal-rules");
@@ -55,7 +73,15 @@ export default function StockMarketSettingsPage() {
     setSummariesLoading(false);
   }, []);
 
-  useEffect(() => { fetchRules(); fetchSummaries(); }, [fetchRules, fetchSummaries]);
+  const fetchMartingales = useCallback(async () => {
+    setMartingalesLoading(true);
+    const res = await fetch("/api/admin/martingale-strategies");
+    const data = await res.json();
+    setMartingales(Array.isArray(data) ? data : []);
+    setMartingalesLoading(false);
+  }, []);
+
+  useEffect(() => { fetchRules(); fetchSummaries(); fetchMartingales(); }, [fetchRules, fetchSummaries, fetchMartingales]);
 
   const handleAddRule = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,11 +169,73 @@ export default function StockMarketSettingsPage() {
     fetchSummaries();
   };
 
+  const addRatioField = (setForm: typeof setMartingaleForm) =>
+    setForm((f) => (f.ratios.length >= MAX_MARTINGALE_STEPS ? f : { ...f, ratios: [...f.ratios, ""] }));
+
+  const removeRatioField = (setForm: typeof setMartingaleForm, index: number) =>
+    setForm((f) => (f.ratios.length <= MIN_MARTINGALE_STEPS ? f : { ...f, ratios: f.ratios.filter((_, i) => i !== index) }));
+
+  const updateRatioField = (setForm: typeof setMartingaleForm, index: number, value: string) =>
+    setForm((f) => ({ ...f, ratios: f.ratios.map((r, i) => (i === index ? value : r)) }));
+
+  const handleAddMartingale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMartingaleSaving(true);
+    const res = await fetch("/api/admin/martingale-strategies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...martingaleForm, ratios: martingaleForm.ratios.map((r) => parseFloat(r)) }),
+    });
+    setMartingaleSaving(false);
+    if (res.ok) {
+      setShowAddMartingale(false);
+      setMartingaleForm(EMPTY_MARTINGALE_FORM);
+      fetchMartingales();
+    } else {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "新增失敗");
+    }
+  };
+
+  const openEditMartingale = (m: MartingaleStrategy) => {
+    setEditingMartingale(m);
+    setEditMartingaleForm({ name: m.name, note: m.note ?? "", ratios: m.ratios.map((r) => String(r)) });
+  };
+
+  const handleSaveMartingale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMartingale) return;
+    setMartingaleSaving(true);
+    const res = await fetch("/api/admin/martingale-strategies", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: editingMartingale.id, ...editMartingaleForm, ratios: editMartingaleForm.ratios.map((r) => parseFloat(r)) }),
+    });
+    setMartingaleSaving(false);
+    if (res.ok) {
+      setEditingMartingale(null);
+      fetchMartingales();
+    } else {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "儲存失敗");
+    }
+  };
+
+  const handleDeleteMartingale = async (m: MartingaleStrategy) => {
+    if (!confirm(`確定要刪除「${m.name}」這個馬丁格爾策略？`)) return;
+    await fetch("/api/admin/martingale-strategies", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: m.id }),
+    });
+    fetchMartingales();
+  };
+
   return (
     <div className="max-w-4xl">
       <div className="mb-8">
         <h1 className={`text-2xl font-bold ${skin.heading}`}>股市設定</h1>
-        <p className={`${skin.subheading} text-sm mt-1`}>買賣訊號條件設定與分析師影片重點整理</p>
+        <p className={`${skin.subheading} text-sm mt-1`}>買賣訊號條件設定、馬丁格爾策略模版與分析師影片重點整理</p>
       </div>
 
       {/* 買賣訊號設定 */}
@@ -207,6 +295,47 @@ export default function StockMarketSettingsPage() {
       </div>
       <p className="text-xs text-slate-500 mb-8 px-1">
         目前僅提供規則的新增/管理，尚未串接「自動監控股價並發送通知」的機制，之後可以再依需求加上。
+      </p>
+
+      {/* 馬丁格爾策略模版 */}
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden mb-4">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+          <div>
+            <h2 className="font-semibold text-slate-50">馬丁格爾策略模版</h2>
+            <p className="text-xs text-slate-400 mt-0.5">設定加碼比例模版，最少 2 次、最多 8 次補投入</p>
+          </div>
+          <button
+            onClick={() => setShowAddMartingale(true)}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
+          >
+            + 新增策略
+          </button>
+        </div>
+
+        {martingalesLoading ? (
+          <div className="py-10 text-center text-slate-400 text-sm">載入中...</div>
+        ) : martingales.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-sm">尚未設定任何馬丁格爾策略模版</div>
+        ) : (
+          <div className="divide-y divide-slate-700">
+            {martingales.map((m) => (
+              <div key={m.id} className="flex items-center justify-between px-5 py-4 hover:bg-slate-700/50 transition-colors">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-50">{m.name}</div>
+                  <div className="text-xs text-amber-400 font-mono mt-0.5">{m.ratios.join(" : ")}</div>
+                  {m.note && <div className="text-xs text-slate-500 mt-0.5">{m.note}</div>}
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => openEditMartingale(m)} className="text-xs px-2 py-1 rounded-lg text-indigo-400 hover:bg-indigo-900/30 transition-colors">編輯</button>
+                  <button onClick={() => handleDeleteMartingale(m)} className="text-xs px-2 py-1 rounded-lg text-red-400 hover:bg-red-900/30 transition-colors">刪除</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-slate-500 mb-8 px-1">
+        核心邏輯（股數比例）依序代表第 1 次到第 N 次投入的相對股數，例如「1 : 1 : 3 : 5」代表第 3 次補投入是第 1 次的 3 倍。
       </p>
 
       {/* YouTube 分析師影片摘要 */}
@@ -359,6 +488,125 @@ export default function StockMarketSettingsPage() {
                 <button type="submit" disabled={ruleSaving}
                   className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60">
                   {ruleSaving ? "儲存中..." : "儲存"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 新增馬丁格爾策略 Modal */}
+      {showAddMartingale && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-700">
+            <h2 className="text-lg font-bold text-slate-50 mb-5">新增馬丁格爾策略</h2>
+            <form onSubmit={handleAddMartingale} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">方案名稱 <span className="text-red-400">*</span></label>
+                <input required value={martingaleForm.name} onChange={(e) => setMartingaleForm({ ...martingaleForm, name: e.target.value })}
+                  placeholder="例如：強化平衡"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  核心邏輯（股數比例）<span className="text-red-400">*</span>
+                  <span className="text-slate-500 font-normal ml-1">最少 {MIN_MARTINGALE_STEPS} 次、最多 {MAX_MARTINGALE_STEPS} 次補投入</span>
+                </label>
+                <div className="space-y-2">
+                  {martingaleForm.ratios.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500 w-14 shrink-0">第 {i + 1} 次</span>
+                      <input required type="number" min="0" step="any" value={r}
+                        onChange={(e) => updateRatioField(setMartingaleForm, i, e.target.value)}
+                        placeholder="比例"
+                        className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2 text-sm text-slate-50 focus:border-indigo-500 transition-colors" />
+                      <button type="button" onClick={() => removeRatioField(setMartingaleForm, i)}
+                        disabled={martingaleForm.ratios.length <= MIN_MARTINGALE_STEPS}
+                        className="text-slate-500 hover:text-red-400 disabled:opacity-20 disabled:hover:text-slate-500 text-xs px-1 shrink-0">
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" onClick={() => addRatioField(setMartingaleForm)}
+                  disabled={martingaleForm.ratios.length >= MAX_MARTINGALE_STEPS}
+                  className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 hover:underline disabled:opacity-30 disabled:hover:no-underline">
+                  + 新增一次補投入
+                </button>
+                <p className="text-xs text-amber-400 font-mono mt-2">{martingaleForm.ratios.filter((r) => r !== "").join(" : ") || "—"}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">備註（選填）</label>
+                <input value={martingaleForm.note} onChange={(e) => setMartingaleForm({ ...martingaleForm, note: e.target.value })}
+                  placeholder="說明或備註..."
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors" />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => { setShowAddMartingale(false); setMartingaleForm(EMPTY_MARTINGALE_FORM); }}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">
+                  取消
+                </button>
+                <button type="submit" disabled={martingaleSaving}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60">
+                  {martingaleSaving ? "新增中..." : "新增"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 編輯馬丁格爾策略 Modal */}
+      {editingMartingale && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-700">
+            <h2 className="text-lg font-bold text-slate-50 mb-5">編輯馬丁格爾策略</h2>
+            <form onSubmit={handleSaveMartingale} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">方案名稱</label>
+                <input required value={editMartingaleForm.name} onChange={(e) => setEditMartingaleForm({ ...editMartingaleForm, name: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 focus:border-indigo-500 transition-colors" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  核心邏輯（股數比例）
+                  <span className="text-slate-500 font-normal ml-1">最少 {MIN_MARTINGALE_STEPS} 次、最多 {MAX_MARTINGALE_STEPS} 次補投入</span>
+                </label>
+                <div className="space-y-2">
+                  {editMartingaleForm.ratios.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-slate-500 w-14 shrink-0">第 {i + 1} 次</span>
+                      <input required type="number" min="0" step="any" value={r}
+                        onChange={(e) => updateRatioField(setEditMartingaleForm, i, e.target.value)}
+                        className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2 text-sm text-slate-50 focus:border-indigo-500 transition-colors" />
+                      <button type="button" onClick={() => removeRatioField(setEditMartingaleForm, i)}
+                        disabled={editMartingaleForm.ratios.length <= MIN_MARTINGALE_STEPS}
+                        className="text-slate-500 hover:text-red-400 disabled:opacity-20 disabled:hover:text-slate-500 text-xs px-1 shrink-0">
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" onClick={() => addRatioField(setEditMartingaleForm)}
+                  disabled={editMartingaleForm.ratios.length >= MAX_MARTINGALE_STEPS}
+                  className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 hover:underline disabled:opacity-30 disabled:hover:no-underline">
+                  + 新增一次補投入
+                </button>
+                <p className="text-xs text-amber-400 font-mono mt-2">{editMartingaleForm.ratios.filter((r) => r !== "").join(" : ") || "—"}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">備註（選填）</label>
+                <input value={editMartingaleForm.note} onChange={(e) => setEditMartingaleForm({ ...editMartingaleForm, note: e.target.value })}
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 focus:border-indigo-500 transition-colors" />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setEditingMartingale(null)}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">
+                  取消
+                </button>
+                <button type="submit" disabled={martingaleSaving}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60">
+                  {martingaleSaving ? "儲存中..." : "儲存"}
                 </button>
               </div>
             </form>
