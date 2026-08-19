@@ -44,11 +44,11 @@ export default function TokenUsagePage() {
       <div className="grid grid-cols-2 gap-4 mb-8">
         <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700">
           <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">全站累計TOKEN</div>
-          <div className="text-2xl font-bold text-white">{fmt(grandTotal)}</div>
+          <div className="text-2xl font-bold text-slate-50">{fmt(grandTotal)}</div>
         </div>
         <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700">
           <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">有使用紀錄的會員數</div>
-          <div className="text-2xl font-bold text-white">{rows.length} <span className="text-sm font-normal text-slate-400">人</span></div>
+          <div className="text-2xl font-bold text-slate-50">{rows.length} <span className="text-sm font-normal text-slate-400">人</span></div>
         </div>
       </div>
 
@@ -74,7 +74,7 @@ export default function TokenUsagePage() {
                 {rows.map((r) => (
                   <tr key={r.userId} className="hover:bg-slate-700/40 transition-colors">
                     <td className="px-5 py-3">
-                      <div className="text-white font-medium">{r.name}</div>
+                      <div className="text-slate-50 font-medium">{r.name}</div>
                       <div className="text-xs text-slate-400">{r.email}</div>
                     </td>
                     <td className="px-5 py-3 text-right text-slate-300">{fmt(r.requestCount)}</td>

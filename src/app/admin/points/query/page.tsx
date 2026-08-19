@@ -60,7 +60,7 @@ export default function PointsQueryPage() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="搜尋姓名或 Email..."
-        className="w-full max-w-sm bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors mb-6"
+        className="w-full max-w-sm bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors mb-6"
       />
 
       <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
@@ -80,7 +80,7 @@ export default function PointsQueryPage() {
             {users.map((u) => (
               <div key={u.id} className="grid grid-cols-12 items-center px-5 py-4 hover:bg-slate-700/40 transition-colors">
                 <div className="col-span-4">
-                  <div className="text-sm font-medium text-white">{u.name}</div>
+                  <div className="text-sm font-medium text-slate-50">{u.name}</div>
                   <span className="inline-flex items-center mt-0.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-700 text-slate-300">
                     {u.role === "ADMIN" ? "管理員" : "會員"}
                   </span>
@@ -92,7 +92,7 @@ export default function PointsQueryPage() {
                     type="number"
                     value={editValues[u.id] ?? ""}
                     onChange={(e) => setEditValues((prev) => ({ ...prev, [u.id]: e.target.value }))}
-                    className="w-20 bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-white text-right focus:border-indigo-500 transition-colors"
+                    className="w-20 bg-slate-700 border border-slate-600 rounded-lg px-2 py-1.5 text-sm text-slate-50 text-right focus:border-indigo-500 transition-colors"
                   />
                   <button
                     onClick={() => handleSave(u.id)}

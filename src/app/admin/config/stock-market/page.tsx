@@ -154,7 +154,7 @@ export default function StockMarketSettingsPage() {
       <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden mb-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
           <div>
-            <h2 className="font-semibold text-white">買賣訊號設定</h2>
+            <h2 className="font-semibold text-slate-50">買賣訊號設定</h2>
             <p className="text-xs text-slate-400 mt-0.5">設定股票代碼與價格條件，之後可依此觸發通知</p>
           </div>
           <button
@@ -186,7 +186,7 @@ export default function StockMarketSettingsPage() {
                     />
                   </button>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-white flex items-center gap-2">
+                    <div className="text-sm font-medium text-slate-50 flex items-center gap-2">
                       <span className="font-mono">{rule.code}</span>
                       {rule.name && <span className="text-slate-400">{rule.name}</span>}
                     </div>
@@ -212,7 +212,7 @@ export default function StockMarketSettingsPage() {
       {/* YouTube 分析師影片摘要 */}
       <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden mb-4">
         <div className="px-5 py-4 border-b border-slate-700">
-          <h2 className="font-semibold text-white">分析師影片重點整理</h2>
+          <h2 className="font-semibold text-slate-50">分析師影片重點整理</h2>
           <p className="text-xs text-slate-400 mt-0.5">貼上 YouTube 影片網址，由 AI 摘要重點、提到的標的與操作建議</p>
         </div>
         <form onSubmit={handleSummarize} className="flex gap-2 px-5 py-4 border-b border-slate-700">
@@ -221,7 +221,7 @@ export default function StockMarketSettingsPage() {
             value={videoUrl}
             onChange={(e) => setVideoUrl(e.target.value)}
             placeholder="貼上 YouTube 影片網址，例如：https://www.youtube.com/watch?v=..."
-            className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+            className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
           />
           <button
             type="submit"
@@ -264,25 +264,25 @@ export default function StockMarketSettingsPage() {
       {showAddRule && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-700">
-            <h2 className="text-lg font-bold text-white mb-5">新增買賣訊號規則</h2>
+            <h2 className="text-lg font-bold text-slate-50 mb-5">新增買賣訊號規則</h2>
             <form onSubmit={handleAddRule} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1.5">股票代碼 <span className="text-red-400">*</span></label>
                 <input required value={ruleForm.code} onChange={(e) => setRuleForm({ ...ruleForm, code: e.target.value })}
                   placeholder="例如：2330"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 font-mono focus:border-indigo-500 transition-colors" />
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 font-mono focus:border-indigo-500 transition-colors" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1.5">名稱（選填）</label>
                 <input value={ruleForm.name} onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })}
                   placeholder="例如：台積電"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors" />
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1.5">條件</label>
                   <select value={ruleForm.condition} onChange={(e) => setRuleForm({ ...ruleForm, condition: e.target.value as "ABOVE" | "BELOW" })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white focus:border-indigo-500 transition-colors">
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 focus:border-indigo-500 transition-colors">
                     <option value="ABOVE">價格高於</option>
                     <option value="BELOW">價格低於</option>
                   </select>
@@ -291,14 +291,14 @@ export default function StockMarketSettingsPage() {
                   <label className="block text-sm font-medium text-slate-300 mb-1.5">門檻價格 <span className="text-red-400">*</span></label>
                   <input required type="number" min="0" step="any" value={ruleForm.value} onChange={(e) => setRuleForm({ ...ruleForm, value: e.target.value })}
                     placeholder="例如：600"
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors" />
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1.5">備註（選填）</label>
                 <input value={ruleForm.note} onChange={(e) => setRuleForm({ ...ruleForm, note: e.target.value })}
                   placeholder="說明或備註..."
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors" />
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors" />
               </div>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => { setShowAddRule(false); setRuleForm(EMPTY_RULE_FORM); }}
@@ -319,23 +319,23 @@ export default function StockMarketSettingsPage() {
       {editingRule && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-700">
-            <h2 className="text-lg font-bold text-white mb-5">編輯買賣訊號規則</h2>
+            <h2 className="text-lg font-bold text-slate-50 mb-5">編輯買賣訊號規則</h2>
             <form onSubmit={handleSaveRule} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1.5">股票代碼</label>
                 <input required value={editRuleForm.code} onChange={(e) => setEditRuleForm({ ...editRuleForm, code: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white font-mono focus:border-indigo-500 transition-colors" />
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 font-mono focus:border-indigo-500 transition-colors" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1.5">名稱（選填）</label>
                 <input value={editRuleForm.name} onChange={(e) => setEditRuleForm({ ...editRuleForm, name: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white focus:border-indigo-500 transition-colors" />
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 focus:border-indigo-500 transition-colors" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1.5">條件</label>
                   <select value={editRuleForm.condition} onChange={(e) => setEditRuleForm({ ...editRuleForm, condition: e.target.value as "ABOVE" | "BELOW" })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white focus:border-indigo-500 transition-colors">
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 focus:border-indigo-500 transition-colors">
                     <option value="ABOVE">價格高於</option>
                     <option value="BELOW">價格低於</option>
                   </select>
@@ -343,13 +343,13 @@ export default function StockMarketSettingsPage() {
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1.5">門檻價格</label>
                   <input required type="number" min="0" step="any" value={editRuleForm.value} onChange={(e) => setEditRuleForm({ ...editRuleForm, value: e.target.value })}
-                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white focus:border-indigo-500 transition-colors" />
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 focus:border-indigo-500 transition-colors" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1.5">備註（選填）</label>
                 <input value={editRuleForm.note} onChange={(e) => setEditRuleForm({ ...editRuleForm, note: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white focus:border-indigo-500 transition-colors" />
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 focus:border-indigo-500 transition-colors" />
               </div>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setEditingRule(null)}

@@ -88,20 +88,20 @@ export default function NavLayoutPage() {
                   <button
                     onClick={() => move(index, -1)}
                     disabled={index === 0}
-                    className="text-slate-500 hover:text-white disabled:opacity-20 disabled:hover:text-slate-500 text-xs leading-none px-1"
+                    className="text-slate-500 hover:text-slate-50 disabled:opacity-20 disabled:hover:text-slate-500 text-xs leading-none px-1"
                   >
                     ▲
                   </button>
                   <button
                     onClick={() => move(index, 1)}
                     disabled={index === items.length - 1}
-                    className="text-slate-500 hover:text-white disabled:opacity-20 disabled:hover:text-slate-500 text-xs leading-none px-1"
+                    className="text-slate-500 hover:text-slate-50 disabled:opacity-20 disabled:hover:text-slate-500 text-xs leading-none px-1"
                   >
                     ▼
                   </button>
                 </div>
                 <div>
-                  <div className="text-sm font-medium text-white">{item.label}</div>
+                  <div className="text-sm font-medium text-slate-50">{item.label}</div>
                   <div className="text-xs text-slate-500 mt-0.5">
                     {item.section ? `${item.section} · ` : ""}
                     <span className="font-mono">{item.href}</span>

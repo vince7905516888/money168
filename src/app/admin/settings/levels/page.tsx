@@ -74,7 +74,7 @@ export default function LevelsPage() {
           {user.name.charAt(0).toUpperCase()}
         </div>
         <div>
-          <div className="text-sm font-medium text-white">{user.name}</div>
+          <div className="text-sm font-medium text-slate-50">{user.name}</div>
           <div className="text-xs text-slate-400">{user.email}</div>
         </div>
       </div>
@@ -96,7 +96,7 @@ export default function LevelsPage() {
           value={user.role}
           onChange={(e) => changeRole(user, e.target.value)}
           disabled={saving === user.id}
-          className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-xs text-white focus:border-indigo-500 transition-colors disabled:opacity-50"
+          className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-xs text-slate-50 focus:border-indigo-500 transition-colors disabled:opacity-50"
         >
           <option value="MEMBER">會員</option>
           <option value="ADMIN">管理員</option>
@@ -106,7 +106,7 @@ export default function LevelsPage() {
             value={user.isSuperAdmin ? "SUPER" : "STAFF"}
             onChange={(e) => changeAdminLevel(user, e.target.value === "SUPER")}
             disabled={saving === user.id}
-            className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-xs text-white focus:border-indigo-500 transition-colors disabled:opacity-50"
+            className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-xs text-slate-50 focus:border-indigo-500 transition-colors disabled:opacity-50"
           >
             <option value="STAFF">一般管理員</option>
             <option value="SUPER">超級管理員</option>
@@ -116,7 +116,7 @@ export default function LevelsPage() {
             value={user.tier}
             onChange={(e) => changeTier(user, e.target.value)}
             disabled={saving === user.id}
-            className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-xs text-white focus:border-indigo-500 transition-colors disabled:opacity-50"
+            className="bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-xs text-slate-50 focus:border-indigo-500 transition-colors disabled:opacity-50"
           >
             <option value="FREE">一般會員</option>
             <option value="BASIC">進階會員</option>

@@ -117,7 +117,7 @@ export default function FeeSettingsPage() {
               {fees.map((fee) => (
                 <div key={fee.id} className="grid grid-cols-12 items-center px-5 py-4 hover:bg-slate-700/50 transition-colors">
                   <div className="col-span-4">
-                    <div className="text-sm font-medium text-white">{fee.label}</div>
+                    <div className="text-sm font-medium text-slate-50">{fee.label}</div>
                     <div className="text-xs text-slate-500 font-mono mt-0.5">{fee.key}</div>
                   </div>
                   <div className="col-span-2 text-center">
@@ -170,7 +170,7 @@ export default function FeeSettingsPage() {
       {editing && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-700">
-            <h2 className="text-lg font-bold text-white mb-1">編輯費用設定</h2>
+            <h2 className="text-lg font-bold text-slate-50 mb-1">編輯費用設定</h2>
             <p className="text-slate-400 text-sm mb-5">{editing.label}</p>
             <form onSubmit={handleSave} className="space-y-4">
               <div>
@@ -182,7 +182,7 @@ export default function FeeSettingsPage() {
                   value={editForm.rate}
                   onChange={(e) => setEditForm({ ...editForm, rate: e.target.value })}
                   placeholder="例如：0.1425"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
                 />
               </div>
               <div>
@@ -194,7 +194,7 @@ export default function FeeSettingsPage() {
                   value={editForm.fixedAmount}
                   onChange={(e) => setEditForm({ ...editForm, fixedAmount: e.target.value })}
                   placeholder="例如：30"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
                 />
               </div>
               <div>
@@ -203,7 +203,7 @@ export default function FeeSettingsPage() {
                   value={editForm.note}
                   onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
                   placeholder="說明或備註..."
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
                 />
               </div>
               <div className="flex gap-2 pt-2">
@@ -231,7 +231,7 @@ export default function FeeSettingsPage() {
       {showAddModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-700">
-            <h2 className="text-lg font-bold text-white mb-5">新增費用項目</h2>
+            <h2 className="text-lg font-bold text-slate-50 mb-5">新增費用項目</h2>
             <form onSubmit={handleAdd} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1.5">項目名稱 <span className="text-red-400">*</span></label>
@@ -240,7 +240,7 @@ export default function FeeSettingsPage() {
                   value={addForm.label}
                   onChange={(e) => setAddForm({ ...addForm, label: e.target.value })}
                   placeholder="例如：ETF 申購手續費"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
                 />
               </div>
               <div>
@@ -250,7 +250,7 @@ export default function FeeSettingsPage() {
                   value={addForm.key}
                   onChange={(e) => setAddForm({ ...addForm, key: e.target.value.toLowerCase().replace(/\s+/g, "_") })}
                   placeholder="例如：etf_commission（英文小寫，底線連接）"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 font-mono focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 font-mono focus:border-indigo-500 transition-colors"
                 />
               </div>
               <div>
@@ -262,7 +262,7 @@ export default function FeeSettingsPage() {
                   value={addForm.rate}
                   onChange={(e) => setAddForm({ ...addForm, rate: e.target.value })}
                   placeholder="0"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
                 />
               </div>
               <div>
@@ -274,7 +274,7 @@ export default function FeeSettingsPage() {
                   value={addForm.fixedAmount}
                   onChange={(e) => setAddForm({ ...addForm, fixedAmount: e.target.value })}
                   placeholder="0"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
                 />
               </div>
               <div>
@@ -283,7 +283,7 @@ export default function FeeSettingsPage() {
                   value={addForm.note}
                   onChange={(e) => setAddForm({ ...addForm, note: e.target.value })}
                   placeholder="說明或備註..."
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
                 />
               </div>
               <div className="flex gap-2 pt-2">

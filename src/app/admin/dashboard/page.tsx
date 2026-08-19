@@ -51,7 +51,7 @@ export default function AdminDashboardPage() {
             ].map((s) => (
               <div key={s.label} className="bg-slate-800 rounded-2xl p-5 border border-slate-700">
                 <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">{s.label}</div>
-                <div className="text-2xl font-bold text-white">
+                <div className="text-2xl font-bold text-slate-50">
                   {s.value.toLocaleString()}
                   <span className="text-sm font-normal text-slate-400 ml-1">{s.suffix}</span>
                 </div>
@@ -63,7 +63,7 @@ export default function AdminDashboardPage() {
           <div className="grid grid-cols-3 gap-4 mb-8">
             <div className="bg-slate-800 rounded-2xl p-5 border border-slate-700">
               <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">站結正資產總計</div>
-              <div className="text-2xl font-bold text-white">{fmt(stats?.sitePositiveAssetsTotal ?? 0)}</div>
+              <div className="text-2xl font-bold text-slate-50">{fmt(stats?.sitePositiveAssetsTotal ?? 0)}</div>
             </div>
             <div className="bg-red-950/40 rounded-2xl p-5 border border-red-900/50">
               <div className="text-xs text-red-400 uppercase tracking-wider mb-2">站結負債總額</div>

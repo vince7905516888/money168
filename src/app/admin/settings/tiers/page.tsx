@@ -88,7 +88,7 @@ export default function TiersPage() {
             {rows.map((row) => (
               <div key={row.key} className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-slate-700/40 transition-colors">
                 <div className="col-span-6">
-                  <div className="text-sm font-medium text-white">{row.label}</div>
+                  <div className="text-sm font-medium text-slate-50">{row.label}</div>
                   {row.section && <div className="text-xs text-slate-500 mt-0.5">{row.section}</div>}
                 </div>
                 {TIERS.map((t) => (

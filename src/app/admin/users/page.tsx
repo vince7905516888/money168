@@ -126,7 +126,7 @@ export default function AdminUsersPage() {
         placeholder="搜尋姓名或 Email..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-full mb-5 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+        className="w-full mb-5 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
       />
 
       {/* Table */}
@@ -153,7 +153,7 @@ export default function AdminUsersPage() {
                     {user.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-white truncate">{user.name}</div>
+                    <div className="text-sm font-medium text-slate-50 truncate">{user.name}</div>
                     <div className="text-xs text-slate-400 truncate">{user.email}</div>
                   </div>
                 </div>
@@ -233,7 +233,7 @@ export default function AdminUsersPage() {
       {editTarget && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-2xl shadow-xl w-full max-w-md p-6 border border-slate-700">
-            <h2 className="text-lg font-bold text-white mb-1">編輯帳戶</h2>
+            <h2 className="text-lg font-bold text-slate-50 mb-1">編輯帳戶</h2>
             <p className="text-slate-400 text-sm mb-5">{editTarget.name} · {editTarget.email}</p>
             <form onSubmit={handleSave} className="space-y-4">
               <div>
@@ -241,7 +241,7 @@ export default function AdminUsersPage() {
                 <select
                   value={editForm.role}
                   onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 focus:border-indigo-500 transition-colors"
                 >
                   <option value="MEMBER">會員</option>
                   <option value="ADMIN">管理員</option>
@@ -256,7 +256,7 @@ export default function AdminUsersPage() {
                   value={editForm.password}
                   onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
                   placeholder="輸入新密碼（至少 6 字元）"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
                 />
               </div>
               <div>
@@ -266,7 +266,7 @@ export default function AdminUsersPage() {
                   value={editForm.confirmPassword}
                   onChange={(e) => setEditForm({ ...editForm, confirmPassword: e.target.value })}
                   placeholder="再次輸入新密碼"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
                 />
               </div>
               {saveError && (
