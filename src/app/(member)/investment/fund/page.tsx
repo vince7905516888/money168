@@ -30,6 +30,12 @@ interface UserFund {
   name: string;
 }
 
+interface UserFundNav {
+  id: string;
+  fundKey: string;
+  nav: number;
+}
+
 const DEFAULT_BANKS = [
   "台灣銀行", "合作金庫", "第一銀行", "華南銀行", "彰化銀行",
   "兆豐銀行", "土地銀行", "國泰世華", "玉山銀行", "中國信託",
@@ -76,17 +82,23 @@ export default function FundPage() {
   const [addFundNameOpen, setAddFundNameOpen] = useState(false);
   const [addFundNameLoading, setAddFundNameLoading] = useState(false);
 
+  const [savedNavs, setSavedNavs] = useState<UserFundNav[]>([]);
+  const [navInputs, setNavInputs] = useState<Record<string, string>>({});
+  const [navSavingKey, setNavSavingKey] = useState<string | null>(null);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, bankRes, fundNameRes] = await Promise.all([
+    const [invRes, bankRes, fundNameRes, navRes] = await Promise.all([
       fetch("/api/investments?type=FUND"),
       fetch("/api/user-banks"),
       fetch("/api/user-funds"),
+      fetch("/api/user-fund-nav"),
     ]);
-    const [invData, bankData, fundNameData] = await Promise.all([invRes.json(), bankRes.json(), fundNameRes.json()]);
+    const [invData, bankData, fundNameData, navData] = await Promise.all([invRes.json(), bankRes.json(), fundNameRes.json(), navRes.json()]);
     setInvestments(Array.isArray(invData) ? invData : []);
     setUserBanks(Array.isArray(bankData) ? bankData : []);
     setUserFunds(Array.isArray(fundNameData) ? fundNameData : []);
+    setSavedNavs(Array.isArray(navData) ? navData : []);
     setLoading(false);
   }, []);
 
@@ -155,6 +167,47 @@ export default function FundPage() {
     return acc;
   }, {} as Record<string, { name: string; code?: string; count: number; amount: number; units: number }>);
   const fundGroupList = Object.values(fundGroups);
+
+  // 目前淨值輸入欄位第一次出現時，帶入已儲存的淨值
+  useEffect(() => {
+    if (loading) return;
+    setNavInputs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const g of fundGroupList) {
+        const key = g.code || g.name;
+        if (next[key] === undefined) {
+          const saved = savedNavs.find((n) => n.fundKey === key);
+          next[key] = saved ? String(saved.nav) : "";
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, investments, savedNavs]);
+
+  const handleNavChange = (fundKey: string, value: string) => {
+    setNavInputs((prev) => ({ ...prev, [fundKey]: value }));
+  };
+
+  const handleNavBlur = async (fundKey: string) => {
+    const navVal = parseFloat(navInputs[fundKey] ?? "");
+    if (isNaN(navVal)) return;
+    const existing = savedNavs.find((n) => n.fundKey === fundKey);
+    if (existing && existing.nav === navVal) return;
+    setNavSavingKey(fundKey);
+    const res = await authFetch("/api/user-fund-nav", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fundKey, nav: navVal }),
+    });
+    setNavSavingKey(null);
+    if (res.ok) {
+      const updated = await res.json();
+      setSavedNavs((prev) => [...prev.filter((n) => n.fundKey !== fundKey), updated]);
+    }
+  };
 
   // ---- 新增表單：即時試算 ----
   const nav = parseFloat(addForm.price) || 0;
@@ -270,19 +323,49 @@ export default function FundPage() {
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">基金投資紀錄</div>
           <div className="divide-y divide-slate-50">
-            {fundGroupList.map((g) => (
-              <div key={g.code || g.name} className="flex items-center justify-between py-2 text-sm">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-slate-700 truncate">{g.name}</span>
-                  {g.code && <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded shrink-0">{g.code}</span>}
+            {fundGroupList.map((g) => {
+              const key = g.code || g.name;
+              const navVal = parseFloat(navInputs[key] ?? "");
+              const hasNav = !isNaN(navVal) && navVal > 0;
+              const currentValue = hasNav ? g.units * navVal : 0;
+              const gain = hasNav ? currentValue - g.amount : 0;
+              const gainPct = hasNav && g.amount !== 0 ? (gain / g.amount) * 100 : 0;
+              return (
+                <div key={key} className="py-2.5 text-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-slate-700 truncate">{g.name}</span>
+                      {g.code && <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded shrink-0">{g.code}</span>}
+                    </div>
+                    <div className="flex items-center gap-4 shrink-0">
+                      <span className="text-xs text-slate-400">{fmt2(g.units)} 單位</span>
+                      <span className="text-xs text-slate-400">{g.count} 筆</span>
+                      <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-3 mt-1.5">
+                    <label className="text-xs text-slate-400 shrink-0">目前淨值</label>
+                    <input
+                      type="number" min="0" step="any"
+                      value={navInputs[key] ?? ""}
+                      onChange={(e) => handleNavChange(key, e.target.value)}
+                      onBlur={() => handleNavBlur(key)}
+                      placeholder="輸入淨值"
+                      className="w-24 border border-slate-200 rounded-lg px-2 py-1 text-xs text-right focus:border-indigo-400 transition-colors"
+                    />
+                    {navSavingKey === key && <span className="text-[10px] text-slate-400">儲存中...</span>}
+                    {hasNav && (
+                      <>
+                        <span className="text-xs text-slate-500">目前價值 <span className="font-semibold text-slate-800">{fmt(currentValue)}</span></span>
+                        <span className={`text-xs font-semibold ${gain >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                          {gain >= 0 ? "+" : ""}{fmt(gain)}（{gain >= 0 ? "+" : ""}{gainPct.toFixed(1)}%）
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-4 shrink-0">
-                  <span className="text-xs text-slate-400">{fmt2(g.units)} 單位</span>
-                  <span className="text-xs text-slate-400">{g.count} 筆</span>
-                  <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="flex items-center justify-between pt-3 mt-1 border-t border-slate-200 text-sm">
             <span className="font-semibold text-slate-900">合計（{fundGroupList.length} 檔）</span>
@@ -291,6 +374,20 @@ export default function FundPage() {
               <span className={`font-bold ${total >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(total)}</span>
             </div>
           </div>
+          {fundGroupList.some((g) => {
+            const v = parseFloat(navInputs[g.code || g.name] ?? "");
+            return !isNaN(v) && v > 0;
+          }) && (
+            <div className="flex items-center justify-between pt-2 text-sm">
+              <span className="text-xs text-slate-400">目前總價值（已填淨值的部分）</span>
+              <span className="font-bold text-indigo-600">
+                {fmt(fundGroupList.reduce((s, g) => {
+                  const v = parseFloat(navInputs[g.code || g.name] ?? "");
+                  return !isNaN(v) && v > 0 ? s + g.units * v : s;
+                }, 0))}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
