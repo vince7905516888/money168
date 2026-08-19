@@ -51,17 +51,3 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
-
-/* 後台「淺色」換膚：後台頁面沿用同一套 bg-slate-800/text-white 等深色卡片樣式寫死，
-   這裡用 Tailwind 的 CSS 變數改寫這幾個 token，讓 main[data-admin-theme="light"] 底下
-   所有既有的 class（卡片底色、邊框、文字）不用逐一改寫就一起翻成淺色。
-   側邊欄不在 <main> 裡面，不受影響（維持固定深色）。 */
-main[data-admin-theme="light"] {
-  --color-slate-800: var(--color-white);
-  --color-slate-700: var(--color-slate-200);
-  --color-slate-600: var(--color-slate-300);
-  --color-slate-500: var(--color-slate-400);
-  --color-slate-400: var(--color-slate-600);
-  --color-slate-300: var(--color-slate-700);
-  --color-slate-50: var(--color-slate-900);
-}
