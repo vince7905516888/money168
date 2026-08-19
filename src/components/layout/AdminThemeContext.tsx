@@ -5,16 +5,19 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 const NO_OVERRIDE = {};
 
 // 淺色主題：後台頁面把卡片底色/邊框/文字寫死成 bg-slate-800、text-white 等深色 token，
-// 這裡用 inline style 覆寫這幾個 CSS 變數（inline style 的優先權高於任何外部樣式表規則，
-// 不受 Tailwind cascade layer 影響），讓既有 class 不用逐一改寫就整批翻成淺色。
+// 這裡用 inline style 覆寫這幾個 CSS 變數，讓既有 class 不用逐一改寫就整批翻成淺色。
+// 注意：這幾個 token 全部寫死成「色碼字面值」而不是互相 var() 參照——同一個元素上
+// 這些變數是同時生效的，如果用 var(--color-slate-700) 這種方式互相參照，會因為
+// slate-700 自己也被這裡改寫而連鎖解析成同一個淺色，導致每一階都變成同一種顏色
+// （之前的版本就是踩到這個坑，卡片文字全部變成同一種淺灰色）。
 const LIGHT_OVERRIDE: Record<string, string> = {
-  "--color-slate-800": "var(--color-white)",
-  "--color-slate-700": "var(--color-slate-200)",
-  "--color-slate-600": "var(--color-slate-300)",
-  "--color-slate-500": "var(--color-slate-400)",
-  "--color-slate-400": "var(--color-slate-600)",
-  "--color-slate-300": "var(--color-slate-700)",
-  "--color-slate-50": "var(--color-slate-900)",
+  "--color-slate-800": "#ffffff", // 卡片底色
+  "--color-slate-700": "#e2e8f0", // 邊框／分隔線／輸入框底色
+  "--color-slate-600": "#cad5e2", // 輸入框邊框／切換開關關閉狀態
+  "--color-slate-500": "#90a1b9", // 淡文字（placeholder）
+  "--color-slate-400": "#45556c", // 次要文字（標籤、說明文字）
+  "--color-slate-300": "#314158", // 卡片內主要文字
+  "--color-slate-50": "#0f172b", // 標題／數值等強調文字
 };
 
 export const ADMIN_THEMES = {
