@@ -43,6 +43,12 @@ interface ExchangeRateRow {
   rate: number;
 }
 
+interface UserFundNav {
+  id: string;
+  fundKey: string;
+  nav: number;
+}
+
 const TYPE_LABEL: Record<InvestmentType, string> = {
   STOCK: "股票",
   FUND: "基金",
@@ -61,25 +67,28 @@ export default function InvestmentOverviewPage() {
   const [savedRates, setSavedRates] = useState<ExchangeRateRow[]>([]);
   const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
   const [rateSavingCurrency, setRateSavingCurrency] = useState<string | null>(null);
+  const [fundNavs, setFundNavs] = useState<UserFundNav[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, bankRes, debtRes, rateRes, cashRes] = await Promise.all([
+    const [invRes, bankRes, debtRes, rateRes, cashRes, navRes] = await Promise.all([
       fetch("/api/investments"),
       fetch("/api/banks/summary"),
       fetch("/api/debts"),
       fetch("/api/user-exchange-rates"),
       fetch("/api/transactions?source=CASH"),
+      fetch("/api/user-fund-nav"),
     ]);
-    const [invData, bankData, debtData, rateData, cashData] = await Promise.all([
-      invRes.json(), bankRes.json(), debtRes.json(), rateRes.json(), cashRes.json(),
+    const [invData, bankData, debtData, rateData, cashData, navData] = await Promise.all([
+      invRes.json(), bankRes.json(), debtRes.json(), rateRes.json(), cashRes.json(), navRes.json(),
     ]);
     setInvestments(Array.isArray(invData) ? invData : []);
     setBanks(Array.isArray(bankData) ? bankData : []);
     setDebts(Array.isArray(debtData) ? debtData : []);
     setSavedRates(Array.isArray(rateData) ? rateData : []);
     setCashTransactions(Array.isArray(cashData) ? cashData : []);
+    setFundNavs(Array.isArray(navData) ? navData : []);
     setLoading(false);
   }, []);
 
@@ -131,12 +140,24 @@ export default function InvestmentOverviewPage() {
     }
   }
 
-  // 基金各幣別「淨投入」原幣金額：基金頁存的 amount 就是原幣金額（未換算台幣）
+  // 基金依產品（檔）分組，跟基金投資頁「基金投資紀錄」同一套邏輯（代碼優先、trim 比對）
+  // 有填「目前淨值」的檔數以目前價值（單位數×淨值）計入，沒填的檔數退回用淨投入原幣金額
   const fundInvestments = byType("FUND");
+  const fundGroups = fundInvestments.reduce((acc, i) => {
+    const name = i.name?.trim() || "(未命名)";
+    const code = i.code?.trim() || undefined;
+    const key = code || name;
+    if (!acc[key]) acc[key] = { units: 0, amount: 0, currency: i.currency || "TWD" };
+    acc[key].units += i.quantity ?? 0;
+    acc[key].amount += i.amount;
+    return acc;
+  }, {} as Record<string, { units: number; amount: number; currency: string }>);
+
   const fundCurrencyBalances: Record<string, number> = {};
-  for (const i of fundInvestments) {
-    const cur = i.currency || "TWD";
-    fundCurrencyBalances[cur] = (fundCurrencyBalances[cur] || 0) + i.amount;
+  for (const [key, g] of Object.entries(fundGroups)) {
+    const nav = fundNavs.find((n) => n.fundKey === key)?.nav;
+    const value = nav && nav > 0 ? g.units * nav : g.amount;
+    fundCurrencyBalances[g.currency] = (fundCurrencyBalances[g.currency] || 0) + value;
   }
   const fundCurrencyList = Object.keys(fundCurrencyBalances).filter((c) => c !== "TWD").sort();
 
@@ -239,7 +260,7 @@ export default function InvestmentOverviewPage() {
     { label: "現金結餘", amount: cashBalance },
     { label: "銀行資產", amount: bankTotal },
     { label: "股票投資", amount: stockTotal },
-    { label: "基金投資（已換算台幣）", amount: fundTwdTotal },
+    { label: "基金投資（依目前淨值，已換算台幣）", amount: fundTwdTotal },
     { label: "外匯投資（已換算台幣）", amount: forexTwdTotal },
     { label: "虛擬貨幣", amount: cryptoTotal },
     { label: "黃金投資", amount: goldTotal },
@@ -387,7 +408,7 @@ export default function InvestmentOverviewPage() {
       {/* 基金投資：各幣別餘額 + 手動匯率換算（與外匯投資共用同一份匯率，任一邊修改會同步） */}
       {fundCurrencyList.length > 0 && (
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">基金投資（各幣別餘額與換算匯率）</div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">基金投資（依目前淨值計算的各幣別餘額與換算匯率）</div>
           <div className="space-y-3">
             {fundCurrencyList.map((currency) => {
               const balance = fundCurrencyBalances[currency];
@@ -431,6 +452,7 @@ export default function InvestmentOverviewPage() {
             <span className="font-bold text-slate-900">{fmt(fundTwdTotal)}</span>
           </div>
           <p className="text-[11px] text-slate-400 mt-2">匯率與上方外匯投資共用同一份設定：修改任一邊的匯率，兩邊金額都會同步更新並自動儲存</p>
+          <p className="text-[11px] text-slate-400 mt-1">各檔基金若已在基金投資頁填寫「目前淨值」，這裡會用單位數×淨值計算的目前價值；未填淨值的檔數則暫以淨投入金額計算</p>
         </div>
       )}
 
