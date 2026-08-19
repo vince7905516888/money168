@@ -118,6 +118,7 @@ export default function StrategyPage() {
   const [userStrategies, setUserStrategies] = useState<UserMartingale[]>([]);
   const [martingaleLoading, setMartingaleLoading] = useState(true);
   const [showAddStrategy, setShowAddStrategy] = useState(false);
+  const [showMartingale, setShowMartingale] = useState(true);
   const [strategyForm, setStrategyForm] = useState(EMPTY_STRATEGY_FORM);
   const [strategySaving, setStrategySaving] = useState(false);
 
@@ -411,56 +412,66 @@ export default function StrategyPage() {
 
       {/* 馬丁格爾策略模版 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6 max-w-2xl">
-        <div className="px-6 py-4 border-b border-slate-50">
-          <h2 className="font-semibold text-slate-900">馬丁格爾策略模版</h2>
-          <p className="text-xs text-slate-400 mt-0.5">官方模版僅供參考；不喜歡的話可以新增自己的模版，只有你自己看得到</p>
+        <div
+          className="flex items-center justify-between px-6 py-4 border-b border-slate-50 cursor-pointer select-none"
+          onClick={() => setShowMartingale((v) => !v)}
+        >
+          <div>
+            <h2 className="font-semibold text-slate-900">馬丁格爾策略模版</h2>
+            <p className="text-xs text-slate-400 mt-0.5">官方模版僅供參考；不喜歡的話可以新增自己的模版，只有你自己看得到</p>
+          </div>
+          <button className="text-slate-400 hover:text-slate-600 text-sm font-medium transition-colors shrink-0 ml-3">
+            {showMartingale ? "▾ 收合" : "▸ 展開"}
+          </button>
         </div>
 
-        {martingaleLoading ? (
-          <div className="py-8 text-center text-slate-400 text-sm">載入中...</div>
-        ) : (
-          <>
-            {templates.length > 0 && (
-              <div className="px-6 pt-4">
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">官方模版</div>
-                <div className="divide-y divide-slate-50">
-                  {templates.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between py-2.5 text-sm">
-                      <span className="text-slate-700">{t.name}</span>
-                      <span className="font-mono text-indigo-600 font-semibold">{t.ratios.join(" : ")}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="px-6 py-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">我的自訂模版</span>
-                <button onClick={() => setShowAddStrategy(true)} className="text-xs text-indigo-600 font-medium hover:underline">
-                  + 新增自訂模版
-                </button>
-              </div>
-              {userStrategies.length === 0 ? (
-                <div className="py-4 text-center text-slate-400 text-xs">還沒有自訂模版</div>
-              ) : (
-                <div className="divide-y divide-slate-50">
-                  {userStrategies.map((s) => (
-                    <div key={s.id} className="flex items-center justify-between py-2.5 text-sm group">
-                      <span className="text-slate-700">{s.name}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-indigo-600 font-semibold">{s.ratios.join(" : ")}</span>
-                        <button onClick={() => handleDeleteStrategy(s)}
-                          className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 hover:text-red-500 transition-all">
-                          刪除
-                        </button>
+        {showMartingale && (
+          martingaleLoading ? (
+            <div className="py-8 text-center text-slate-400 text-sm">載入中...</div>
+          ) : (
+            <>
+              {templates.length > 0 && (
+                <div className="px-6 pt-4">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">官方模版</div>
+                  <div className="divide-y divide-slate-50">
+                    {templates.map((t) => (
+                      <div key={t.id} className="flex items-center justify-between py-2.5 text-sm">
+                        <span className="text-slate-700">{t.name}</span>
+                        <span className="font-mono text-indigo-600 font-semibold">{t.ratios.join(" : ")}</span>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               )}
-            </div>
-          </>
+
+              <div className="px-6 py-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">我的自訂模版</span>
+                  <button onClick={(e) => { e.stopPropagation(); setShowAddStrategy(true); }} className="text-xs text-indigo-600 font-medium hover:underline">
+                    + 新增自訂模版
+                  </button>
+                </div>
+                {userStrategies.length === 0 ? (
+                  <div className="py-4 text-center text-slate-400 text-xs">還沒有自訂模版</div>
+                ) : (
+                  <div className="divide-y divide-slate-50">
+                    {userStrategies.map((s) => (
+                      <div key={s.id} className="flex items-center justify-between py-2.5 text-sm group">
+                        <span className="text-slate-700">{s.name}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-indigo-600 font-semibold">{s.ratios.join(" : ")}</span>
+                          <button onClick={() => handleDeleteStrategy(s)}
+                            className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 hover:text-red-500 transition-all">
+                            刪除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )
         )}
       </div>
 
