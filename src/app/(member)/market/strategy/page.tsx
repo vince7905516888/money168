@@ -29,6 +29,24 @@ interface StrategyRow {
 
 type RawEntry = Record<string, string | number | null>;
 
+interface MartingaleTemplate {
+  id: string;
+  name: string;
+  ratios: number[];
+  note: string | null;
+}
+
+interface UserMartingale {
+  id: string;
+  name: string;
+  ratios: number[];
+  note: string | null;
+}
+
+const MAX_MARTINGALE_STEPS = 8;
+const MIN_MARTINGALE_STEPS = 2;
+const EMPTY_STRATEGY_FORM = { name: "", note: "", ratios: ["1", "1"] };
+
 const STOCK_TAX_RATE = 0.003; // 證券交易稅 0.3%，僅賣出課徵
 const DEFAULT_FEE_RATE = 0.001425; // 手續費率 0.1425%（找不到後台設定時的預設值）
 
@@ -95,6 +113,63 @@ export default function StrategyPage() {
   const [netAmountByCode, setNetAmountByCode] = useState<Record<string, number>>({});
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+
+  const [templates, setTemplates] = useState<MartingaleTemplate[]>([]);
+  const [userStrategies, setUserStrategies] = useState<UserMartingale[]>([]);
+  const [martingaleLoading, setMartingaleLoading] = useState(true);
+  const [showAddStrategy, setShowAddStrategy] = useState(false);
+  const [strategyForm, setStrategyForm] = useState(EMPTY_STRATEGY_FORM);
+  const [strategySaving, setStrategySaving] = useState(false);
+
+  const fetchMartingales = useCallback(async () => {
+    setMartingaleLoading(true);
+    const [templateRes, userRes] = await Promise.all([
+      fetch("/api/martingale-strategies"),
+      fetch("/api/user-martingale-strategies"),
+    ]);
+    const [templateData, userData] = await Promise.all([templateRes.json(), userRes.json()]);
+    setTemplates(Array.isArray(templateData) ? templateData : []);
+    setUserStrategies(Array.isArray(userData) ? userData : []);
+    setMartingaleLoading(false);
+  }, []);
+
+  useEffect(() => { fetchMartingales(); }, [fetchMartingales]);
+
+  const addRatioField = () =>
+    setStrategyForm((f) => (f.ratios.length >= MAX_MARTINGALE_STEPS ? f : { ...f, ratios: [...f.ratios, ""] }));
+  const removeRatioField = (index: number) =>
+    setStrategyForm((f) => (f.ratios.length <= MIN_MARTINGALE_STEPS ? f : { ...f, ratios: f.ratios.filter((_, i) => i !== index) }));
+  const updateRatioField = (index: number, value: string) =>
+    setStrategyForm((f) => ({ ...f, ratios: f.ratios.map((r, i) => (i === index ? value : r)) }));
+
+  const handleAddStrategy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStrategySaving(true);
+    const res = await authFetch("/api/user-martingale-strategies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(strategyForm),
+    });
+    setStrategySaving(false);
+    if (res.ok) {
+      setShowAddStrategy(false);
+      setStrategyForm(EMPTY_STRATEGY_FORM);
+      fetchMartingales();
+    } else {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "新增失敗");
+    }
+  };
+
+  const handleDeleteStrategy = async (s: UserMartingale) => {
+    if (!confirm(`確定要刪除自訂策略「${s.name}」？`)) return;
+    await authFetch("/api/user-martingale-strategies", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: s.id }),
+    });
+    fetchMartingales();
+  };
 
   // 表格左右拖曳捲動：欄位太多，滑鼠在表格空白處（不是輸入框裡）按住拖曳可以左右移動，
   // 不影響一般點輸入框打字；輸入框裡按住拖曳還是正常的文字選取行為
@@ -334,6 +409,61 @@ export default function StrategyPage() {
         </div>
       </div>
 
+      {/* 馬丁格爾策略模版 */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6 max-w-2xl">
+        <div className="px-6 py-4 border-b border-slate-50">
+          <h2 className="font-semibold text-slate-900">馬丁格爾策略模版</h2>
+          <p className="text-xs text-slate-400 mt-0.5">官方模版僅供參考；不喜歡的話可以新增自己的模版，只有你自己看得到</p>
+        </div>
+
+        {martingaleLoading ? (
+          <div className="py-8 text-center text-slate-400 text-sm">載入中...</div>
+        ) : (
+          <>
+            {templates.length > 0 && (
+              <div className="px-6 pt-4">
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">官方模版</div>
+                <div className="divide-y divide-slate-50">
+                  {templates.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between py-2.5 text-sm">
+                      <span className="text-slate-700">{t.name}</span>
+                      <span className="font-mono text-indigo-600 font-semibold">{t.ratios.join(" : ")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="px-6 py-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">我的自訂模版</span>
+                <button onClick={() => setShowAddStrategy(true)} className="text-xs text-indigo-600 font-medium hover:underline">
+                  + 新增自訂模版
+                </button>
+              </div>
+              {userStrategies.length === 0 ? (
+                <div className="py-4 text-center text-slate-400 text-xs">還沒有自訂模版</div>
+              ) : (
+                <div className="divide-y divide-slate-50">
+                  {userStrategies.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between py-2.5 text-sm group">
+                      <span className="text-slate-700">{s.name}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-indigo-600 font-semibold">{s.ratios.join(" : ")}</span>
+                        <button onClick={() => handleDeleteStrategy(s)}
+                          className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 hover:text-red-500 transition-all">
+                          刪除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-4 mb-6 max-w-md">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">加總盈虧</div>
@@ -474,6 +604,69 @@ export default function StrategyPage() {
         盈虧 = (股數 × 當前) − 總額 − 賣出手續費 − 證券交易稅（賣出方向課徵0.3%）；
         手續費 = 成交金額 × {(feeRate * 100).toFixed(4)}% × 折扣（1 = 無折扣，0.6 = 6折）；報酬率 = 盈虧 ÷ 總額
       </p>
+
+      {/* 新增自訂馬丁格爾策略 Modal */}
+      {showAddStrategy && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-bold text-slate-900 mb-5">新增自訂馬丁格爾策略</h2>
+            <form onSubmit={handleAddStrategy} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">方案名稱</label>
+                <input required value={strategyForm.name} onChange={(e) => setStrategyForm({ ...strategyForm, name: e.target.value })}
+                  placeholder="例如：我的穩健方案"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  核心邏輯（股數比例）
+                  <span className="text-slate-400 font-normal ml-1">最少 {MIN_MARTINGALE_STEPS} 次、最多 {MAX_MARTINGALE_STEPS} 次補投入</span>
+                </label>
+                <div className="space-y-2">
+                  {strategyForm.ratios.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400 w-14 shrink-0">第 {i + 1} 次</span>
+                      <input required type="number" min="0" step="any" value={r}
+                        onChange={(e) => updateRatioField(i, e.target.value)}
+                        placeholder="比例"
+                        className="flex-1 border border-slate-200 rounded-lg px-3.5 py-2 text-sm focus:border-indigo-400 transition-colors" />
+                      <button type="button" onClick={() => removeRatioField(i)}
+                        disabled={strategyForm.ratios.length <= MIN_MARTINGALE_STEPS}
+                        className="text-slate-300 hover:text-red-500 disabled:opacity-20 disabled:hover:text-slate-300 text-xs px-1 shrink-0">
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" onClick={addRatioField}
+                  disabled={strategyForm.ratios.length >= MAX_MARTINGALE_STEPS}
+                  className="mt-2 text-xs text-indigo-500 hover:text-indigo-700 hover:underline disabled:opacity-30 disabled:hover:no-underline">
+                  + 新增一次補投入
+                </button>
+                <p className="text-xs text-indigo-600 font-mono font-semibold mt-2">
+                  {strategyForm.ratios.filter((r) => r !== "").join(" : ") || "—"}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+                <input value={strategyForm.note} onChange={(e) => setStrategyForm({ ...strategyForm, note: e.target.value })}
+                  placeholder="說明或備註..."
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => { setShowAddStrategy(false); setStrategyForm(EMPTY_STRATEGY_FORM); }}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                  取消
+                </button>
+                <button type="submit" disabled={strategySaving}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60">
+                  {strategySaving ? "新增中..." : "新增"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

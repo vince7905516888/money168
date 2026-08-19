@@ -18,6 +18,10 @@ const settingsItemsAll = [
   { href: "/admin/settings/tiers", label: "會員等級設定", superOnly: true },
 ];
 
+const membersItemsAll = [
+  { href: "/admin/members/activity-log", label: "會員變動紀錄", superOnly: false },
+];
+
 const pointsItemsAll = [
   { href: "/admin/points/query", label: "會員積分查詢", superOnly: false },
 ];
@@ -29,31 +33,31 @@ const configItemsAll = [
   { href: "/admin/settings/layout", label: "前台欄目排版", superOnly: true },
 ];
 
+const GROUP_DEFS = [
+  { key: "settings", label: "系統設置", icon: "⚙️", itemsAll: settingsItemsAll },
+  { key: "members", label: "會員管理", icon: "👥", itemsAll: membersItemsAll },
+  { key: "points", label: "積分系統", icon: "🏆", itemsAll: pointsItemsAll },
+  { key: "config", label: "設定", icon: "🔧", itemsAll: configItemsAll },
+];
+
 export default function AdminSidebar({ userName, isSuperAdmin }: { userName: string; isSuperAdmin: boolean }) {
   const pathname = usePathname();
   const { collapsed, toggle, expand } = useSidebar();
   const { themeKey, setThemeKey } = useAdminTheme();
-  const settingsItems = settingsItemsAll.filter((i) => isSuperAdmin || !i.superOnly);
-  const pointsItems = pointsItemsAll.filter((i) => isSuperAdmin || !i.superOnly);
-  const configItems = configItemsAll.filter((i) => isSuperAdmin || !i.superOnly);
-  const isSettingsActive = settingsItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
-  const isPointsActive = pointsItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
-  const isConfigActive = configItems.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
-  const [settingsOpen, setSettingsOpen] = useState(isSettingsActive);
-  const [pointsOpen, setPointsOpen] = useState(isPointsActive);
-  const [configOpen, setConfigOpen] = useState(isConfigActive);
 
-  const toggleSettings = () => {
-    if (collapsed) { expand(); setSettingsOpen(true); return; }
-    setSettingsOpen((o) => !o);
-  };
-  const togglePoints = () => {
-    if (collapsed) { expand(); setPointsOpen(true); return; }
-    setPointsOpen((o) => !o);
-  };
-  const toggleConfig = () => {
-    if (collapsed) { expand(); setConfigOpen(true); return; }
-    setConfigOpen((o) => !o);
+  const groups = GROUP_DEFS.map((g) => {
+    const items = g.itemsAll.filter((i) => isSuperAdmin || !i.superOnly);
+    const active = items.some((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
+    return { ...g, items, active };
+  }).filter((g) => g.items.length > 0);
+
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(groups.map((g) => [g.key, g.active]))
+  );
+
+  const toggleGroup = (key: string) => {
+    if (collapsed) { expand(); setOpenGroups((o) => ({ ...o, [key]: true })); return; }
+    setOpenGroups((o) => ({ ...o, [key]: !o[key] }));
   };
 
   return (
@@ -118,123 +122,44 @@ export default function AdminSidebar({ userName, isSuperAdmin }: { userName: str
           );
         })}
 
-        {/* 系統設置 collapsible */}
-        {settingsItems.length > 0 && (
-        <div>
-          <button
-            onClick={toggleSettings}
-            title="系統設置"
-            className={`w-full flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
-              collapsed ? "justify-center px-0" : "justify-between px-3"
-            } ${isSettingsActive ? "text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"}`}
-          >
-            <div className={`flex items-center ${collapsed ? "" : "gap-3"}`}>
-              <span className="text-base leading-none">⚙️</span>
-              {!collapsed && "系統設置"}
-            </div>
-            {!collapsed && <span className={`text-xs transition-transform ${settingsOpen ? "rotate-90" : ""}`}>▶</span>}
-          </button>
-          {!collapsed && settingsOpen && (
-            <div className="ml-4 mt-1 space-y-1">
-              {settingsItems.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
-                      active
-                        ? "bg-indigo-600 text-white font-medium"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800"
-                    }`}
-                  >
-                    <span className="w-1 h-1 rounded-full bg-current opacity-60" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        )}
-        {/* 積分系統 collapsible */}
-        {pointsItems.length > 0 && (
-        <div>
-          <button
-            onClick={togglePoints}
-            title="積分系統"
-            className={`w-full flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
-              collapsed ? "justify-center px-0" : "justify-between px-3"
-            } ${isPointsActive ? "text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"}`}
-          >
-            <div className={`flex items-center ${collapsed ? "" : "gap-3"}`}>
-              <span className="text-base leading-none">🏆</span>
-              {!collapsed && "積分系統"}
-            </div>
-            {!collapsed && <span className={`text-xs transition-transform ${pointsOpen ? "rotate-90" : ""}`}>▶</span>}
-          </button>
-          {!collapsed && pointsOpen && (
-            <div className="ml-4 mt-1 space-y-1">
-              {pointsItems.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
-                      active
-                        ? "bg-indigo-600 text-white font-medium"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800"
-                    }`}
-                  >
-                    <span className="w-1 h-1 rounded-full bg-current opacity-60" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        )}
-        {/* 設定 collapsible */}
-        {configItems.length > 0 && (
-        <div>
-          <button
-            onClick={toggleConfig}
-            title="設定"
-            className={`w-full flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
-              collapsed ? "justify-center px-0" : "justify-between px-3"
-            } ${isConfigActive ? "text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"}`}
-          >
-            <div className={`flex items-center ${collapsed ? "" : "gap-3"}`}>
-              <span className="text-base leading-none">🔧</span>
-              {!collapsed && "設定"}
-            </div>
-            {!collapsed && <span className={`text-xs transition-transform ${configOpen ? "rotate-90" : ""}`}>▶</span>}
-          </button>
-          {!collapsed && configOpen && (
-            <div className="ml-4 mt-1 space-y-1">
-              {configItems.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
-                      active
-                        ? "bg-indigo-600 text-white font-medium"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800"
-                    }`}
-                  >
-                    <span className="w-1 h-1 rounded-full bg-current opacity-60" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        )}
+        {groups.map((g) => (
+          <div key={g.key}>
+            <button
+              onClick={() => toggleGroup(g.key)}
+              title={g.label}
+              className={`w-full flex items-center py-2.5 rounded-xl text-sm font-medium transition-all ${
+                collapsed ? "justify-center px-0" : "justify-between px-3"
+              } ${g.active ? "text-white" : "text-slate-400 hover:text-white hover:bg-slate-800"}`}
+            >
+              <div className={`flex items-center ${collapsed ? "" : "gap-3"}`}>
+                <span className="text-base leading-none">{g.icon}</span>
+                {!collapsed && g.label}
+              </div>
+              {!collapsed && <span className={`text-xs transition-transform ${openGroups[g.key] ? "rotate-90" : ""}`}>▶</span>}
+            </button>
+            {!collapsed && openGroups[g.key] && (
+              <div className="ml-4 mt-1 space-y-1">
+                {g.items.map((item) => {
+                  const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                        active
+                          ? "bg-indigo-600 text-white font-medium"
+                          : "text-slate-400 hover:text-white hover:bg-slate-800"
+                      }`}
+                    >
+                      <span className="w-1 h-1 rounded-full bg-current opacity-60" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
       </nav>
 
       {/* 換膚 */}

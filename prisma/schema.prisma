@@ -37,6 +37,8 @@ model User {
   userWatchStocks    UserWatchStock[]
   strategyEntries    InvestmentStrategyEntry[]
   tokenUsageLogs     TokenUsageLog[]
+  martingaleStrategies UserMartingaleStrategy[]
+  activityLogs       MemberActivityLog[]
 }
 
 model UserBank {
@@ -311,6 +313,28 @@ model MartingaleStrategy {
   note      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// 會員自訂的馬丁格爾策略，只有該會員自己看得到；新增/刪除時會寫一筆 MemberActivityLog
+// 讓後台「會員變動紀錄」查得到
+model UserMartingaleStrategy {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  ratios    Float[]
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MemberActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  detail    String?
+  createdAt DateTime @default(now())
 }
 
 model AnalystVideoSummary {
