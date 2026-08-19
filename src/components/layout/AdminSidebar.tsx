@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useState } from "react";
 import { useSidebar } from "./SidebarContext";
+import { useAdminTheme, ADMIN_THEMES, type AdminThemeKey } from "./AdminThemeContext";
 
 const topItems = [
   { href: "/admin/dashboard", label: "後台總覽", icon: "◎" },
@@ -30,6 +31,7 @@ const configItemsAll = [
 export default function AdminSidebar({ userName, isSuperAdmin }: { userName: string; isSuperAdmin: boolean }) {
   const pathname = usePathname();
   const { collapsed, toggle, expand } = useSidebar();
+  const { themeKey, setThemeKey } = useAdminTheme();
   const settingsItems = settingsItemsAll.filter((i) => isSuperAdmin || !i.superOnly);
   const pointsItems = pointsItemsAll.filter((i) => isSuperAdmin || !i.superOnly);
   const configItems = configItemsAll.filter((i) => isSuperAdmin || !i.superOnly);
@@ -55,7 +57,7 @@ export default function AdminSidebar({ userName, isSuperAdmin }: { userName: str
 
   return (
     <aside
-      className={`min-h-screen bg-slate-900 flex flex-col py-6 fixed left-0 top-0 z-20 transition-all duration-200 ${
+      className={`min-h-screen ${ADMIN_THEMES[themeKey].bg} flex flex-col py-6 fixed left-0 top-0 z-20 transition-all duration-200 ${
         collapsed ? "w-16 px-2" : "w-60 px-4"
       }`}
     >
@@ -233,6 +235,26 @@ export default function AdminSidebar({ userName, isSuperAdmin }: { userName: str
         </div>
         )}
       </nav>
+
+      {/* 換膚 */}
+      {!collapsed && (
+        <div className="border-t border-slate-700 pt-4 mt-4 px-3">
+          <div className="text-xs text-slate-500 mb-2">換膚</div>
+          <div className="flex gap-2">
+            {(Object.keys(ADMIN_THEMES) as AdminThemeKey[]).map((key) => (
+              <button
+                key={key}
+                onClick={() => setThemeKey(key)}
+                title={ADMIN_THEMES[key].label}
+                className={`w-6 h-6 rounded-full border-2 transition-all ${
+                  themeKey === key ? "border-white scale-110" : "border-transparent hover:border-slate-500"
+                }`}
+                style={{ backgroundColor: ADMIN_THEMES[key].swatch }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* User */}
       <div className="border-t border-slate-700 pt-4 mt-4">
