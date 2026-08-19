@@ -20,6 +20,7 @@ interface BankRecord {
   type: "INCOME" | "EXPENSE" | "TRANSFER";
   date: string;
   note?: string;
+  categoryId?: string;
   category?: { name: string; icon?: string; color?: string };
 }
 
@@ -91,6 +92,12 @@ function parseTransferNote(note: string) {
   return { fromType: match[1] as PaymentMethod, fromDetail: match[2] ?? "", toType: match[3] as PaymentMethod, toDetail: match[4] ?? "" };
 }
 
+function parsePaymentNote(note: string) {
+  if (!note.startsWith("支付:")) return { pm: "" as PaymentMethod, detail: "", rest: note };
+  const parts = note.split(":");
+  return { pm: parts[1] as PaymentMethod, detail: parts[2] ?? "", rest: "" };
+}
+
 function displayTransferNote(note: string) {
   const t = parseTransferNote(note);
   const from = t.fromDetail ? `${t.fromType} (${t.fromDetail})` : t.fromType;
@@ -104,6 +111,7 @@ export default function BanksPage() {
   const [recordsTotal, setRecordsTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<BankRecord | null>(null);
 
   // 顯示/隱藏切換
   const [showSummary, setShowSummary] = useState(true);
@@ -173,7 +181,18 @@ export default function BanksPage() {
     .filter((b) => b.balance > 0)
     .map((b) => ({ name: b.name, value: b.balance }));
 
+  const loadFormData = async () => {
+    const [catRes, bankRes, tpRes] = await Promise.all([
+      fetch("/api/categories"), fetch("/api/user-banks"), fetch("/api/user-third-parties"),
+    ]);
+    const [catData, bankData, tpData] = await Promise.all([catRes.json(), bankRes.json(), tpRes.json()]);
+    setCategories(Array.isArray(catData) ? catData : []);
+    setUserBanks(Array.isArray(bankData) ? bankData : []);
+    setUserThirdParties(Array.isArray(tpData) ? tpData : []);
+  };
+
   const openModal = async () => {
+    setEditing(null);
     setForm({ ...EMPTY_FORM, date: new Date().toLocaleDateString("sv-SE") });
     setTransfer(EMPTY_TRANSFER);
     setPaymentMethod("");
@@ -186,13 +205,36 @@ export default function BanksPage() {
     setAddTPInput("");
     setAddTPTarget(null);
     setShowModal(true);
-    const [catRes, bankRes, tpRes] = await Promise.all([
-      fetch("/api/categories"), fetch("/api/user-banks"), fetch("/api/user-third-parties"),
-    ]);
-    const [catData, bankData, tpData] = await Promise.all([catRes.json(), bankRes.json(), tpRes.json()]);
-    setCategories(Array.isArray(catData) ? catData : []);
-    setUserBanks(Array.isArray(bankData) ? bankData : []);
-    setUserThirdParties(Array.isArray(tpData) ? tpData : []);
+    await loadFormData();
+  };
+
+  const openEdit = async (r: BankRecord) => {
+    setEditing(r);
+    setTransfer(EMPTY_TRANSFER);
+    setPaymentMethod("");
+    setPaymentDetail("");
+    setBankName("");
+    setThirdPartyName("");
+    setInvestmentType("");
+    setAddBankInput("");
+    setAddBankTarget(null);
+    setAddTPInput("");
+    setAddTPTarget(null);
+    setShowModal(true);
+    await loadFormData();
+    if (r.type === "TRANSFER") {
+      setForm({ title: r.title, amount: String(r.amount), type: "TRANSFER", date: r.date.split("T")[0], note: "", categoryId: "" });
+      setTransfer(parseTransferNote(r.note ?? ""));
+    } else {
+      const isBankCat = r.category?.name === "銀行";
+      const isTPCat = r.category?.name === "第三方";
+      const { pm, detail, rest } = parsePaymentNote(r.note ?? "");
+      const [bankNamePart, ...bankNoteParts] = (r.note ?? "").split(" · ");
+      setForm({ title: r.title, amount: String(r.amount), type: r.type, date: r.date.split("T")[0], note: isBankCat ? bankNoteParts.join(" · ") : isTPCat ? "" : rest, categoryId: r.categoryId ?? "" });
+      if (isBankCat) setBankName(bankNamePart ?? "");
+      else if (isTPCat) setThirdPartyName(r.note ?? "");
+      else { setPaymentMethod(pm); setPaymentDetail(detail); }
+    }
   };
 
   const resetForm = () => {
@@ -209,7 +251,7 @@ export default function BanksPage() {
     setAddTPTarget(null);
   };
 
-  const handleClose = () => { resetForm(); setShowModal(false); };
+  const handleClose = () => { resetForm(); setEditing(null); setShowModal(false); };
 
   const selectedCatName = categories.find((c) => c.id === form.categoryId)?.name;
   const isBank = selectedCatName === "銀行";
@@ -230,17 +272,19 @@ export default function BanksPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isInvestmentCat && !investmentType) {
+    if (!editing && isInvestmentCat && !investmentType) {
       alert("請選擇投資類別（股票、基金或外匯）");
       return;
     }
     setSaving(true);
-    const res = await authFetch("/api/transactions", {
-      method: "POST",
+    const url = editing ? `/api/transactions/${editing.id}` : "/api/transactions";
+    const method = editing ? "PUT" : "POST";
+    const res = await authFetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...form, note: buildNote(), source: "BANK" }),
     });
-    if (isInvestmentCat && investmentType && res.ok) {
+    if (!editing && isInvestmentCat && investmentType && res.ok) {
       const txData = await res.json();
       if (txData.id) {
         await authFetch("/api/investments", {
@@ -252,7 +296,7 @@ export default function BanksPage() {
     }
     setSaving(false);
     handleClose();
-    setRecordPage(1);
+    if (!editing) setRecordPage(1);
     fetchAll();
   };
 
@@ -601,10 +645,16 @@ export default function BanksPage() {
                       }`}>
                         {r.type === "INCOME" ? "+" : r.type === "TRANSFER" ? "" : "-"}{fmt(r.amount)}
                       </span>
-                      <button onClick={() => handleDelete(r.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-all">
-                        刪除
-                      </button>
+                      <div className="flex gap-1">
+                        <button onClick={() => openEdit(r)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors border border-slate-100">
+                          編輯
+                        </button>
+                        <button onClick={() => handleDelete(r.id)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors border border-slate-100">
+                          刪除
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -641,7 +691,7 @@ export default function BanksPage() {
       {showModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-bold text-slate-900 mb-5">新增銀行記錄</h2>
+            <h2 className="text-lg font-bold text-slate-900 mb-5">{editing ? "編輯銀行記錄" : "新增銀行記錄"}</h2>
             <form onSubmit={handleSave} className="space-y-4">
               <div className="flex gap-2">
                 {(["INCOME", "EXPENSE", "TRANSFER"] as const).map((tp) => (
@@ -728,7 +778,7 @@ export default function BanksPage() {
                       <ThirdPartySelector value={thirdPartyName} onChange={setThirdPartyName} target="category" />
                     </div>
                   )}
-                  {isInvestmentCat && (
+                  {isInvestmentCat && !editing && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">
                         投資類別 <span className="text-red-500">*</span>
@@ -750,6 +800,11 @@ export default function BanksPage() {
                         ))}
                       </div>
                     </div>
+                  )}
+                  {isInvestmentCat && editing && (
+                    <p className="text-xs text-slate-400 bg-slate-50 rounded-lg px-3 py-2">
+                      投資詳細資料（名稱、代碼、數量）請至左側「投資」頁面進行編輯
+                    </p>
                   )}
                   {!isBank && !isThirdPartyCat && !isInvestmentCat && form.type === "EXPENSE" && (
                     <div>
