@@ -25,6 +25,7 @@ const pointsItemsAll = [
 const configItemsAll = [
   { href: "/admin/config/fees", label: "手續費設定", superOnly: false },
   { href: "/admin/config/stock-market", label: "股市設定", superOnly: false },
+  { href: "/admin/config/announcements", label: "前台公告", superOnly: false },
   { href: "/admin/settings/layout", label: "前台欄目排版", superOnly: true },
 ];
 

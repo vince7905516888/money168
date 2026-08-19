@@ -312,6 +312,25 @@ model AnalystVideoSummary {
   createdAt DateTime @default(now())
 }
 
+model Marquee {
+  id        String   @id @default(cuid())
+  text      String
+  enabled   Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model VideoHighlight {
+  id        String   @id @default(cuid())
+  date      DateTime
+  title     String?
+  content   String
+  url       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model TierPageAccess {
   id      String     @id @default(cuid())
   tier    MemberTier
