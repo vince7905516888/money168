@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   const items = await prisma.videoHighlight.findMany({
-    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ pinned: "desc" }, { date: "desc" }, { createdAt: "desc" }],
   });
   return NextResponse.json(items);
 }
@@ -37,7 +37,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "無權限" }, { status: 403 });
   }
 
-  const { id, date, title, content, url } = await req.json();
+  const { id, date, title, content, url, pinned } = await req.json();
   if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
 
   const updated = await prisma.videoHighlight.update({
@@ -47,6 +47,7 @@ export async function PUT(req: NextRequest) {
       ...(title !== undefined && { title: title?.trim() || null }),
       ...(content !== undefined && { content: content.trim() }),
       ...(url !== undefined && { url: url?.trim() || null }),
+      ...(pinned !== undefined && { pinned }),
     },
   });
   return NextResponse.json(updated);

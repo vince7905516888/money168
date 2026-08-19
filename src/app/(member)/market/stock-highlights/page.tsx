@@ -14,6 +14,7 @@ interface VideoHighlight {
   title: string | null;
   content: string;
   url: string | null;
+  pinned: boolean;
 }
 
 // 前台會同步後台「前台公告」新增的跑馬燈／影片重點，每 30 秒自動輪詢一次，
@@ -83,8 +84,13 @@ export default function StockHighlightsPage() {
         ) : (
           <div className="divide-y divide-slate-50">
             {highlights.map((h) => (
-              <div key={h.id} className="px-6 py-5">
+              <div key={h.id} className={`px-6 py-5 ${h.pinned ? "bg-amber-50/60" : ""}`}>
                 <div className="flex items-center gap-3 mb-2">
+                  {h.pinned && (
+                    <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0">
+                      📌 置頂
+                    </span>
+                  )}
                   <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full shrink-0">
                     {new Date(h.date).toLocaleDateString("zh-TW")}
                   </span>

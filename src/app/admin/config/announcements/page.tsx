@@ -16,6 +16,7 @@ interface VideoHighlight {
   title: string | null;
   content: string;
   url: string | null;
+  pinned: boolean;
 }
 
 const EMPTY_MARQUEE_FORM = { text: "", order: "0" };
@@ -132,6 +133,15 @@ export default function AnnouncementsPage() {
     }
   };
 
+  const handleTogglePinHighlight = async (h: VideoHighlight) => {
+    await fetch("/api/video-highlights", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: h.id, pinned: !h.pinned }),
+    });
+    fetchHighlights();
+  };
+
   const handleDeleteHighlight = async (id: string) => {
     if (!confirm("確定要刪除這筆影片重點紀錄？")) return;
     await fetch("/api/video-highlights", {
@@ -221,13 +231,18 @@ export default function AnnouncementsPage() {
         ) : (
           <div className="divide-y divide-slate-700">
             {highlights.map((h) => (
-              <div key={h.id} className="px-5 py-4 hover:bg-slate-700/50 transition-colors">
+              <div key={h.id} className={`px-5 py-4 transition-colors ${h.pinned ? "bg-amber-900/20 hover:bg-amber-900/30" : "hover:bg-slate-700/50"}`}>
                 <div className="flex items-center justify-between gap-3 mb-1.5">
                   <div className="flex items-center gap-2 min-w-0">
+                    {h.pinned && <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-amber-500 text-slate-900 shrink-0">置頂</span>}
                     <span className="text-xs text-slate-500 shrink-0">{new Date(h.date).toLocaleDateString("zh-TW")}</span>
                     {h.title && <span className="text-sm font-medium text-slate-50 truncate">{h.title}</span>}
                   </div>
                   <div className="flex gap-1 shrink-0">
+                    <button onClick={() => handleTogglePinHighlight(h)}
+                      className={`text-xs px-2 py-1 rounded-lg transition-colors ${h.pinned ? "text-amber-400 hover:bg-amber-900/30" : "text-slate-400 hover:bg-slate-600/50"}`}>
+                      {h.pinned ? "取消置頂" : "置頂"}
+                    </button>
                     <button onClick={() => openEditHighlight(h)} className="text-xs px-2 py-1 rounded-lg text-indigo-400 hover:bg-indigo-900/30 transition-colors">編輯</button>
                     <button onClick={() => handleDeleteHighlight(h.id)} className="text-xs px-2 py-1 rounded-lg text-red-400 hover:bg-red-900/30 transition-colors">刪除</button>
                   </div>
