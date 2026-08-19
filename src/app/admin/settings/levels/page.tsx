@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useAdminTheme, ADMIN_THEMES } from "@/components/layout/AdminThemeContext";
 
 interface User {
   id: string;
@@ -15,6 +16,8 @@ interface User {
 }
 
 export default function LevelsPage() {
+  const { themeKey } = useAdminTheme();
+  const skin = ADMIN_THEMES[themeKey];
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -128,8 +131,8 @@ export default function LevelsPage() {
   return (
     <div className="max-w-5xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">層級管理</h1>
-        <p className="text-slate-400 text-sm mt-1">
+        <h1 className={`text-2xl font-bold ${skin.heading}`}>層級管理</h1>
+        <p className={`${skin.subheading} text-sm mt-1`}>
           調整帳戶的角色與層級。管理員分「一般/超級」兩級，能看到的後台頁面不同；會員分「一般/進階/尊榮」三級，能看到的前台欄目由「會員等級設定」頁配置。
         </p>
       </div>

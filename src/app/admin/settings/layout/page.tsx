@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useAdminTheme, ADMIN_THEMES } from "@/components/layout/AdminThemeContext";
 
 interface NavConfigItem {
   key: string;
@@ -12,6 +13,8 @@ interface NavConfigItem {
 }
 
 export default function NavLayoutPage() {
+  const { themeKey } = useAdminTheme();
+  const skin = ADMIN_THEMES[themeKey];
   const [items, setItems] = useState<NavConfigItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -62,8 +65,8 @@ export default function NavLayoutPage() {
     <div className="max-w-3xl">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">前台欄目排版</h1>
-          <p className="text-slate-400 text-sm mt-1">調整前台側邊欄選單的顯示順序與開關（全站預設，個人權限請至「權限管理」）</p>
+          <h1 className={`text-2xl font-bold ${skin.heading}`}>前台欄目排版</h1>
+          <p className={`${skin.subheading} text-sm mt-1`}>調整前台側邊欄選單的顯示順序與開關（全站預設，個人權限請至「權限管理」）</p>
         </div>
         <button
           onClick={handleSave}

@@ -57,7 +57,7 @@ export default function AdminSidebar({ userName, isSuperAdmin }: { userName: str
 
   return (
     <aside
-      className={`min-h-screen ${ADMIN_THEMES[themeKey].bg} flex flex-col py-6 fixed left-0 top-0 z-20 transition-all duration-200 ${
+      className={`min-h-screen ${ADMIN_THEMES[themeKey].sidebar} flex flex-col py-6 fixed left-0 top-0 z-20 transition-all duration-200 ${
         collapsed ? "w-16 px-2" : "w-60 px-4"
       }`}
     >

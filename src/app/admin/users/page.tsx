@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useAdminTheme, ADMIN_THEMES } from "@/components/layout/AdminThemeContext";
 
 interface User {
   id: string;
@@ -20,6 +21,8 @@ interface EditForm {
 }
 
 export default function AdminUsersPage() {
+  const { themeKey } = useAdminTheme();
+  const skin = ADMIN_THEMES[themeKey];
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -109,8 +112,8 @@ export default function AdminUsersPage() {
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white">帳戶管理</h1>
-          <p className="text-slate-400 text-sm mt-1">管理所有註冊帳戶的密碼與權限</p>
+          <h1 className={`text-2xl font-bold ${skin.heading}`}>帳戶管理</h1>
+          <p className={`${skin.subheading} text-sm mt-1`}>管理所有註冊帳戶的密碼與權限</p>
         </div>
         <div className="text-sm text-slate-400">
           共 {users.length} 位帳戶

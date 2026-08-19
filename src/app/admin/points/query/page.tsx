@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useAdminTheme, ADMIN_THEMES } from "@/components/layout/AdminThemeContext";
 
 interface PointUser {
   id: string;
@@ -11,6 +12,8 @@ interface PointUser {
 }
 
 export default function PointsQueryPage() {
+  const { themeKey } = useAdminTheme();
+  const skin = ADMIN_THEMES[themeKey];
   const [users, setUsers] = useState<PointUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -49,8 +52,8 @@ export default function PointsQueryPage() {
   return (
     <div className="max-w-4xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">會員積分查詢</h1>
-        <p className="text-slate-400 text-sm mt-1">查詢會員目前的積分餘額，可直接調整數值（暫無異動歷史紀錄）</p>
+        <h1 className={`text-2xl font-bold ${skin.heading}`}>會員積分查詢</h1>
+        <p className={`${skin.subheading} text-sm mt-1`}>查詢會員目前的積分餘額，可直接調整數值（暫無異動歷史紀錄）</p>
       </div>
 
       <input

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useAdminTheme, ADMIN_THEMES } from "@/components/layout/AdminThemeContext";
 
 interface SignalRule {
   id: string;
@@ -22,6 +23,8 @@ interface VideoSummary {
 const EMPTY_RULE_FORM = { code: "", name: "", condition: "ABOVE" as "ABOVE" | "BELOW", value: "", note: "" };
 
 export default function StockMarketSettingsPage() {
+  const { themeKey } = useAdminTheme();
+  const skin = ADMIN_THEMES[themeKey];
   const [rules, setRules] = useState<SignalRule[]>([]);
   const [rulesLoading, setRulesLoading] = useState(true);
   const [showAddRule, setShowAddRule] = useState(false);
@@ -143,8 +146,8 @@ export default function StockMarketSettingsPage() {
   return (
     <div className="max-w-4xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">股市設定</h1>
-        <p className="text-slate-400 text-sm mt-1">買賣訊號條件設定與分析師影片重點整理</p>
+        <h1 className={`text-2xl font-bold ${skin.heading}`}>股市設定</h1>
+        <p className={`${skin.subheading} text-sm mt-1`}>買賣訊號條件設定與分析師影片重點整理</p>
       </div>
 
       {/* 買賣訊號設定 */}

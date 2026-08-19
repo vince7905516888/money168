@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useAdminTheme, ADMIN_THEMES } from "@/components/layout/AdminThemeContext";
 
 interface FeeSetting {
   id: string;
@@ -14,6 +15,8 @@ interface FeeSetting {
 const EMPTY_FORM = { key: "", label: "", rate: "", fixedAmount: "", note: "" };
 
 export default function FeeSettingsPage() {
+  const { themeKey } = useAdminTheme();
+  const skin = ADMIN_THEMES[themeKey];
   const [fees, setFees] = useState<FeeSetting[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<FeeSetting | null>(null);
@@ -84,8 +87,8 @@ export default function FeeSettingsPage() {
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white">手續費設定</h1>
-          <p className="text-slate-400 text-sm mt-1">管理各類交易的手續費率與固定費用</p>
+          <h1 className={`text-2xl font-bold ${skin.heading}`}>手續費設定</h1>
+          <p className={`${skin.subheading} text-sm mt-1`}>管理各類交易的手續費率與固定費用</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}

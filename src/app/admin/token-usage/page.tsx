@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAdminTheme, ADMIN_THEMES } from "@/components/layout/AdminThemeContext";
 
 interface UsageRow {
   userId: string;
@@ -15,6 +16,8 @@ interface UsageRow {
 }
 
 export default function TokenUsagePage() {
+  const { themeKey } = useAdminTheme();
+  const skin = ADMIN_THEMES[themeKey];
   const [rows, setRows] = useState<UsageRow[]>([]);
   const [grandTotal, setGrandTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -34,8 +37,8 @@ export default function TokenUsagePage() {
   return (
     <div className="max-w-5xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">TOKEN使用量</h1>
-        <p className="text-slate-400 text-sm mt-1">依會員帳號彙總智能助理（Gemini）的token用量</p>
+        <h1 className={`text-2xl font-bold ${skin.heading}`}>TOKEN使用量</h1>
+        <p className={`${skin.subheading} text-sm mt-1`}>依會員帳號彙總智能助理（Gemini）的token用量</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-8">

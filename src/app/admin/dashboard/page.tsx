@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAdminTheme, ADMIN_THEMES } from "@/components/layout/AdminThemeContext";
 
 interface Stats {
   totalUsers: number;
@@ -14,6 +15,8 @@ interface Stats {
 }
 
 export default function AdminDashboardPage() {
+  const { themeKey } = useAdminTheme();
+  const skin = ADMIN_THEMES[themeKey];
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -32,8 +35,8 @@ export default function AdminDashboardPage() {
   return (
     <div className="max-w-5xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">後台總覽</h1>
-        <p className="text-slate-400 text-sm mt-1">全站數據統計</p>
+        <h1 className={`text-2xl font-bold ${skin.heading}`}>後台總覽</h1>
+        <p className={`${skin.subheading} text-sm mt-1`}>全站數據統計</p>
       </div>
 
       {loading ? (

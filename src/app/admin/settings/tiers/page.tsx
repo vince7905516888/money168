@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useAdminTheme, ADMIN_THEMES } from "@/components/layout/AdminThemeContext";
 
 const TIERS = [
   { key: "FREE", label: "一般會員" },
@@ -16,6 +17,8 @@ interface MatrixRow {
 }
 
 export default function TiersPage() {
+  const { themeKey } = useAdminTheme();
+  const skin = ADMIN_THEMES[themeKey];
   const [rows, setRows] = useState<MatrixRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -59,8 +62,8 @@ export default function TiersPage() {
     <div className="max-w-3xl">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">會員等級設定</h1>
-          <p className="text-slate-400 text-sm mt-1">設定每個會員等級預設能看到哪些前台欄目、能用哪些子功能</p>
+          <h1 className={`text-2xl font-bold ${skin.heading}`}>會員等級設定</h1>
+          <p className={`${skin.subheading} text-sm mt-1`}>設定每個會員等級預設能看到哪些前台欄目、能用哪些子功能</p>
         </div>
         <button
           onClick={handleSave}

@@ -3,10 +3,11 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 export const ADMIN_THEMES = {
-  slate: { label: "深藍", swatch: "#0f172a", bg: "bg-slate-900" },
-  violet: { label: "深紫", swatch: "#2e1065", bg: "bg-violet-950" },
-  emerald: { label: "墨綠", swatch: "#022c22", bg: "bg-emerald-950" },
-  black: { label: "純黑", swatch: "#000000", bg: "bg-black" },
+  slate: { label: "深藍", swatch: "#0f172a", bg: "bg-slate-900", sidebar: "bg-slate-900", heading: "text-white", subheading: "text-slate-400" },
+  violet: { label: "深紫", swatch: "#2e1065", bg: "bg-violet-950", sidebar: "bg-violet-950", heading: "text-white", subheading: "text-slate-400" },
+  emerald: { label: "墨綠", swatch: "#022c22", bg: "bg-emerald-950", sidebar: "bg-emerald-950", heading: "text-white", subheading: "text-slate-400" },
+  black: { label: "純黑", swatch: "#000000", bg: "bg-black", sidebar: "bg-black", heading: "text-white", subheading: "text-slate-400" },
+  light: { label: "淺色", swatch: "#f1f5f9", bg: "bg-slate-100", sidebar: "bg-slate-900", heading: "text-slate-900", subheading: "text-slate-500" },
 } as const;
 
 export type AdminThemeKey = keyof typeof ADMIN_THEMES;
