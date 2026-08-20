@@ -71,7 +71,7 @@ export default function FundPage() {
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Investment | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", code: "", date: "", bankName: "", currency: "", quantity: "", amount: "", note: "" });
+  const [editForm, setEditForm] = useState({ name: "", code: "", date: "", bankName: "", currency: "", price: "", quantity: "", amount: "", note: "" });
   const [saving, setSaving] = useState(false);
 
   const [userBanks, setUserBanks] = useState<UserBank[]>([]);
@@ -266,6 +266,7 @@ export default function FundPage() {
       date: inv.date ? inv.date.split("T")[0] : "",
       bankName: inv.bankName ?? "",
       currency: inv.currency ?? "",
+      price: inv.price ? String(inv.price) : "",
       quantity: inv.quantity ? String(inv.quantity) : "",
       amount: String(inv.amount),
       note: inv.note ?? "",
@@ -732,25 +733,32 @@ export default function FundPage() {
                 <input value={editForm.code} onChange={(e) => setEditForm({ ...editForm, code: e.target.value })}
                   placeholder="例如：LU0068578508" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">單位數（選填）</label>
-                <input type="number" step="any" value={editForm.quantity}
-                  onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })} placeholder="例如：1000"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">淨值（選填）</label>
+                  <input type="number" min="0" step="any" value={editForm.price}
+                    onChange={(e) => setEditForm({ ...editForm, price: e.target.value })} placeholder="例如：10.5"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">單位數（選填）</label>
+                  <input type="number" step="any" value={editForm.quantity}
+                    onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })} placeholder="例如：1000"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">投入金額</label>
                 <input required type="number" step="any" value={editForm.amount}
                   onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} placeholder="例如：50000"
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                <p className="text-[11px] text-slate-400 mt-1">因匯率／進位導致與實際扣款金額有落差時，可直接在此修正（贖回記錄請填負數）</p>
+                <p className="text-[11px] text-slate-400 mt-1">修改淨值／單位數不會自動重新試算金額，因匯率／進位導致與實際扣款金額有落差時，可直接在此修正（贖回記錄請填負數）</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
                 <input value={editForm.note} onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
                   placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
-              <p className="text-[11px] text-slate-400">淨值如需調整，請刪除後重新新增以確保試算正確；投入金額可直接於上方修正</p>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setEditing(null)}
                   className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
