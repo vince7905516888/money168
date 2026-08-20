@@ -59,11 +59,13 @@ export async function POST(req: NextRequest) {
     });
 
     // Gemini 在模型忙碌時會回 503「currently experiencing high demand」，屬於暫時性狀況，
-    // 自動重試幾次（間隔遞增）通常就能成功，不用讓使用者手動按重試。
+    // 影片摘要（fileData 讀取 YouTube 影片）比純文字請求更吃資源，忙碌時比一般對話更容易碰到，
+    // 所以重試次數與總等待時間都拉長一點，提高在忙碌高峰期間仍能成功的機會。
     let res: Response;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let data: any;
-    const maxAttempts = 3;
+    const delaysMs = [2000, 4000, 8000, 15000, 20000];
+    const maxAttempts = delaysMs.length + 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
         method: "POST",
@@ -74,7 +76,7 @@ export async function POST(req: NextRequest) {
 
       const isOverloaded = res.status === 503 || /overload|high demand/i.test(data?.error?.message ?? "");
       if (res.ok || !isOverloaded || attempt === maxAttempts) break;
-      await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+      await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt - 1]));
     }
 
     if (!res!.ok) {
@@ -83,7 +85,7 @@ export async function POST(req: NextRequest) {
       const friendly = /prepayment|billing|credit/i.test(message)
         ? "Gemini API 帳號額度不足，請到 Google AI Studio 設定計費後再試"
         : /overload|high demand/i.test(message)
-        ? "Gemini 模型目前忙碌中，已自動重試多次仍失敗，請稍後再試一次"
+        ? "Gemini 模型目前處於高峰忙碌狀態，已自動重試多次仍失敗（這是 Google 那邊的暫時性問題，不是本站故障），建議過幾分鐘後再試一次"
         : message;
       return NextResponse.json({ error: friendly }, { status: 502 });
     }
