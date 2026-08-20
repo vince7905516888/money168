@@ -44,6 +44,7 @@ const DEFAULT_BANKS = [
 ];
 
 const CURRENCIES = ["TWD", "USD", "JPY", "EUR", "GBP", "AUD", "CNY", "HKD", "CAD", "NZD", "SGD", "ZAR", "CHF", "THB"];
+const RECORDS_PAGE_SIZE = 20;
 
 type FundFlowType = "INCOME" | "EXPENSE";
 
@@ -85,6 +86,8 @@ export default function FundPage() {
   const [savedNavs, setSavedNavs] = useState<UserFundNav[]>([]);
   const [navInputs, setNavInputs] = useState<Record<string, string>>({});
   const [navSavingKey, setNavSavingKey] = useState<string | null>(null);
+
+  const [recordPage, setRecordPage] = useState(1);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -293,6 +296,14 @@ export default function FundPage() {
     fetchAll();
   };
 
+  // 投資記錄分頁：20 筆一頁，純前端切片（彙總卡片與基金分組統計仍依全部記錄計算，不受分頁影響）
+  const recordsTotalPages = Math.max(Math.ceil(investments.length / RECORDS_PAGE_SIZE), 1);
+  const safeRecordPage = Math.min(recordPage, recordsTotalPages);
+  const pagedInvestments = investments.slice(
+    (safeRecordPage - 1) * RECORDS_PAGE_SIZE,
+    safeRecordPage * RECORDS_PAGE_SIZE
+  );
+
   return (
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-8">
@@ -404,40 +415,64 @@ export default function FundPage() {
             <button onClick={openAdd} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆記錄</button>
           </div>
         ) : (
-          <div className="divide-y divide-slate-50">
-            {investments.map((inv) => (
-              <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
-                <div>
-                  <div className="text-sm font-medium text-slate-800 flex items-center gap-2">
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${inv.amount >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                      {inv.amount >= 0 ? "申購" : "贖回"}
-                    </span>
-                    {inv.name || "(未命名)"}
-                    {inv.code && <span className="ml-1 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{inv.code}</span>}
+          <>
+            <div className="divide-y divide-slate-50">
+              {pagedInvestments.map((inv) => (
+                <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
+                  <div>
+                    <div className="text-sm font-medium text-slate-800 flex items-center gap-2">
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${inv.amount >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                        {inv.amount >= 0 ? "申購" : "贖回"}
+                      </span>
+                      {inv.name || "(未命名)"}
+                      {inv.code && <span className="ml-1 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{inv.code}</span>}
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
+                      {inv.bankName ? ` · ${inv.bankName}` : ""}
+                      {inv.currency ? ` · ${inv.currency}` : ""}
+                      {inv.price ? ` · 淨值 ${inv.price}` : ""}
+                      {inv.quantity ? ` · ${Math.abs(inv.quantity)} 單位` : ""}
+                      {inv.exchangeRate ? ` · 匯率 ${inv.exchangeRate}` : ""}
+                      {inv.note ? ` · ${inv.note}` : ""}
+                      {inv.transactionId && <span className="ml-1 text-indigo-400">· 已連結支出</span>}
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
-                    {inv.bankName ? ` · ${inv.bankName}` : ""}
-                    {inv.currency ? ` · ${inv.currency}` : ""}
-                    {inv.price ? ` · 淨值 ${inv.price}` : ""}
-                    {inv.quantity ? ` · ${Math.abs(inv.quantity)} 單位` : ""}
-                    {inv.exchangeRate ? ` · 匯率 ${inv.exchangeRate}` : ""}
-                    {inv.note ? ` · ${inv.note}` : ""}
-                    {inv.transactionId && <span className="ml-1 text-indigo-400">· 已連結支出</span>}
+                  <div className="flex items-center gap-4">
+                    <span className={`text-sm font-semibold ${inv.amount >= 0 ? "text-slate-700" : "text-red-500"}`}>
+                      {inv.amount < 0 ? "-" : ""}{fmt(Math.abs(inv.amount))}
+                    </span>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEdit(inv)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
+                      <button onClick={() => handleDelete(inv.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className={`text-sm font-semibold ${inv.amount >= 0 ? "text-slate-700" : "text-red-500"}`}>
-                    {inv.amount < 0 ? "-" : ""}{fmt(Math.abs(inv.amount))}
-                  </span>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openEdit(inv)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
-                    <button onClick={() => handleDelete(inv.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
-                  </div>
+              ))}
+            </div>
+
+            {recordsTotalPages > 1 && (
+              <div className="flex items-center justify-between px-6 py-3.5 border-t border-slate-50">
+                <span className="text-xs text-slate-400">共 {investments.length} 筆 · 第 {safeRecordPage} / {recordsTotalPages} 頁</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setRecordPage((p) => Math.max(p - 1, 1))}
+                    disabled={safeRecordPage <= 1}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    上一頁
+                  </button>
+                  <button
+                    onClick={() => setRecordPage((p) => Math.min(p + 1, recordsTotalPages))}
+                    disabled={safeRecordPage >= recordsTotalPages}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    下一頁
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </div>
 
