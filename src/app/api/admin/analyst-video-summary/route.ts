@@ -47,27 +47,43 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-        contents: [{
-          role: "user",
-          parts: [
-            { fileData: { fileUri: url } },
-            { text: "請依照系統指示整理這部影片的重點。" },
-          ],
-        }],
-      }),
+    const body = JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+      contents: [{
+        role: "user",
+        parts: [
+          { fileData: { fileUri: url } },
+          { text: "請依照系統指示整理這部影片的重點。" },
+        ],
+      }],
     });
-    const data = await res.json();
 
-    if (!res.ok) {
+    // Gemini 在模型忙碌時會回 503「currently experiencing high demand」，屬於暫時性狀況，
+    // 自動重試幾次（間隔遞增）通常就能成功，不用讓使用者手動按重試。
+    let res: Response;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let data: any;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      data = await res.json();
+
+      const isOverloaded = res.status === 503 || /overload|high demand/i.test(data?.error?.message ?? "");
+      if (res.ok || !isOverloaded || attempt === maxAttempts) break;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+    }
+
+    if (!res!.ok) {
       console.error("Gemini video summary error:", data);
       const message: string = data?.error?.message || "AI 服務目前無法回應";
       const friendly = /prepayment|billing|credit/i.test(message)
         ? "Gemini API 帳號額度不足，請到 Google AI Studio 設定計費後再試"
+        : /overload|high demand/i.test(message)
+        ? "Gemini 模型目前忙碌中，已自動重試多次仍失敗，請稍後再試一次"
         : message;
       return NextResponse.json({ error: friendly }, { status: 502 });
     }
