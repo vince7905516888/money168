@@ -53,6 +53,16 @@ function MiniCandles({ items }: { items: CandleSpec[] }) {
   );
 }
 
+// 一個條列項目常常同時描述兩種相反的型態（例如「三陽線／三陰線」），
+// 這裡把每一組K線都畫出來，不是只畫其中一種方向。
+function CandleGroups({ groups }: { groups: CandleSpec[][] }) {
+  return (
+    <div className="flex flex-wrap gap-2 shrink-0">
+      {groups.map((g, i) => <MiniCandles key={i} items={g} />)}
+    </div>
+  );
+}
+
 function TrendLine({ points, marks }: { points: [number, number][]; marks?: number[] }) {
   const w = 480, h = 160, pad = 20;
   const maxX = points[points.length - 1][0];
@@ -103,8 +113,8 @@ interface TermItem {
   name: string;
   tag?: { label: string; kind: "buy" | "sell" | "watch" };
   body: string;
-  candles?: CandleSpec[];
-  trend?: [number, number][];
+  candleGroups?: CandleSpec[][];
+  trendGroups?: [number, number][][];
 }
 
 function TermList({ items }: { items: TermItem[] }) {
@@ -112,9 +122,13 @@ function TermList({ items }: { items: TermItem[] }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm divide-y divide-slate-50 overflow-hidden">
       {items.map((it, i) => (
-        <div key={i} className="flex items-start gap-4 px-5 py-4">
-          {it.candles && <MiniCandles items={it.candles} />}
-          {it.trend && <MiniTrend points={it.trend} />}
+        <div key={i} className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4 px-5 py-4">
+          {it.candleGroups && <CandleGroups groups={it.candleGroups} />}
+          {it.trendGroups && (
+            <div className="flex flex-wrap gap-2 shrink-0">
+              {it.trendGroups.map((t, gi) => <MiniTrend key={gi} points={t} />)}
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-1 sm:gap-4 flex-1 min-w-0">
             <div className="text-base font-semibold text-slate-800 flex items-center gap-2">
               {it.name}
@@ -249,67 +263,127 @@ export default function StockCoursePage() {
         <SectionCard title="兩根K線組合">
           <TermList items={[
             { name: "覆蓋線", body: "大陽(陰)線次日出現大陰(陽)線覆蓋最高價，疑似短空(多)出現。",
-              candles: [{ o: 20, c: 70, h: 72, l: 18, bull: true }, { o: 76, c: 14, h: 78, l: 12, bull: false }] },
+              candleGroups: [
+                [{ o: 20, c: 70, h: 72, l: 18, bull: true }, { o: 76, c: 14, h: 78, l: 12, bull: false }],
+                [{ o: 80, c: 30, h: 82, l: 28, bull: false }, { o: 24, c: 86, h: 88, l: 22, bull: true }],
+              ] },
             { name: "包入線", body: "陽(陰)線次日出現大陰(陽)線覆蓋最高最低價，代表空(多)頭再度轉強。",
-              candles: [{ o: 30, c: 55, h: 58, l: 28, bull: true }, { o: 68, c: 15, h: 70, l: 12, bull: false }] },
+              candleGroups: [
+                [{ o: 30, c: 55, h: 58, l: 28, bull: true }, { o: 68, c: 15, h: 70, l: 12, bull: false }],
+                [{ o: 70, c: 45, h: 72, l: 42, bull: false }, { o: 32, c: 85, h: 88, l: 30, bull: true }],
+              ] },
             { name: "迫切線", body: "大陽線次日小陰線，高檔有賣壓宜觀望；大陰線次日小陽線，多空平手應提高警覺。",
-              candles: [{ o: 20, c: 75, h: 78, l: 18, bull: true }, { o: 74, c: 64, h: 76, l: 62, bull: false }] },
+              candleGroups: [
+                [{ o: 20, c: 75, h: 78, l: 18, bull: true }, { o: 74, c: 64, h: 76, l: 62, bull: false }],
+                [{ o: 80, c: 25, h: 82, l: 22, bull: false }, { o: 26, c: 36, h: 38, l: 24, bull: true }],
+              ] },
             { name: "懷抱線", body: "大陽線次日大陰線收在陽線實體內，多方居劣勢，未來二日無法覆蓋則短多結束（反之亦然）。",
-              candles: [{ o: 20, c: 78, h: 80, l: 18, bull: true }, { o: 60, c: 38, h: 62, l: 36, bull: false }] },
+              candleGroups: [
+                [{ o: 20, c: 78, h: 80, l: 18, bull: true }, { o: 60, c: 38, h: 62, l: 36, bull: false }],
+                [{ o: 80, c: 22, h: 82, l: 20, bull: false }, { o: 40, c: 62, h: 64, l: 38, bull: true }],
+              ] },
             { name: "孕育線", body: "陽線次日小陰線收在實體內，第三日續跌破前低，波段跌勢確立（陰轉陽則確立漲勢）。",
-              candles: [{ o: 20, c: 78, h: 80, l: 18, bull: true }, { o: 52, c: 48, h: 54, l: 46, bull: false }] },
+              candleGroups: [
+                [{ o: 20, c: 78, h: 80, l: 18, bull: true }, { o: 52, c: 48, h: 54, l: 46, bull: false }],
+                [{ o: 80, c: 22, h: 82, l: 20, bull: false }, { o: 48, c: 52, h: 54, l: 46, bull: true }],
+              ] },
             { name: "分離線", tag: { label: "謹慎", kind: "watch" }, body: "兩日開盤價相同，多受利多／利空激勵或主力特定操作，盤勢激烈投機，多空都要謹慎。",
-              candles: [{ o: 70, c: 35, h: 73, l: 32, bull: false }, { o: 70, c: 85, h: 87, l: 68, bull: true }] },
+              candleGroups: [
+                [{ o: 70, c: 35, h: 73, l: 32, bull: false }, { o: 70, c: 85, h: 87, l: 68, bull: true }],
+                [{ o: 30, c: 65, h: 68, l: 28, bull: true }, { o: 30, c: 15, h: 32, l: 12, bull: false }],
+              ] },
             { name: "會合線", body: "兩日收盤價相同，代表止跌回穩、或漲勢明顯受阻的訊號。",
-              candles: [{ o: 75, c: 35, h: 78, l: 30, bull: false }, { o: 18, c: 35, h: 38, l: 15, bull: true }] },
+              candleGroups: [
+                [{ o: 75, c: 35, h: 78, l: 30, bull: false }, { o: 18, c: 35, h: 38, l: 15, bull: true }],
+                [{ o: 20, c: 65, h: 68, l: 18, bull: true }, { o: 80, c: 65, h: 82, l: 62, bull: false }],
+              ] },
             { name: "平行線", body: "陽(陰)線連續出現兩日，代表上升(下跌)力道強勁，仍有高(低)點可期。",
-              candles: [{ o: 18, c: 50, h: 53, l: 15, bull: true }, { o: 48, c: 82, h: 85, l: 45, bull: true }] },
+              candleGroups: [
+                [{ o: 18, c: 50, h: 53, l: 15, bull: true }, { o: 48, c: 82, h: 85, l: 45, bull: true }],
+                [{ o: 82, c: 50, h: 85, l: 48, bull: false }, { o: 52, c: 18, h: 55, l: 15, bull: false }],
+              ] },
           ]} />
         </SectionCard>
 
         <SectionCard title="三根K線組合">
           <TermList items={[
             { name: "晨星／夜星", body: "大陰(陽)線次日出現小K線位於前一日實體下(上)方，第三日反轉出現，可能成為波段起點。",
-              candles: [{ o: 78, c: 25, h: 82, l: 22, bull: false }, { o: 20, c: 16, h: 24, l: 12, bull: false }, { o: 22, c: 68, h: 70, l: 20, bull: true }] },
+              candleGroups: [
+                [{ o: 78, c: 25, h: 82, l: 22, bull: false }, { o: 20, c: 16, h: 24, l: 12, bull: false }, { o: 22, c: 68, h: 70, l: 20, bull: true }],
+                [{ o: 22, c: 78, h: 82, l: 20, bull: true }, { o: 82, c: 86, h: 90, l: 78, bull: true }, { o: 84, c: 30, h: 86, l: 26, bull: false }],
+              ] },
             { name: "三陽線／三陰線", body: "連三根同色實體，代表中多／中空訊號出現，唯應留意物極必反。",
-              candles: [{ o: 15, c: 38, h: 40, l: 13, bull: true }, { o: 36, c: 60, h: 62, l: 34, bull: true }, { o: 58, c: 84, h: 86, l: 56, bull: true }] },
+              candleGroups: [
+                [{ o: 15, c: 38, h: 40, l: 13, bull: true }, { o: 36, c: 60, h: 62, l: 34, bull: true }, { o: 58, c: 84, h: 86, l: 56, bull: true }],
+                [{ o: 85, c: 62, h: 87, l: 60, bull: false }, { o: 64, c: 40, h: 66, l: 38, bull: false }, { o: 42, c: 16, h: 44, l: 14, bull: false }],
+              ] },
             { name: "前長後短型 / 前短後長型", body: "觀察是否跌破(突破)第一根K線的高低點，決定多空單該續抱或出場。",
-              candles: [{ o: 15, c: 70, h: 72, l: 13, bull: true }, { o: 68, c: 82, h: 84, l: 66, bull: true }, { o: 80, c: 88, h: 90, l: 78, bull: true }] },
+              candleGroups: [
+                [{ o: 15, c: 70, h: 72, l: 13, bull: true }, { o: 68, c: 82, h: 84, l: 66, bull: true }, { o: 80, c: 88, h: 90, l: 78, bull: true }],
+                [{ o: 55, c: 63, h: 65, l: 53, bull: true }, { o: 60, c: 75, h: 77, l: 58, bull: true }, { o: 70, c: 92, h: 94, l: 68, bull: true }],
+              ] },
             { name: "階梯上升／階梯下降", body: "連續三日長上下影線，已大漲(跌)一段後出現，視為賣出(買進)訊號。",
-              candles: [{ o: 20, c: 45, h: 70, l: 10, bull: true }, { o: 42, c: 65, h: 88, l: 30, bull: true }, { o: 62, c: 85, h: 98, l: 50, bull: true }] },
+              candleGroups: [
+                [{ o: 20, c: 45, h: 70, l: 10, bull: true }, { o: 42, c: 65, h: 88, l: 30, bull: true }, { o: 62, c: 85, h: 98, l: 50, bull: true }],
+                [{ o: 80, c: 55, h: 90, l: 30, bull: false }, { o: 58, c: 35, h: 70, l: 12, bull: false }, { o: 38, c: 15, h: 50, l: 2, bull: false }],
+              ] },
             { name: "一紅吃三(多)黑／一黑吃三(多)紅", body: "代表多(空)方力量已明顯轉強，後面可望有一波像樣的行情。",
-              candles: [{ o: 70, c: 55, h: 72, l: 53, bull: false }, { o: 62, c: 50, h: 64, l: 48, bull: false }, { o: 56, c: 45, h: 58, l: 43, bull: false }, { o: 40, c: 88, h: 90, l: 38, bull: true }] },
+              candleGroups: [
+                [{ o: 70, c: 55, h: 72, l: 53, bull: false }, { o: 62, c: 50, h: 64, l: 48, bull: false }, { o: 56, c: 45, h: 58, l: 43, bull: false }, { o: 40, c: 88, h: 90, l: 38, bull: true }],
+                [{ o: 30, c: 45, h: 47, l: 28, bull: true }, { o: 38, c: 50, h: 52, l: 36, bull: true }, { o: 44, c: 55, h: 57, l: 42, bull: true }, { o: 60, c: 12, h: 62, l: 10, bull: false }],
+              ] },
             { name: "上升／下降中併肩陽線", body: "連續兩根開盤價相同的陽線，屬多頭連續型態，出現在下降段則代表空頭回補。",
-              candles: [{ o: 20, c: 55, h: 57, l: 18, bull: true }, { o: 20, c: 56, h: 58, l: 18, bull: true }] },
+              candleGroups: [
+                [{ o: 20, c: 55, h: 57, l: 18, bull: true }, { o: 20, c: 56, h: 58, l: 18, bull: true }],
+                [{ o: 80, c: 45, h: 82, l: 43, bull: false }, { o: 80, c: 44, h: 82, l: 42, bull: false }],
+              ] },
           ]} />
         </SectionCard>
 
         <SectionCard title="五根以上組合與經典型態">
           <TermList items={[
             { name: "上升三法", body: "連漲中出現三根小陰線但未跌破前陽線，隨後再拉出陽線，確立多方力道未歇，把握時機買進。",
-              candles: [{ o: 15, c: 75, h: 78, l: 13, bull: true }, { o: 70, c: 62, h: 72, l: 60, bull: false }, { o: 63, c: 56, h: 65, l: 54, bull: false }, { o: 57, c: 50, h: 59, l: 48, bull: false }, { o: 52, c: 88, h: 90, l: 50, bull: true }] },
+              candleGroups: [[{ o: 15, c: 75, h: 78, l: 13, bull: true }, { o: 70, c: 62, h: 72, l: 60, bull: false }, { o: 63, c: 56, h: 65, l: 54, bull: false }, { o: 57, c: 50, h: 59, l: 48, bull: false }, { o: 52, c: 88, h: 90, l: 50, bull: true }]] },
             { name: "下降三法", body: "連跌中一根大黑線後接三根小陽線，第四日大陰線吃掉小陽線，代表買盤仍弱，續跌機率高。",
-              candles: [{ o: 80, c: 20, h: 82, l: 18, bull: false }, { o: 25, c: 33, h: 35, l: 23, bull: true }, { o: 32, c: 40, h: 42, l: 30, bull: true }, { o: 39, c: 47, h: 49, l: 37, bull: true }, { o: 45, c: 12, h: 47, l: 10, bull: false }] },
+              candleGroups: [[{ o: 80, c: 20, h: 82, l: 18, bull: false }, { o: 25, c: 33, h: 35, l: 23, bull: true }, { o: 32, c: 40, h: 42, l: 30, bull: true }, { o: 39, c: 47, h: 49, l: 37, bull: true }, { o: 45, c: 12, h: 47, l: 10, bull: false }]] },
             { name: "最後包覆線", body: "底部／高檔反轉的訊號，需視次日是否跌破或突破確認訊號是否成立。",
-              candles: [{ o: 70, c: 40, h: 72, l: 38, bull: false }, { o: 38, c: 30, h: 40, l: 26, bull: false }, { o: 25, c: 85, h: 87, l: 23, bull: true }] },
+              candleGroups: [[{ o: 70, c: 40, h: 72, l: 38, bull: false }, { o: 38, c: 30, h: 40, l: 26, bull: false }, { o: 25, c: 85, h: 87, l: 23, bull: true }]] },
             { name: "上漲／下降插入線", body: "短期回檔或反彈但主趨勢不變，勿被單一根K線的假訊號迷惑。",
-              candles: [{ o: 20, c: 70, h: 72, l: 18, bull: true }, { o: 78, c: 55, h: 80, l: 53, bull: false }, { o: 52, c: 62, h: 64, l: 50, bull: true }] },
+              candleGroups: [
+                [{ o: 20, c: 70, h: 72, l: 18, bull: true }, { o: 78, c: 55, h: 80, l: 53, bull: false }, { o: 52, c: 62, h: 64, l: 50, bull: true }],
+                [{ o: 80, c: 30, h: 82, l: 28, bull: false }, { o: 22, c: 45, h: 47, l: 20, bull: true }, { o: 48, c: 38, h: 50, l: 36, bull: false }],
+              ] },
             { name: "兩條插入線", body: "接近底部時買盤力量強大形成支撐，突破底部呈上升趨勢，可乘機買進。",
-              candles: [{ o: 60, c: 25, h: 62, l: 23, bull: false }, { o: 30, c: 20, h: 32, l: 15, bull: false }, { o: 22, c: 50, h: 52, l: 20, bull: true }, { o: 48, c: 70, h: 72, l: 46, bull: true }] },
+              candleGroups: [[{ o: 60, c: 25, h: 62, l: 23, bull: false }, { o: 30, c: 20, h: 32, l: 15, bull: false }, { o: 22, c: 50, h: 52, l: 20, bull: true }, { o: 48, c: 70, h: 72, l: 46, bull: true }]] },
             { name: "捨子線 / 孕育十字線", body: "下跌末端十字線次日收紅，多方奪回主導權；連漲後十字線孕育在大陽線中，暗示可能重挫。",
-              candles: [{ o: 60, c: 22, h: 62, l: 20, bull: false }, { o: 20, c: 21, h: 23, l: 14, bull: true }] },
+              candleGroups: [
+                [{ o: 60, c: 22, h: 62, l: 20, bull: false }, { o: 20, c: 21, h: 23, l: 14, bull: true }],
+                [{ o: 15, c: 38, h: 40, l: 13, bull: true }, { o: 36, c: 60, h: 62, l: 34, bull: true }, { o: 58, c: 84, h: 86, l: 56, bull: true }, { o: 70, c: 71, h: 88, l: 53, bull: true }],
+              ] },
             { name: "三顆星 / 連續下降三顆星", body: "三根小紅小黑代表市場觀望疲軟；三根跳空小陰線代表空方賣壓逐漸衰竭，接近探底。",
-              candles: [{ o: 40, c: 35, h: 42, l: 33, bull: false }, { o: 33, c: 37, h: 39, l: 31, bull: true }, { o: 35, c: 31, h: 37, l: 29, bull: false }] },
+              candleGroups: [
+                [{ o: 40, c: 35, h: 42, l: 33, bull: false }, { o: 33, c: 37, h: 39, l: 31, bull: true }, { o: 35, c: 31, h: 37, l: 29, bull: false }],
+                [{ o: 60, c: 52, h: 62, l: 50, bull: false }, { o: 46, c: 40, h: 48, l: 38, bull: false }, { o: 34, c: 29, h: 36, l: 27, bull: false }],
+              ] },
             { name: "步步為營 / 上漲二顆星", body: "小陽線位於前波頂部附近，漲勢受阻有失速危險；帶量續漲則可能進入另一波漲勢。",
-              candles: [{ o: 20, c: 80, h: 82, l: 18, bull: true }, { o: 78, c: 83, h: 85, l: 76, bull: true }, { o: 82, c: 79, h: 84, l: 77, bull: false }] },
+              candleGroups: [
+                [{ o: 20, c: 80, h: 82, l: 18, bull: true }, { o: 78, c: 83, h: 85, l: 76, bull: true }],
+                [{ o: 20, c: 80, h: 82, l: 18, bull: true }, { o: 78, c: 83, h: 85, l: 76, bull: true }, { o: 82, c: 79, h: 84, l: 77, bull: false }],
+              ] },
             { name: "上吊陽線", body: "長下影線狀似買盤強勁，但需提防主力藉機拉高出貨，宜保守看待。",
-              candles: [{ o: 60, c: 68, h: 70, l: 15, bull: true }] },
+              candleGroups: [[{ o: 60, c: 68, h: 70, l: 15, bull: true }]] },
             { name: "盡頭線", body: "最高價未能超過前一天高點，代表上漲力道已盡，是賣出訊號。",
-              candles: [{ o: 55, c: 75, h: 80, l: 53, bull: true }, { o: 73, c: 88, h: 92, l: 71, bull: true }, { o: 86, c: 90, h: 91, l: 84, bull: true }] },
+              candleGroups: [[{ o: 55, c: 75, h: 80, l: 53, bull: true }, { o: 73, c: 88, h: 92, l: 71, bull: true }, { o: 86, c: 90, h: 91, l: 84, bull: true }]] },
             { name: "順沿線 / 反擊順沿線", body: "連續兩根下降陰線代表高點已現應盡快出場；次日若見大陽線，通常是主力拉高出貨的逃命線。",
-              candles: [{ o: 85, c: 70, h: 87, l: 68, bull: false }, { o: 68, c: 52, h: 70, l: 50, bull: false }] },
+              candleGroups: [
+                [{ o: 85, c: 70, h: 87, l: 68, bull: false }, { o: 68, c: 52, h: 70, l: 50, bull: false }],
+                [{ o: 85, c: 70, h: 87, l: 68, bull: false }, { o: 68, c: 52, h: 70, l: 50, bull: false }, { o: 55, c: 90, h: 92, l: 53, bull: true }],
+              ] },
             { name: "雙鴉躍空 / 獨特三河底", body: "三根線形構成的頭部／底部反轉型態，關鍵在第二、三根線相對於第一根的開收盤位置。",
-              candles: [{ o: 20, c: 75, h: 78, l: 18, bull: true }, { o: 82, c: 88, h: 92, l: 80, bull: false }, { o: 90, c: 70, h: 91, l: 68, bull: false }] },
+              candleGroups: [
+                [{ o: 20, c: 75, h: 78, l: 18, bull: true }, { o: 82, c: 88, h: 92, l: 80, bull: false }, { o: 90, c: 70, h: 91, l: 68, bull: false }],
+                [{ o: 80, c: 30, h: 82, l: 28, bull: false }, { o: 26, c: 15, h: 28, l: 8, bull: false }, { o: 14, c: 20, h: 22, l: 12, bull: true }],
+              ] },
           ]} />
         </SectionCard>
       </div>
@@ -383,9 +457,18 @@ export default function StockCoursePage() {
 
         <SectionCard title="整理型態" subtitle="跌破上升線或突破下降線代表趨勢告一段落，進入整理；整理期間成交量會愈來愈小，直到再次跌破或突破趨勢線才宣告結束。">
           <TermList items={[
-            { name: "旗形整理", body: "上升旗形（回檔）／下降旗形（反彈），型態邊界大致平行。", trend: [[0, 15], [1, 85], [2, 70], [3, 80], [4, 65], [5, 76], [6, 60], [7, 95]] },
-            { name: "三角形整理", body: "上升三角形（回檔）／下降三角形（反彈），型態邊界逐漸收斂。", trend: [[0, 15], [1, 85], [2, 55], [3, 78], [4, 60], [5, 72], [6, 65], [7, 95]] },
-            { name: "箱形整理", body: "股價在固定區間來回震盪（回檔或反彈皆可能出現）。", trend: [[0, 15], [1, 80], [2, 35], [3, 80], [4, 35], [5, 80], [6, 35], [7, 90]] },
+            { name: "旗形整理", body: "上升旗形（回檔）／下降旗形（反彈），型態邊界大致平行。",
+              trendGroups: [
+                [[0, 15], [1, 85], [2, 70], [3, 80], [4, 65], [5, 76], [6, 60], [7, 40]],
+                [[0, 90], [1, 20], [2, 35], [3, 24], [4, 40], [5, 30], [6, 45], [7, 65]],
+              ] },
+            { name: "三角形整理", body: "上升三角形（回檔）／下降三角形（反彈），型態邊界逐漸收斂。",
+              trendGroups: [
+                [[0, 15], [1, 85], [2, 55], [3, 78], [4, 60], [5, 72], [6, 65], [7, 92]],
+                [[0, 90], [1, 20], [2, 45], [3, 25], [4, 42], [5, 30], [6, 38], [7, 12]],
+              ] },
+            { name: "箱形整理", body: "股價在固定區間來回震盪（回檔或反彈皆可能出現）。",
+              trendGroups: [[[0, 15], [1, 80], [2, 35], [3, 80], [4, 35], [5, 80], [6, 35], [7, 90]]] },
           ]} />
         </SectionCard>
       </div>
