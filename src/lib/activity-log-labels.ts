@@ -1,0 +1,13 @@
+export const ACTIVITY_ACTION_LABEL: Record<string, string> = {
+  CREATE_TRANSACTION: "新增收支",
+  UPDATE_TRANSACTION: "編輯收支",
+  DELETE_TRANSACTION: "刪除收支",
+  CREATE_INVESTMENT: "新增投資",
+  UPDATE_INVESTMENT: "編輯投資",
+  DELETE_INVESTMENT: "刪除投資",
+  CREATE_DEBT: "新增負債",
+  UPDATE_DEBT: "編輯負債",
+  DELETE_DEBT: "刪除負債",
+  CREATE_MARTINGALE_STRATEGY: "新增自訂策略",
+  DELETE_MARTINGALE_STRATEGY: "刪除自訂策略",
+};

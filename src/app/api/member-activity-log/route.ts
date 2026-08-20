@@ -4,20 +4,16 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if (!session || session.user.role !== "ADMIN") {
-    return NextResponse.json({ error: "無權限" }, { status: 403 });
-  }
+  if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
-  const userId = searchParams.get("userId");
   const category = searchParams.get("category");
   const from = searchParams.get("from");
   const to = searchParams.get("to");
   const page = Math.max(Number(searchParams.get("page")) || 1, 1);
   const pageSize = Math.min(Number(searchParams.get("pageSize")) || 50, 200);
 
-  const where: Record<string, unknown> = {};
-  if (userId) where.userId = userId;
+  const where: Record<string, unknown> = { userId: session.user.id };
   if (category) where.category = category;
   if (from || to) {
     const createdAt: Record<string, Date> = {};
@@ -32,7 +28,6 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { user: { select: { name: true, email: true } } },
     }),
     prisma.memberActivityLog.count({ where }),
   ]);

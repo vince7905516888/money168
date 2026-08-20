@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logMemberActivity } from "@/lib/activity-log";
+
+const TYPE_LABEL: Record<string, string> = { INCOME: "收入", EXPENSE: "支出", TRANSFER: "調帳" };
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -79,6 +82,14 @@ export async function POST(req: NextRequest) {
     },
     include: { category: true },
   });
+
+  const isBank = transaction.source === "BANK";
+  await logMemberActivity(
+    session.user.id,
+    "CREATE_TRANSACTION",
+    isBank ? "banks" : "transactions",
+    `新增${TYPE_LABEL[transaction.type] ?? transaction.type}「${transaction.title}」${transaction.amount}${transaction.currency ? " " + transaction.currency : ""}`
+  );
 
   return NextResponse.json(transaction, { status: 201 });
 }

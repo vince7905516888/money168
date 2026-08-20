@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logMemberActivity } from "@/lib/activity-log";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -52,6 +53,13 @@ export async function POST(req: NextRequest) {
       userId: session.user.id,
     },
   });
+
+  await logMemberActivity(
+    session.user.id,
+    "CREATE_INVESTMENT",
+    `investment.${investment.type.toLowerCase()}`,
+    `新增${investment.action === "SELL" ? "賣出" : "買進"}記錄「${investment.name || investment.code || investment.type}」${investment.amount}`
+  );
 
   return NextResponse.json(investment, { status: 201 });
 }

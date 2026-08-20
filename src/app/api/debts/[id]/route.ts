@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logMemberActivity } from "@/lib/activity-log";
 
 export async function PUT(
   req: NextRequest,
@@ -28,6 +29,8 @@ export async function PUT(
     },
   });
 
+  await logMemberActivity(session.user.id, "UPDATE_DEBT", "debts", `編輯負債「${updated.category}」${updated.amount}`);
+
   return NextResponse.json(updated);
 }
 
@@ -45,5 +48,8 @@ export async function DELETE(
   if (!existing) return NextResponse.json({ error: "找不到記錄" }, { status: 404 });
 
   await prisma.debt.delete({ where: { id } });
+
+  await logMemberActivity(session.user.id, "DELETE_DEBT", "debts", `刪除負債「${existing.category}」${existing.amount}`);
+
   return NextResponse.json({ message: "已刪除" });
 }

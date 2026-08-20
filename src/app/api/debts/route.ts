@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logMemberActivity } from "@/lib/activity-log";
 
 export async function GET() {
   const session = await auth();
@@ -34,6 +35,8 @@ export async function POST(req: NextRequest) {
       userId: session.user.id,
     },
   });
+
+  await logMemberActivity(session.user.id, "CREATE_DEBT", "debts", `新增負債「${debt.category}」${debt.amount}`);
 
   return NextResponse.json(debt, { status: 201 });
 }

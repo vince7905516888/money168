@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logMemberActivity } from "@/lib/activity-log";
 
 export async function PUT(
   req: NextRequest,
@@ -38,6 +39,13 @@ export async function PUT(
     },
   });
 
+  await logMemberActivity(
+    session.user.id,
+    "UPDATE_INVESTMENT",
+    `investment.${updated.type.toLowerCase()}`,
+    `編輯記錄「${updated.name || updated.code || updated.type}」${updated.amount}`
+  );
+
   return NextResponse.json(updated);
 }
 
@@ -55,5 +63,13 @@ export async function DELETE(
   if (!existing) return NextResponse.json({ error: "找不到記錄" }, { status: 404 });
 
   await prisma.investment.delete({ where: { id } });
+
+  await logMemberActivity(
+    session.user.id,
+    "DELETE_INVESTMENT",
+    `investment.${existing.type.toLowerCase()}`,
+    `刪除記錄「${existing.name || existing.code || existing.type}」${existing.amount}`
+  );
+
   return NextResponse.json({ message: "已刪除" });
 }

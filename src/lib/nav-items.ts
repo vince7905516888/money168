@@ -30,6 +30,26 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "profile", label: "會員資料管理", href: "/profile", section: null },
 ];
 
+// 會員變動紀錄可篩選的分類：只列出會員在前台會實際新增/編輯/刪除資料的頁面
+// （行情看盤、智能助理等純瀏覽頁面不會產生變動紀錄，所以不列在這裡）。
+export const ACTIVITY_LOG_CATEGORY_KEYS = [
+  "transactions",
+  "banks",
+  "debts",
+  "investment.stock",
+  "investment.fund",
+  "investment.forex",
+  "investment.crypto",
+  "investment.gold",
+  "investment.realestate",
+  "investment.insurance",
+  "market.strategy",
+];
+
+export const ACTIVITY_LOG_CATEGORIES: NavItem[] = NAV_ITEMS.filter((n) =>
+  ACTIVITY_LOG_CATEGORY_KEYS.includes(n.key)
+);
+
 // 功能權限：不是獨立頁面、而是某個頁面內的子功能，一樣可以在後台會員等級設定裡依會員等級開關。
 export interface FeatureItem {
   key: string;

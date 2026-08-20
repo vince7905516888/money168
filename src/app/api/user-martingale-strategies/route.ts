@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseMartingaleRatios } from "@/lib/martingale";
+import { logMemberActivity } from "@/lib/activity-log";
 
 export async function GET() {
   const session = await auth();
@@ -28,15 +29,12 @@ export async function POST(req: NextRequest) {
     data: { userId: session.user.id, name: name.trim(), ratios: parsedRatios, note: note?.trim() || null },
   });
 
-  await prisma.memberActivityLog
-    .create({
-      data: {
-        userId: session.user.id,
-        action: "CREATE_MARTINGALE_STRATEGY",
-        detail: `新增自訂馬丁格爾策略「${strategy.name}」（${parsedRatios.join(":")}）`,
-      },
-    })
-    .catch((e) => console.error("member activity log failed:", e));
+  await logMemberActivity(
+    session.user.id,
+    "CREATE_MARTINGALE_STRATEGY",
+    "market.strategy",
+    `新增自訂馬丁格爾策略「${strategy.name}」（${parsedRatios.join(":")}）`
+  );
 
   return NextResponse.json(strategy, { status: 201 });
 }
@@ -53,15 +51,12 @@ export async function DELETE(req: NextRequest) {
 
   await prisma.userMartingaleStrategy.delete({ where: { id } });
 
-  await prisma.memberActivityLog
-    .create({
-      data: {
-        userId: session.user.id,
-        action: "DELETE_MARTINGALE_STRATEGY",
-        detail: `刪除自訂馬丁格爾策略「${existing.name}」（${existing.ratios.join(":")}）`,
-      },
-    })
-    .catch((e) => console.error("member activity log failed:", e));
+  await logMemberActivity(
+    session.user.id,
+    "DELETE_MARTINGALE_STRATEGY",
+    "market.strategy",
+    `刪除自訂馬丁格爾策略「${existing.name}」（${existing.ratios.join(":")}）`
+  );
 
   return NextResponse.json({ message: "已刪除" });
 }

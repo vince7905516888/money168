@@ -296,6 +296,36 @@ export default function FundPage() {
     fetchAll();
   };
 
+  // 匯出 Excel（CSV，Excel 可直接開啟）：匯出全部投資記錄，不受分頁限制
+  const handleExportCsv = () => {
+    const headers = ["日期", "類型", "基金名稱", "代碼", "銀行別名", "幣別", "淨值", "單位數", "匯率", "金額", "備註"];
+    const rows = investments.map((inv) => [
+      new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW"),
+      inv.amount >= 0 ? "申購" : "贖回",
+      inv.name ?? "",
+      inv.code ?? "",
+      inv.bankName ?? "",
+      inv.currency ?? "",
+      inv.price ?? "",
+      inv.quantity !== undefined ? Math.abs(inv.quantity) : "",
+      inv.exchangeRate ?? "",
+      inv.amount,
+      inv.note ?? "",
+    ]);
+    const escapeCell = (v: string | number) => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [headers, ...rows].map((row) => row.map(escapeCell).join(",")).join("\r\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `基金投資紀錄_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // 投資記錄分頁：20 筆一頁，純前端切片（彙總卡片與基金分組統計仍依全部記錄計算，不受分頁影響）
   const recordsTotalPages = Math.max(Math.ceil(investments.length / RECORDS_PAGE_SIZE), 1);
   const safeRecordPage = Math.min(recordPage, recordsTotalPages);
@@ -404,8 +434,16 @@ export default function FundPage() {
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-50">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-50">
           <h2 className="font-semibold text-slate-900">投資記錄</h2>
+          {investments.length > 0 && (
+            <button
+              onClick={handleExportCsv}
+              className="text-xs font-medium text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-colors"
+            >
+              匯出 Excel
+            </button>
+          )}
         </div>
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
