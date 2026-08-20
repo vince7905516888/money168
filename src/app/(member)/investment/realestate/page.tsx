@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import Combobox from "@/components/ui/Combobox";
 
 interface Investment {
   id: string;
@@ -284,17 +285,12 @@ export default function RealEstatePage() {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">房貸銀行（選填）</label>
-                <input
-                  type="text"
-                  list="realestatebanklist"
+                <Combobox
                   value={addForm.bankName}
-                  onChange={(e) => setAddForm({ ...addForm, bankName: e.target.value })}
+                  onChange={(v) => setAddForm({ ...addForm, bankName: v })}
+                  options={allBanks}
                   placeholder="搜尋或選擇銀行"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
                 />
-                <datalist id="realestatebanklist">
-                  {allBanks.map((b) => <option key={b} value={b} />)}
-                </datalist>
                 {addBankOpen ? (
                   <div className="flex gap-2 mt-2">
                     <input value={addBankInput} onChange={(e) => setAddBankInput(e.target.value)}
@@ -379,17 +375,12 @@ export default function RealEstatePage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">房貸銀行（選填）</label>
-                <input
-                  type="text"
-                  list="realestatebanklist-edit"
+                <Combobox
                   value={editForm.bankName}
-                  onChange={(e) => setEditForm({ ...editForm, bankName: e.target.value })}
+                  onChange={(v) => setEditForm({ ...editForm, bankName: v })}
+                  options={allBanks}
                   placeholder="搜尋或選擇銀行"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
                 />
-                <datalist id="realestatebanklist-edit">
-                  {allBanks.map((b) => <option key={b} value={b} />)}
-                </datalist>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">物件名稱（選填）</label>

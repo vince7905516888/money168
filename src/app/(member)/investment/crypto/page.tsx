@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import Combobox from "@/components/ui/Combobox";
 
 interface Investment {
   id: string;
@@ -313,17 +314,12 @@ export default function CryptoPage() {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">交易所／錢包（選填）</label>
-                <input
-                  type="text"
-                  list="exchangelist"
+                <Combobox
                   value={addForm.broker}
-                  onChange={(e) => setAddForm({ ...addForm, broker: e.target.value })}
+                  onChange={(v) => setAddForm({ ...addForm, broker: v })}
+                  options={allExchanges}
                   placeholder="搜尋或選擇交易所"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
                 />
-                <datalist id="exchangelist">
-                  {allExchanges.map((ex) => <option key={ex} value={ex} />)}
-                </datalist>
                 {addExchangeOpen ? (
                   <div className="flex gap-2 mt-2">
                     <input value={addExchangeInput} onChange={(e) => setAddExchangeInput(e.target.value)}
@@ -365,16 +361,12 @@ export default function CryptoPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">代碼（選填）</label>
-                  <input
-                    type="text"
-                    list="cryptocodelist"
+                  <Combobox
                     value={addForm.code}
-                    onChange={(e) => setAddForm({ ...addForm, code: e.target.value })}
+                    onChange={(v) => setAddForm({ ...addForm, code: v })}
+                    options={DEFAULT_CODES}
                     placeholder="例如：BTC"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                  <datalist id="cryptocodelist">
-                    {DEFAULT_CODES.map((c) => <option key={c} value={c} />)}
-                  </datalist>
+                  />
                 </div>
               </div>
 
@@ -472,17 +464,12 @@ export default function CryptoPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">交易所／錢包（選填）</label>
-                <input
-                  type="text"
-                  list="exchangelist-edit"
+                <Combobox
                   value={editForm.broker}
-                  onChange={(e) => setEditForm({ ...editForm, broker: e.target.value })}
+                  onChange={(v) => setEditForm({ ...editForm, broker: v })}
+                  options={allExchanges}
                   placeholder="搜尋或選擇交易所"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
                 />
-                <datalist id="exchangelist-edit">
-                  {allExchanges.map((ex) => <option key={ex} value={ex} />)}
-                </datalist>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">幣種名稱（選填）</label>

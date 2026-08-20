@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import { computeHoldings } from "@/lib/stock-holdings";
+import Combobox from "@/components/ui/Combobox";
 
 interface Investment {
   id: string;
@@ -362,17 +363,12 @@ export default function StockPage() {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">證券公司（選填）</label>
-                <input
-                  type="text"
-                  list="brokerlist"
+                <Combobox
                   value={addForm.broker}
-                  onChange={(e) => setAddForm({ ...addForm, broker: e.target.value })}
+                  onChange={(v) => setAddForm({ ...addForm, broker: v })}
+                  options={allBrokers}
                   placeholder="搜尋或選擇證券公司"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
                 />
-                <datalist id="brokerlist">
-                  {allBrokers.map((b) => <option key={b} value={b} />)}
-                </datalist>
                 {addBrokerOpen ? (
                   <div className="flex gap-2 mt-2">
                     <input value={addBrokerInput} onChange={(e) => setAddBrokerInput(e.target.value)}
@@ -535,17 +531,12 @@ export default function StockPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">證券公司（選填）</label>
-                <input
-                  type="text"
-                  list="brokerlist-edit"
+                <Combobox
                   value={editForm.broker}
-                  onChange={(e) => setEditForm({ ...editForm, broker: e.target.value })}
+                  onChange={(v) => setEditForm({ ...editForm, broker: v })}
+                  options={allBrokers}
                   placeholder="搜尋或選擇證券公司"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
                 />
-                <datalist id="brokerlist-edit">
-                  {allBrokers.map((b) => <option key={b} value={b} />)}
-                </datalist>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">名稱（選填）</label>

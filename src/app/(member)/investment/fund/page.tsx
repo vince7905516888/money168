@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import Combobox from "@/components/ui/Combobox";
 
 interface Investment {
   id: string;
@@ -544,17 +545,12 @@ export default function FundPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">銀行別名</label>
-                  <input
-                    type="text"
-                    list="fundbanklist"
+                  <Combobox
                     value={addForm.bankName}
-                    onChange={(e) => setAddForm({ ...addForm, bankName: e.target.value })}
+                    onChange={(v) => setAddForm({ ...addForm, bankName: v })}
+                    options={allBanks}
                     placeholder="搜尋或選擇銀行"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
                   />
-                  <datalist id="fundbanklist">
-                    {allBanks.map((b) => <option key={b} value={b} />)}
-                  </datalist>
                   {addBankOpen ? (
                     <div className="flex gap-2 mt-2">
                       <input value={addBankInput} onChange={(e) => setAddBankInput(e.target.value)}
@@ -590,17 +586,12 @@ export default function FundPage() {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">基金名稱</label>
-                <input
-                  type="text"
-                  list="fundnamelist"
+                <Combobox
                   value={addForm.name}
-                  onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                  onChange={(v) => setAddForm({ ...addForm, name: v })}
+                  options={userFunds.map((f) => f.name)}
                   placeholder="搜尋或選擇基金，例如：富達環球高收益基金"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
                 />
-                <datalist id="fundnamelist">
-                  {userFunds.map((f) => <option key={f.id} value={f.name} />)}
-                </datalist>
                 {addFundNameOpen ? (
                   <div className="flex gap-2 mt-2">
                     <input value={addFundNameInput} onChange={(e) => setAddFundNameInput(e.target.value)}
@@ -713,17 +704,12 @@ export default function FundPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">銀行別名</label>
-                <input
-                  type="text"
-                  list="fundbanklist-edit"
+                <Combobox
                   value={editForm.bankName}
-                  onChange={(e) => setEditForm({ ...editForm, bankName: e.target.value })}
+                  onChange={(v) => setEditForm({ ...editForm, bankName: v })}
+                  options={allBanks}
                   placeholder="搜尋或選擇銀行"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
                 />
-                <datalist id="fundbanklist-edit">
-                  {allBanks.map((b) => <option key={b} value={b} />)}
-                </datalist>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">幣別</label>
