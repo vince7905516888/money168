@@ -3,6 +3,11 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
+  // 內容僅開放登入會員瀏覽（見前台股市要點頁對未登入訪客的鎖定提示），
+  // API 這層也要擋，避免訪客直接呼叫 API 繞過前台的鎖定畫面看到內容。
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "請先登入" }, { status: 401 });
+
   const items = await prisma.videoHighlight.findMany({
     orderBy: [{ pinned: "desc" }, { date: "desc" }, { createdAt: "desc" }],
   });
