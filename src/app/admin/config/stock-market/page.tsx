@@ -32,6 +32,15 @@ const MAX_MARTINGALE_STEPS = 8;
 const MIN_MARTINGALE_STEPS = 2;
 const EMPTY_MARTINGALE_FORM = { name: "", note: "", ratios: ["1", "1"] };
 
+const FUTURES_ITEMS = ["自營商", "投信", "外資及陸資"] as const;
+const EMPTY_FUTURES_FORM = {
+  date: new Date().toISOString().split("T")[0],
+  contractCode: "臺股期貨",
+  自營商: { long: "", short: "" },
+  投信: { long: "", short: "" },
+  外資及陸資: { long: "", short: "" },
+};
+
 export default function StockMarketSettingsPage() {
   const { themeKey } = useAdminTheme();
   const skin = ADMIN_THEMES[themeKey];
@@ -80,6 +89,36 @@ export default function StockMarketSettingsPage() {
     } else {
       const err = await res.json().catch(() => null);
       setRefreshError(err?.error || "抓取失敗，請稍後再試");
+    }
+  };
+
+  const [futuresForm, setFuturesForm] = useState(EMPTY_FUTURES_FORM);
+  const [futuresSaving, setFuturesSaving] = useState(false);
+  const [futuresSaveMsg, setFuturesSaveMsg] = useState("");
+  const [futuresSaveError, setFuturesSaveError] = useState("");
+
+  const handleSaveFutures = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFuturesSaving(true);
+    setFuturesSaveMsg("");
+    setFuturesSaveError("");
+    const entries = FUTURES_ITEMS.map((item) => ({
+      item,
+      longOpenInterest: futuresForm[item].long,
+      shortOpenInterest: futuresForm[item].short,
+    }));
+    const res = await fetch("/api/admin/futures-positions/manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: futuresForm.date, contractCode: futuresForm.contractCode, entries }),
+    });
+    setFuturesSaving(false);
+    if (res.ok) {
+      setFuturesSaveMsg(`已補登 ${futuresForm.date}（${futuresForm.contractCode}）的資料`);
+      setFuturesForm({ ...EMPTY_FUTURES_FORM, date: futuresForm.date, contractCode: futuresForm.contractCode });
+    } else {
+      const err = await res.json().catch(() => null);
+      setFuturesSaveError(err?.error || "補登失敗，請稍後再試");
     }
   };
 
@@ -296,6 +335,89 @@ export default function StockMarketSettingsPage() {
             <span className="col-span-2 sm:col-span-3">耗時 {(refreshResult.durationMs / 1000).toFixed(1)} 秒</span>
           </div>
         )}
+      </div>
+
+      {/* 手動補登期貨未平倉資料 */}
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden mb-4">
+        <div className="px-5 py-4">
+          <h2 className="font-semibold text-slate-50">手動補登期貨未平倉資料</h2>
+          <p className="text-xs text-slate-400 mt-0.5">
+            期交所開放API只給「最新一天」、官網查詢頁又需要瀏覽器連線狀態沒辦法自動抓，
+            遇到缺漏的日期，去期交所官網查到畫面後，把「未平倉餘額」的多方／空方口數填在這裡補登
+          </p>
+        </div>
+        <form onSubmit={handleSaveFutures} className="px-5 pb-5 space-y-3">
+          <div className="flex flex-wrap gap-3">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">日期</label>
+              <input
+                required
+                type="date"
+                value={futuresForm.date}
+                onChange={(e) => setFuturesForm((f) => ({ ...f, date: e.target.value }))}
+                className="border border-slate-700 bg-slate-900 text-slate-200 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">契約</label>
+              <input
+                required
+                value={futuresForm.contractCode}
+                onChange={(e) => setFuturesForm((f) => ({ ...f, contractCode: e.target.value }))}
+                className="border border-slate-700 bg-slate-900 text-slate-200 rounded-lg px-3 py-2 text-sm w-32"
+              />
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-400 text-left">
+                  <th className="pb-2 pr-4">身份別</th>
+                  <th className="pb-2 pr-4">未平倉－多方口數</th>
+                  <th className="pb-2 pr-4">未平倉－空方口數</th>
+                </tr>
+              </thead>
+              <tbody>
+                {FUTURES_ITEMS.map((item) => (
+                  <tr key={item}>
+                    <td className="py-1.5 pr-4 text-slate-300">{item}</td>
+                    <td className="py-1.5 pr-4">
+                      <input
+                        required
+                        type="number"
+                        value={futuresForm[item].long}
+                        onChange={(e) =>
+                          setFuturesForm((f) => ({ ...f, [item]: { ...f[item], long: e.target.value } }))
+                        }
+                        className="w-32 border border-slate-700 bg-slate-900 text-slate-200 rounded-lg px-2.5 py-1.5 text-sm"
+                      />
+                    </td>
+                    <td className="py-1.5 pr-4">
+                      <input
+                        required
+                        type="number"
+                        value={futuresForm[item].short}
+                        onChange={(e) =>
+                          setFuturesForm((f) => ({ ...f, [item]: { ...f[item], short: e.target.value } }))
+                        }
+                        className="w-32 border border-slate-700 bg-slate-900 text-slate-200 rounded-lg px-2.5 py-1.5 text-sm"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {futuresSaveError && <p className="text-sm text-red-400">{futuresSaveError}</p>}
+          {futuresSaveMsg && <p className="text-sm text-emerald-400">{futuresSaveMsg}</p>}
+          <button
+            type="submit"
+            disabled={futuresSaving}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60"
+          >
+            {futuresSaving ? "儲存中..." : "補登這天的資料"}
+          </button>
+        </form>
       </div>
 
       {/* 買賣訊號設定 */}
