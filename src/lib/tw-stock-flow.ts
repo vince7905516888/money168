@@ -80,6 +80,82 @@ export async function fetchInstitutionalDays(
   return fetched.filter((r): r is InstitutionalDayRow => r != null);
 }
 
+export interface InstitutionalMarketRow extends InstitutionalDayRow {
+  code: string;
+}
+
+export interface MarginMarketRow extends MarginDayRow {
+  code: string;
+}
+
+// 全市場版本：T86/MI_MARGN 本來就是「當天全部上市股票」一次回傳，這裡不篩單一代碼，
+// 把每一列都轉成一筆快照資料，讓「全部抓取」功能可以一次寫入整個市場、不用逐檔查詢。
+export async function fetchInstitutionalAllForDate(dateStr: string): Promise<InstitutionalMarketRow[]> {
+  try {
+    const res = await fetch(`https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALL&response=json`, {
+      headers: TWSE_HEADERS,
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    const rows: string[][] | undefined = json?.data;
+    if (!rows) return [];
+    return rows
+      .map((r): InstitutionalMarketRow | null => {
+        const code = r[0]?.trim();
+        if (!code || !/^\d{4,6}$/.test(code)) return null;
+        const foreignNet = num(r[4]) + num(r[7]);
+        const trustNet = num(r[10]);
+        const dealerNet = num(r[11]);
+        const totalNet = num(r[18]);
+        return {
+          code,
+          date: formatDisplayDate(dateStr),
+          foreignNetLots: Math.round(foreignNet / 1000),
+          trustNetLots: Math.round(trustNet / 1000),
+          dealerNetLots: Math.round(dealerNet / 1000),
+          totalNetLots: Math.round(totalNet / 1000),
+        };
+      })
+      .filter((r): r is InstitutionalMarketRow => r != null);
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchMarginAllForDate(dateStr: string): Promise<MarginMarketRow[]> {
+  try {
+    const res = await fetch(
+      `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${dateStr}&selectType=ALL&response=json`,
+      { headers: TWSE_HEADERS, cache: "no-store" }
+    );
+    if (!res.ok) return [];
+    const json = await res.json();
+    const rows: string[][] | undefined = json?.tables?.[1]?.data;
+    if (!rows) return [];
+    return rows
+      .map((r): MarginMarketRow | null => {
+        const code = r[0]?.trim();
+        if (!code || !/^\d{4,6}$/.test(code)) return null;
+        const marginPrevBalance = num(r[5]);
+        const marginBalance = num(r[6]);
+        const shortPrevBalance = num(r[11]);
+        const shortBalance = num(r[12]);
+        return {
+          code,
+          date: formatDisplayDate(dateStr),
+          marginBalance,
+          marginChange: marginBalance - marginPrevBalance,
+          shortBalance,
+          shortChange: shortBalance - shortPrevBalance,
+        };
+      })
+      .filter((r): r is MarginMarketRow => r != null);
+  } catch {
+    return [];
+  }
+}
+
 export interface InstitutionalRankingRow {
   code: string;
   name: string;

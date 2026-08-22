@@ -88,6 +88,27 @@ async function recordEpsSnapshotAndGetTrailing4Q(code: string, eps: Record<strin
   return snapshots.reduce((sum, s) => sum + s.eps, 0);
 }
 
+// 全市場版本：getEps() 本來就是「全部上市公司最新一季」一次回傳，這裡不篩單一代碼，
+// 把每一列都寫進 StockEpsSnapshot。用 createMany+skipDuplicates 而不是 upsert，
+// 單次寫入全市場（約2000檔）效率好很多；代價是同一季已存在的資料被財報重編更新時不會覆蓋，
+// 但那種情況很少見，且使用者之後查詢該股票時原本的 upsert 路徑仍會補上最新值。
+export async function recordAllEpsSnapshots(): Promise<number> {
+  const epsList = await getEps();
+  const rows = epsList
+    .map((r) => {
+      const code = r["公司代號"];
+      const epsValue = toNum(r["基本每股盈餘(元)"]);
+      const year = toNum(r["年度"]);
+      const season = toNum(r["季別"]);
+      if (!code || epsValue == null || year == null || season == null) return null;
+      return { code, year, season, eps: epsValue };
+    })
+    .filter((r): r is { code: string; year: number; season: number; eps: number } => r != null);
+  if (rows.length === 0) return 0;
+  const result = await prisma.stockEpsSnapshot.createMany({ data: rows, skipDuplicates: true });
+  return result.count;
+}
+
 // 產業別文字版：t187ap03_L(公司基本資料) 只有代碼，月營收彙總表裡剛好有文字版，直接借用同一份快取。
 export async function getIndustryName(code: string): Promise<string | null> {
   const revenueList = await getRevenue();

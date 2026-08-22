@@ -1,7 +1,14 @@
 // 上櫃(TPEX)版本的三大法人買賣超／融資融券。跟 tw-stock-flow.ts（上市/TWSE版）算的是
 // 同一件事，但資料來源、欄位結構完全不同（TWSE是陣列+固定欄位順序，TPEX是另一組舊版
 // 網頁報表，日期格式也是民國年），分開一個檔案避免把兩邊的欄位索引混在一起搞錯。
-import { formatDisplayDate, fetchWithConcurrency, type InstitutionalDayRow, type MarginDayRow } from "./tw-stock-flow";
+import {
+  formatDisplayDate,
+  fetchWithConcurrency,
+  type InstitutionalDayRow,
+  type MarginDayRow,
+  type InstitutionalMarketRow,
+  type MarginMarketRow,
+} from "./tw-stock-flow";
 
 const TPEX_HEADERS = { "User-Agent": "Mozilla/5.0 (compatible; MoneyFlowApp/1.0)" };
 const num = (s: string | undefined) => (s ? parseInt(s.replace(/,/g, ""), 10) : 0);
@@ -48,6 +55,74 @@ export async function fetchTpexInstitutionalDays(
     }
   });
   return fetched.filter((r): r is InstitutionalDayRow => r != null);
+}
+
+// 全市場版本（上櫃）：跟 tw-stock-flow.ts 的 fetchInstitutionalAllForDate 同樣道理，
+// 不篩單一代碼、把當天全部上櫃股票都轉成快照資料。
+export async function fetchTpexInstitutionalAllForDate(dateStr: string): Promise<InstitutionalMarketRow[]> {
+  try {
+    const res = await fetch(
+      `https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&se=EW&t=D&d=${toRocDate(dateStr)}&s=0,asc`,
+      { headers: TPEX_HEADERS, cache: "no-store" }
+    );
+    if (!res.ok) return [];
+    const json = await res.json();
+    const rows: string[][] | undefined = json?.tables?.[0]?.data;
+    if (!rows) return [];
+    return rows
+      .map((r): InstitutionalMarketRow | null => {
+        const code = r[0]?.trim();
+        if (!code || !/^\d{4,6}$/.test(code)) return null;
+        const foreignNet = num(r[10]);
+        const trustNet = num(r[13]);
+        const dealerNet = num(r[22]);
+        const totalNet = num(r[23]);
+        return {
+          code,
+          date: formatDisplayDate(dateStr),
+          foreignNetLots: Math.round(foreignNet / 1000),
+          trustNetLots: Math.round(trustNet / 1000),
+          dealerNetLots: Math.round(dealerNet / 1000),
+          totalNetLots: Math.round(totalNet / 1000),
+        };
+      })
+      .filter((r): r is InstitutionalMarketRow => r != null);
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchTpexMarginAllForDate(dateStr: string): Promise<MarginMarketRow[]> {
+  try {
+    const res = await fetch(
+      `https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&d=${toRocDate(dateStr)}&s=0,asc`,
+      { headers: TPEX_HEADERS, cache: "no-store" }
+    );
+    if (!res.ok) return [];
+    const json = await res.json();
+    const rows: string[][] | undefined = json?.tables?.[0]?.data;
+    if (!rows) return [];
+    return rows
+      .map((r): MarginMarketRow | null => {
+        const code = r[0]?.trim();
+        if (!code || !/^\d{4,6}$/.test(code)) return null;
+        const marginPrevBalance = num(r[2]);
+        const marginBalance = num(r[6]);
+        const shortPrevBalance = num(r[10]);
+        const shortBalance = num(r[14]);
+        return {
+          code,
+          date: formatDisplayDate(dateStr),
+          marginBalance,
+          marginChange: marginBalance - marginPrevBalance,
+          shortBalance,
+          shortChange: shortBalance - shortPrevBalance,
+        };
+      })
+      .filter((r): r is MarginMarketRow => r != null);
+  } catch {
+    return [];
+  }
 }
 
 // 欄位順序：0代號 1名稱 2前資餘額 3資買 4資賣 5現償 6資餘額 ... 10前券餘額 ... 14券餘額 ...

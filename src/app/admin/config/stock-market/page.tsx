@@ -57,6 +57,32 @@ export default function StockMarketSettingsPage() {
   const [editingMartingale, setEditingMartingale] = useState<MartingaleStrategy | null>(null);
   const [editMartingaleForm, setEditMartingaleForm] = useState(EMPTY_MARTINGALE_FORM);
 
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshResult, setRefreshResult] = useState<{
+    institutionalWritten: number;
+    marginWritten: number;
+    epsWritten: number;
+    retailRatioWritten: number;
+    rankingWritten: number;
+    futuresWritten: boolean;
+    durationMs: number;
+  } | null>(null);
+  const [refreshError, setRefreshError] = useState("");
+
+  const handleRefreshAll = async () => {
+    setRefreshing(true);
+    setRefreshError("");
+    setRefreshResult(null);
+    const res = await fetch("/api/admin/tw-stock/refresh-all", { method: "POST" });
+    setRefreshing(false);
+    if (res.ok) {
+      setRefreshResult(await res.json());
+    } else {
+      const err = await res.json().catch(() => null);
+      setRefreshError(err?.error || "抓取失敗，請稍後再試");
+    }
+  };
+
   const fetchRules = useCallback(async () => {
     setRulesLoading(true);
     const res = await fetch("/api/admin/stock-signal-rules");
@@ -236,6 +262,40 @@ export default function StockMarketSettingsPage() {
       <div className="mb-8">
         <h1 className={`text-2xl font-bold ${skin.heading}`}>股市設定</h1>
         <p className={`${skin.subheading} text-sm mt-1`}>買賣訊號條件設定、馬丁格爾策略模版與分析師影片重點整理</p>
+      </div>
+
+      {/* 台灣股市資料全部抓取 */}
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden mb-4">
+        <div className="flex items-center justify-between px-5 py-4">
+          <div>
+            <h2 className="font-semibold text-slate-50">台灣股市資料全部抓取</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              三大法人、融資融券、EPS、股權分散、買賣超排行、期貨未平倉平常只有會員實際查詢某檔股票時才會補進資料庫，
+              點下方按鈕會一次抓取全市場最近約 2 週的資料，補齊沒被查過的股票（已有的資料不會重複寫入）
+            </p>
+          </div>
+          <button
+            onClick={handleRefreshAll}
+            disabled={refreshing}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-60 shrink-0"
+          >
+            {refreshing ? "抓取中...（可能需要 1-2 分鐘）" : "全部抓取"}
+          </button>
+        </div>
+        {refreshError && (
+          <div className="px-5 pb-4 text-sm text-red-400">{refreshError}</div>
+        )}
+        {refreshResult && (
+          <div className="px-5 pb-4 text-xs text-slate-400 grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <span>三大法人：新增 {refreshResult.institutionalWritten} 筆</span>
+            <span>融資融券：新增 {refreshResult.marginWritten} 筆</span>
+            <span>EPS：新增 {refreshResult.epsWritten} 筆</span>
+            <span>股權分散：新增 {refreshResult.retailRatioWritten} 筆</span>
+            <span>買賣超排行：新增 {refreshResult.rankingWritten} 筆</span>
+            <span>期貨未平倉：{refreshResult.futuresWritten ? "已更新" : "無資料"}</span>
+            <span className="col-span-2 sm:col-span-3">耗時 {(refreshResult.durationMs / 1000).toFixed(1)} 秒</span>
+          </div>
+        )}
       </div>
 
       {/* 買賣訊號設定 */}

@@ -109,6 +109,48 @@ async function snapshotIfNeeded(code: string, dist: ShareholderDistribution, tot
     .catch(() => {});
 }
 
+// 全市場版本：loadAll() 本來就是「全部上市櫃股票」一次回傳，這裡不篩單一代碼，
+// 把每一檔的當週分散表都寫進 StockRetailRatioSnapshot（用 createMany+skipDuplicates，
+// 同樣是為了一次寫入約4千檔的效率考量，見 tw-stock-fundamentals.ts 的 recordAllEpsSnapshots）。
+export async function recordAllRetailRatioSnapshots(): Promise<number> {
+  const byCode = await loadAll();
+  const rows: {
+    code: string;
+    date: string;
+    totalShares: number;
+    totalHolders: number;
+    below20LotsShares: number;
+    below20LotsHolders: number;
+    below50LotsShares: number;
+    below50LotsHolders: number;
+    below100LotsShares: number;
+    below100LotsHolders: number;
+  }[] = [];
+  for (const [code, dist] of byCode) {
+    if (!dist.date) continue;
+    const totalRow = dist.tiers.find((t) => t.tier === TOTAL_TIER);
+    if (!totalRow || totalRow.shares === 0) continue;
+    const below20 = sumTiers(dist.tiers, TIER_CUTOFF[20]);
+    const below50 = sumTiers(dist.tiers, TIER_CUTOFF[50]);
+    const below100 = sumTiers(dist.tiers, TIER_CUTOFF[100]);
+    rows.push({
+      code,
+      date: dist.date,
+      totalShares: totalRow.shares,
+      totalHolders: totalRow.holders,
+      below20LotsShares: below20.shares,
+      below20LotsHolders: below20.holders,
+      below50LotsShares: below50.shares,
+      below50LotsHolders: below50.holders,
+      below100LotsShares: below100.shares,
+      below100LotsHolders: below100.holders,
+    });
+  }
+  if (rows.length === 0) return 0;
+  const result = await prisma.stockRetailRatioSnapshot.createMany({ data: rows, skipDuplicates: true });
+  return result.count;
+}
+
 export async function fetchRetailShareholderRatio(
   code: string,
   thresholdLots: 20 | 50 | 100
