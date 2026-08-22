@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { lookupStockName } from "@/lib/tw-stock-directory";
 import { hasFeatureAccess } from "@/lib/permissions";
+import { syncWatchedStocks } from "@/lib/tw-stock-watchlist-sync";
 
 const FEATURE_KEY = "feature.tw-stock-watchlist";
 
@@ -17,6 +18,11 @@ export async function GET() {
     where: { userId: session.user.id },
     orderBy: { createdAt: "desc" },
   });
+
+  // 會員打開觀察名單時，順手同步全站觀察名單涵蓋到的股票（去重、只補今天還沒抓過的），
+  // 不等待完成再回應，不影響這次請求的回應速度。
+  syncWatchedStocks().catch((e) => console.error("watchlist sync failed:", e));
+
   return NextResponse.json(list);
 }
 
