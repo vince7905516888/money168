@@ -756,20 +756,32 @@ export default function TwStockPage() {
   // 歷史查詢功能期交所沒有，靠逐日快照累積（見 futures-positions/history），查得到的天數
   // 取決於這個頁面被打開過幾天，不是一次就能補滿。
   const [futuresPositions, setFuturesPositions] = useState<FuturesPositionsResult | null>(null);
-  useEffect(() => {
-    fetch("/api/market/futures-positions")
+  const [futuresRefreshing, setFuturesRefreshing] = useState(false);
+
+  const fetchFuturesPositionsData = useCallback(() => {
+    return fetch("/api/market/futures-positions")
       .then((r) => (r.ok ? r.json() : null))
       .then(setFuturesPositions)
       .catch(() => setFuturesPositions(null));
   }, []);
+  useEffect(() => { fetchFuturesPositionsData(); }, [fetchFuturesPositionsData]);
 
   const [futuresHistory, setFuturesHistory] = useState<FuturesPositionHistoryRow[] | null>(null);
-  useEffect(() => {
-    fetch("/api/market/futures-positions/history?days=20")
+  const fetchFuturesHistoryData = useCallback(() => {
+    return fetch("/api/market/futures-positions/history?days=20")
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => setFuturesHistory(body?.history ?? null))
       .catch(() => setFuturesHistory(null));
   }, []);
+  useEffect(() => { fetchFuturesHistoryData(); }, [fetchFuturesHistoryData]);
+
+  // 手動更新：跟頁面自動抓取用的是同一支API，只是讓會員可以自己主動觸發、確認今天的快照有存到，
+  // 期交所本身只給「最新一天」、沒有歷史查詢功能，所以這顆按鈕只能補到「今天」，補不回已經錯過的過去日期。
+  const handleRefreshFutures = async () => {
+    setFuturesRefreshing(true);
+    await Promise.all([fetchFuturesPositionsData(), fetchFuturesHistoryData()]);
+    setFuturesRefreshing(false);
+  };
 
   // 查看天數輸入框：20天以內直接換掉上面固定顯示的表格；超過20天改用彈跳視窗顯示，
   // 避免自訂天數一多，表格把整個頁面撐得很長
@@ -1422,9 +1434,19 @@ export default function TwStockPage() {
       {/* 期貨三大法人未平倉：跟目前查詢的股票無關，市場總體籌碼指標，走期交所TAIFEX（跟證交所是不同單位） */}
       {futuresPositions && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
-          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-slate-700">期貨三大法人未平倉（臺股期貨）</h3>
-            <span className="text-[11px] text-slate-400">{futuresPositions.date}</span>
+            <div className="flex items-center gap-3 shrink-0">
+              <span className="text-[11px] text-slate-400">{futuresPositions.date}</span>
+              <button
+                type="button"
+                onClick={handleRefreshFutures}
+                disabled={futuresRefreshing}
+                className="text-xs text-indigo-500 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {futuresRefreshing ? "更新中..." : "🔄 更新"}
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-3 divide-x divide-slate-50">
             {futuresPositions.positions
