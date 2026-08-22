@@ -122,6 +122,7 @@ interface WatchStock {
   id: string;
   code: string;
   name: string | null;
+  lastUpdated?: string | null; // 資料庫裡該股票最新一筆三大法人快照日期，讓會員看得到背景同步有在跑
 }
 
 const INTERVAL_OPTIONS = [
@@ -1016,6 +1017,14 @@ export default function TwStockPage() {
 
   // 觀察名單功能可在後台「會員等級設定」依會員等級開關，先確認有沒有權限再決定要不要顯示/請求
   const [watchlistEnabled, setWatchlistEnabled] = useState(false);
+  const [syncingWatchlist, setSyncingWatchlist] = useState(false);
+
+  const fetchWatchlist = useCallback(() => {
+    fetch("/api/market/tw-stock/watchlist")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setWatchlist)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/me/nav")
@@ -1023,15 +1032,17 @@ export default function TwStockPage() {
       .then((body) => {
         const enabled = (body.keys ?? []).includes("feature.tw-stock-watchlist");
         setWatchlistEnabled(enabled);
-        if (enabled) {
-          fetch("/api/market/tw-stock/watchlist")
-            .then((r) => (r.ok ? r.json() : []))
-            .then(setWatchlist)
-            .catch(() => {});
-        }
+        if (enabled) fetchWatchlist();
       })
       .catch(() => {});
-  }, []);
+  }, [fetchWatchlist]);
+
+  const handleSyncWatchlist = async () => {
+    setSyncingWatchlist(true);
+    await fetch("/api/market/tw-stock/watchlist/sync", { method: "POST" }).catch(() => {});
+    fetchWatchlist();
+    setSyncingWatchlist(false);
+  };
 
   const isWatched = data ? watchlist.some((w) => w.code === data.code) : false;
 
@@ -1336,7 +1347,17 @@ export default function TwStockPage() {
       {/* 股票觀察名單：列表式，點列可直接查詢；移除鍵預設不顯示、滑過整列才會淡入，避免手滑點到 */}
       {watchlistEnabled && watchlist.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm mb-6 overflow-hidden">
-          <div className="px-4 py-2.5 text-xs text-slate-400 border-b border-slate-50">觀察名單</div>
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-50">
+            <span className="text-xs text-slate-400">觀察名單</span>
+            <button
+              type="button"
+              onClick={handleSyncWatchlist}
+              disabled={syncingWatchlist}
+              className="text-xs text-indigo-500 hover:text-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {syncingWatchlist ? "同步中..." : "🔄 同步更新"}
+            </button>
+          </div>
           <div className="divide-y divide-slate-50">
             {watchlist.map((w) => (
               <div
@@ -1346,16 +1367,19 @@ export default function TwStockPage() {
                   data?.code === w.code ? "bg-indigo-50" : "hover:bg-slate-50"
                 }`}
               >
-                <div className="flex items-baseline gap-2">
-                  <span className={`text-sm ${data?.code === w.code ? "text-indigo-600 font-semibold" : "text-slate-700"}`}>
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className={`text-sm shrink-0 ${data?.code === w.code ? "text-indigo-600 font-semibold" : "text-slate-700"}`}>
                     {w.name ?? w.code}
                   </span>
-                  <span className="text-xs text-slate-400">{w.code}</span>
+                  <span className="text-xs text-slate-400 shrink-0">{w.code}</span>
+                  <span className="text-[11px] text-slate-300 truncate">
+                    {w.lastUpdated ? `最後更新 ${w.lastUpdated}` : "尚無資料"}
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={(e) => removeFromWatchlist(w.code, e)}
-                  className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 hover:text-red-500 px-2.5 py-1 rounded-lg transition-opacity ml-6"
+                  className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 hover:text-red-500 px-2.5 py-1 rounded-lg transition-opacity ml-6 shrink-0"
                 >
                   移除
                 </button>

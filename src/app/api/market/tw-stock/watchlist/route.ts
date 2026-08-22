@@ -23,7 +23,23 @@ export async function GET() {
   // 不等待完成再回應，不影響這次請求的回應速度。
   syncWatchedStocks().catch((e) => console.error("watchlist sync failed:", e));
 
-  return NextResponse.json(list);
+  // 附上每檔股票目前資料庫裡最新一筆三大法人快照的日期，前台顯示「最後更新」，
+  // 讓會員看得到資料確實有在同步，不是完全沒感覺的背景動作。
+  const codes = list.map((w) => w.code);
+  const latestByCode = new Map<string, string>();
+  if (codes.length > 0) {
+    const latest = await prisma.stockInstitutionalSnapshot.groupBy({
+      by: ["code"],
+      where: { code: { in: codes } },
+      _max: { date: true },
+    });
+    for (const row of latest) {
+      if (row._max.date) latestByCode.set(row.code, row._max.date);
+    }
+  }
+  const listWithLastUpdated = list.map((w) => ({ ...w, lastUpdated: latestByCode.get(w.code) ?? null }));
+
+  return NextResponse.json(listWithLastUpdated);
 }
 
 export async function POST(req: NextRequest) {
