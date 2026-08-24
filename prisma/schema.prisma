@@ -164,6 +164,7 @@ model InvestmentStrategyEntry {
   id             String   @id @default(cuid())
   userId         String
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assetType      String   @default("STOCK") // "STOCK"(台股) 或 "USSTOCK"(美股)，決定盈虧試算是否套用台股證交稅/手續費
   broker         String?
   stockName      String?
   stockCode      String?

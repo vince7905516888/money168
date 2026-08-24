@@ -6,6 +6,7 @@ import { authFetch } from "@/lib/api-fetch";
 interface StrategyRow {
   id: string;
   order: number;
+  assetType: "STOCK" | "USSTOCK";
   broker: string;
   stockName: string;
   stockCode: string;
@@ -55,6 +56,7 @@ function toRow(e: RawEntry): StrategyRow {
   return {
     id: String(e.id),
     order: e.order == null ? 0 : Number(e.order),
+    assetType: e.assetType === "USSTOCK" ? "USSTOCK" : "STOCK",
     broker: s("broker"),
     stockName: s("stockName"),
     stockCode: s("stockCode"),
@@ -96,8 +98,11 @@ function calcRow(row: StrategyRow, feeRate: number, syncedTotal: number | undefi
   }
 
   const marketValue = shares * currentPrice;
-  const sellFee = marketValue * feeRate * discount;
-  const tax = marketValue * STOCK_TAX_RATE;
+  // 美股沒有台股的證券交易稅（賣出0.3%），手續費模式也因券商差異很大沒有統一費率可套，
+  // 所以美股盈虧不扣這兩項，直接用市值減總額；台股維持原本的試算邏輯
+  const isUsStock = row.assetType === "USSTOCK";
+  const sellFee = isUsStock ? 0 : marketValue * feeRate * discount;
+  const tax = isUsStock ? 0 : marketValue * STOCK_TAX_RATE;
   const profitLoss = marketValue - totalAmount - sellFee - tax;
   const returnRate = totalAmount > 0 ? profitLoss / totalAmount : null;
 
@@ -203,27 +208,35 @@ export default function StrategyPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [entriesRes, feeRes, stockInvRes] = await Promise.all([
+    const [entriesRes, feeRes, stockInvRes, usstockInvRes] = await Promise.all([
       fetch("/api/investment-strategy"),
       fetch("/api/fee-settings"),
       fetch("/api/investments?type=STOCK"),
+      fetch("/api/investments?type=USSTOCK"),
     ]);
     const authenticated = entriesRes.status !== 401;
-    const [entriesData, feeData, stockInvData] = await Promise.all([entriesRes.json(), feeRes.json(), stockInvRes.json()]);
+    const [entriesData, feeData, stockInvData, usstockInvData] = await Promise.all([
+      entriesRes.json(), feeRes.json(), stockInvRes.json(), usstockInvRes.json(),
+    ]);
     setRows(Array.isArray(entriesData) ? entriesData.map(toRow) : []);
     const fees: { key: string; rate: number }[] = Array.isArray(feeData) ? feeData : [];
     const commission = fees.find((f) => f.key === "stock_commission");
     if (commission) setFeeRate(commission.rate / 100);
 
-    // 依代碼加總「股票投資」頁同一支股票所有交易紀錄的實際扣款金額（amount 已含手續費/稅/
-    // 人工調帳），讓「總額」跟股票投資頁「淨投入金額」逐碼加總起來完全一致，不用重新估算。
-    const stockInvestments: { code?: string | null; amount: number }[] = Array.isArray(stockInvData) ? stockInvData : [];
+    // 依「市場:代碼」加總「股票投資」/「美股投資」頁同一支股票所有交易紀錄的實際扣款金額
+    // （amount 已含手續費/稅/人工調帳），讓「總額」跟投資頁「淨投入金額」逐碼加總起來完全一致，
+    // 不用重新估算；用市場前綴分開累加，避免台股代碼剛好跟美股代碼相同時互相加錯。
     const netMap: Record<string, number> = {};
-    for (const inv of stockInvestments) {
-      const code = inv.code?.trim();
-      if (!code) continue;
-      netMap[code] = (netMap[code] ?? 0) + inv.amount;
-    }
+    const addToNetMap = (assetType: "STOCK" | "USSTOCK", list: { code?: string | null; amount: number }[]) => {
+      for (const inv of list) {
+        const code = inv.code?.trim();
+        if (!code) continue;
+        const key = `${assetType}:${code}`;
+        netMap[key] = (netMap[key] ?? 0) + inv.amount;
+      }
+    };
+    addToNetMap("STOCK", Array.isArray(stockInvData) ? stockInvData : []);
+    addToNetMap("USSTOCK", Array.isArray(usstockInvData) ? usstockInvData : []);
     setNetAmountByCode(netMap);
 
     setLoading(false);
@@ -318,8 +331,12 @@ export default function StrategyPage() {
     });
   };
 
-  const handleAdd = async () => {
-    const res = await authFetch("/api/investment-strategy", { method: "POST" });
+  const handleAdd = async (assetType: "STOCK" | "USSTOCK" = "STOCK") => {
+    const res = await authFetch("/api/investment-strategy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetType }),
+    });
     if (!res.ok) return;
     const created = await res.json();
     setRows((prev) => [...prev, toRow(created)]);
@@ -331,7 +348,7 @@ export default function StrategyPage() {
     setRows((prev) => prev.filter((r) => r.id !== id));
   };
 
-  const calcs = rows.map((r) => calcRow(r, feeRate, r.stockCode ? netAmountByCode[r.stockCode.trim()] : undefined));
+  const calcs = rows.map((r) => calcRow(r, feeRate, r.stockCode ? netAmountByCode[`${r.assetType}:${r.stockCode.trim()}`] : undefined));
   const totalProfitLoss = calcs.reduce((s, c) => s + (c.profitLoss ?? 0), 0);
   const totalAmount = calcs.reduce((s, c) => s + (c.totalAmount ?? 0), 0);
 
@@ -376,8 +393,9 @@ export default function StrategyPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">投資策略</h1>
           <p className="text-slate-500 text-sm mt-1">
-            手動記錄持股策略與未來目標價；「當前」會自動抓證交所當日收盤價回填，不用手動輸入；
-            總額與「股票投資」頁的淨投入金額同步；盈虧／報酬率會自動扣除賣出手續費（依折扣）與證券交易稅計算
+            手動記錄持股策略與未來目標價，支援台股與美股；台股「當前」會自動抓證交所當日收盤價回填，
+            美股沒有自動報價來源需手動輸入；總額與「股票投資」／「美股投資」頁的淨投入金額同步；
+            台股盈虧／報酬率會自動扣除賣出手續費（依折扣）與證券交易稅，美股沒有這兩項所以不扣除
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -385,7 +403,7 @@ export default function StrategyPage() {
             onClick={handleSyncHoldings}
             disabled={syncingHoldings}
             className="text-sm text-indigo-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
-            title="從「股票投資」頁面的目前持股同步代碼/股數/均價過來"
+            title="從「股票投資」「美股投資」頁面的目前持股同步代碼/股數/均價過來"
           >
             {syncingHoldings ? "同步中..." : "⇅ 同步持股"}
           </button>
@@ -402,10 +420,16 @@ export default function StrategyPage() {
             )}
           </div>
           <button
-            onClick={handleAdd}
+            onClick={() => handleAdd("STOCK")}
             className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
           >
-            + 新增一筆
+            + 新增一筆（股票）
+          </button>
+          <button
+            onClick={() => handleAdd("USSTOCK")}
+            className="bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-600 transition-colors"
+          >
+            + 新增一筆（美股）
           </button>
         </div>
       </div>
@@ -494,7 +518,7 @@ export default function StrategyPage() {
         ) : rows.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-slate-400 text-sm mb-3">還沒有任何策略記錄</p>
-            <button onClick={handleAdd} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆</button>
+            <button onClick={() => handleAdd("STOCK")} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆</button>
           </div>
         ) : (
           <div
@@ -509,13 +533,14 @@ export default function StrategyPage() {
               <thead>
                 <tr className="text-xs text-slate-400 bg-slate-50 whitespace-nowrap">
                   <th className="px-2 py-2.5 text-center font-semibold">排序</th>
+                  <th className="px-2 py-2.5 text-center font-semibold">市場</th>
                   <th className="px-2 py-2.5 text-left font-semibold">證券公司</th>
                   <th className="px-2 py-2.5 text-left font-semibold" title="唯讀，請用「同步持股」帶入">股票名稱🔒</th>
                   <th className="px-2 py-2.5 text-left font-semibold" title="唯讀，請用「同步持股」帶入">股票代碼🔒</th>
                   <th className="px-2 py-2.5 text-left font-semibold">方案</th>
                   <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，請用「同步持股」帶入">股數🔒</th>
                   <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，請用「同步持股」帶入">均價🔒</th>
-                  <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，自動抓永豐/證交所報價">當前🔒</th>
+                  <th className="px-2 py-2.5 text-right font-semibold" title="台股唯讀，自動抓永豐/證交所報價；美股沒有自動報價來源，需手動輸入">當前</th>
                   <th className="px-2 py-2.5 text-left font-semibold">配息日</th>
                   <th className="px-2 py-2.5 text-right font-semibold">金額</th>
                   <th className="px-2 py-2.5 text-right font-semibold">折扣</th>
@@ -559,13 +584,18 @@ export default function StrategyPage() {
                           </button>
                         </div>
                       </td>
+                      <td className="px-2 py-2 border-b border-slate-50 text-center" title={row.assetType === "USSTOCK" ? "美股" : "台股"}>
+                        {row.assetType === "USSTOCK" ? "🇺🇸" : "🇹🇼"}
+                      </td>
                       {textCol(row, "broker", "券商", "w-20")}
                       {readonlyCol(row.stockName, "left", "w-28")}
                       {readonlyCol(row.stockCode, "left", "w-20")}
                       {textCol(row, "plan", "方案", "w-16")}
                       {readonlyCol(row.shares, "right", "w-24")}
                       {readonlyCol(row.avgPrice, "right", "w-24")}
-                      {readonlyCol(row.currentPrice, "right", "w-24", "自動抓報價")}
+                      {row.assetType === "USSTOCK"
+                        ? numCol(row, "currentPrice", "手動輸入目前股價", "w-24")
+                        : readonlyCol(row.currentPrice, "right", "w-24", "自動抓報價")}
                       {textCol(row, "dividendDate", "配息日", "w-20")}
                       {numCol(row, "dividendAmount", "金額", "w-20")}
                       {numCol(row, "discount", "1", "w-16")}
@@ -610,10 +640,12 @@ export default function StrategyPage() {
       </div>
 
       <p className="text-xs text-slate-400 mt-3">
-        總額 = 同代碼在「股票投資」頁所有交易紀錄的實際扣款金額加總（含手續費/稅/人工調帳），
-        逐碼加總會完全等於股票投資頁「淨投入金額」；找不到對應交易紀錄的列才退回用股數×均價估算；
-        盈虧 = (股數 × 當前) − 總額 − 賣出手續費 − 證券交易稅（賣出方向課徵0.3%）；
-        手續費 = 成交金額 × {(feeRate * 100).toFixed(4)}% × 折扣（1 = 無折扣，0.6 = 6折）；報酬率 = 盈虧 ÷ 總額
+        總額 = 同代碼在「股票投資」／「美股投資」頁所有交易紀錄的實際扣款金額加總（含手續費/稅/人工調帳），
+        逐碼加總會完全等於對應投資頁「淨投入金額」；找不到對應交易紀錄的列才退回用股數×均價估算；
+        報酬率 = 盈虧 ÷ 總額。<br />
+        🇹🇼 台股盈虧 = (股數 × 當前) − 總額 − 賣出手續費 − 證券交易稅（賣出方向課徵0.3%），
+        手續費 = 成交金額 × {(feeRate * 100).toFixed(4)}% × 折扣（1 = 無折扣，0.6 = 6折）；
+        🇺🇸 美股沒有證券交易稅、手續費模式因券商而異沒有統一費率，盈虧 = (股數 × 當前) − 總額，不扣除手續費
       </p>
 
       {/* 新增自訂馬丁格爾策略 Modal */}

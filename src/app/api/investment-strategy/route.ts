@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
   const entry = await prisma.investmentStrategyEntry.create({
     data: {
       userId: session.user.id,
+      assetType: body.assetType === "USSTOCK" ? "USSTOCK" : "STOCK",
       broker: body.broker ?? null,
       stockName: body.stockName ?? null,
       stockCode: body.stockCode ?? null,
