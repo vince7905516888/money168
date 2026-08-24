@@ -121,7 +121,7 @@ export default function TransactionsPage() {
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState({ type: "", month: "recent2" });
   const [page, setPage] = useState(1);
-  const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD">("");
+  const [investmentType, setInvestmentType] = useState<"" | "STOCK" | "USSTOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD">("");
 
   const now = new Date();
 
@@ -615,6 +615,7 @@ export default function TransactionsPage() {
                       <div className="grid grid-cols-3 gap-2">
                         {([
                           { value: "STOCK", label: "📈 股票" },
+                          { value: "USSTOCK", label: "🇺🇸 美股" },
                           { value: "FUND", label: "📦 基金" },
                           { value: "FOREX", label: "💱 外匯" },
                           { value: "CRYPTO", label: "₿ 虛擬貨幣" },

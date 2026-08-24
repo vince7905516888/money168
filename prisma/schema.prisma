@@ -246,6 +246,7 @@ model Investment {
 
 enum InvestmentType {
   STOCK
+  USSTOCK
   FUND
   FOREX
   CRYPTO
