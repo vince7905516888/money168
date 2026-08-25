@@ -23,6 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "market.stock-highlights", label: "股市要點", href: "/market/stock-highlights", section: "市場行情" },
   { key: "market.course", label: "股市課程", href: "/market/course", section: "市場行情" },
   { key: "market.tw-stock", label: "台灣股市", href: "/market/tw-stock", section: "市場行情" },
+  { key: "market.us-stock", label: "美國股市", href: "/market/us-stock", section: "市場行情" },
   { key: "market.strategy", label: "投資策略", href: "/market/strategy", section: "市場行情" },
   { key: "market.forex", label: "外匯", href: "/market/forex", section: "市場行情" },
   { key: "market.crypto", label: "虛擬貨幣", href: "/market/crypto", section: "市場行情" },
