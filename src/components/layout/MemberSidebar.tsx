@@ -74,7 +74,7 @@ export default function MemberSidebar({ userName }: { userName: string | null })
 
   return (
     <aside
-      className={`min-h-screen bg-white border-r border-slate-100 flex flex-col py-6 fixed left-0 top-0 z-20 transition-all duration-200 ${
+      className={`h-screen bg-white border-r border-slate-100 flex flex-col py-6 fixed left-0 top-0 z-20 transition-all duration-200 ${
         collapsed ? "w-16 px-2" : "w-60 px-4"
       }`}
     >
@@ -106,8 +106,8 @@ export default function MemberSidebar({ userName }: { userName: string | null })
         </button>
       )}
 
-      {/* Nav */}
-      <nav className="flex-1 space-y-1">
+      {/* Nav：欄目一多超過視窗高度時可以往下捲動，logo跟底部使用者資訊維持固定不動 */}
+      <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden min-h-0">
         {blocks.map((block) => {
           if (block.type === "link") {
             const { item } = block;
