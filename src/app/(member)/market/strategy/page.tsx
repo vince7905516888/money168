@@ -547,11 +547,11 @@ export default function StrategyPage() {
                   <th className="px-2 py-2.5 text-center font-semibold">排序</th>
                   <th className="px-2 py-2.5 text-center font-semibold">市場</th>
                   <th className="px-2 py-2.5 text-left font-semibold">證券公司</th>
-                  <th className="px-2 py-2.5 text-left font-semibold" title="唯讀，請用「同步持股」帶入">股票名稱🔒</th>
-                  <th className="px-2 py-2.5 text-left font-semibold" title="唯讀，請用「同步持股」帶入">股票代碼🔒</th>
+                  <th className="px-2 py-2.5 text-left font-semibold" title="可手動輸入；如果代碼有對應到投資頁的持股，按「同步持股」會自動覆蓋">股票名稱</th>
+                  <th className="px-2 py-2.5 text-left font-semibold" title="可手動輸入；如果代碼有對應到投資頁的持股，按「同步持股」會自動覆蓋">股票代碼</th>
                   <th className="px-2 py-2.5 text-left font-semibold">方案</th>
-                  <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，請用「同步持股」帶入">股數🔒</th>
-                  <th className="px-2 py-2.5 text-right font-semibold" title="唯讀，請用「同步持股」帶入">均價🔒</th>
+                  <th className="px-2 py-2.5 text-right font-semibold" title="可手動輸入；如果代碼有對應到投資頁的持股，按「同步持股」會自動覆蓋">股數</th>
+                  <th className="px-2 py-2.5 text-right font-semibold" title="可手動輸入；如果代碼有對應到投資頁的持股，按「同步持股」會自動覆蓋">均價</th>
                   <th className="px-2 py-2.5 text-right font-semibold" title="台股唯讀，自動抓永豐/證交所報價；美股沒有自動報價來源，需手動輸入">當前</th>
                   <th className="px-2 py-2.5 text-left font-semibold">配息日</th>
                   <th className="px-2 py-2.5 text-right font-semibold">金額</th>
@@ -600,11 +600,11 @@ export default function StrategyPage() {
                         {row.assetType === "USSTOCK" ? "🇺🇸" : row.assetType === "CRYPTO" ? "🪙" : "🇹🇼"}
                       </td>
                       {textCol(row, "broker", "券商", "w-20")}
-                      {readonlyCol(row.stockName, "left", "w-28")}
-                      {readonlyCol(row.stockCode, "left", "w-20")}
+                      {textCol(row, "stockName", "股票名稱", "w-28")}
+                      {textCol(row, "stockCode", "代碼", "w-20")}
                       {textCol(row, "plan", "方案", "w-16")}
-                      {readonlyCol(row.shares, "right", "w-24")}
-                      {readonlyCol(row.avgPrice, "right", "w-24")}
+                      {numCol(row, "shares", "股數", "w-24")}
+                      {numCol(row, "avgPrice", "均價", "w-24")}
                       {row.assetType === "STOCK"
                         ? readonlyCol(row.currentPrice, "right", "w-24", "自動抓報價")
                         : numCol(row, "currentPrice", row.assetType === "CRYPTO" ? "常見幣別自動抓價" : "手動輸入目前股價", "w-24")}
