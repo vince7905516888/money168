@@ -272,16 +272,10 @@ export default function StrategyPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchAll().then((authenticated) => {
-      if (authenticated) handleRefreshPrices();
-    });
-  }, [fetchAll, handleRefreshPrices]);
-
   // 從「股票投資」頁面算出來的目前持股（代碼/名稱/股數/均價）同步過來，同代碼的列只更新
   // 這幾個欄位、其他手動欄位不動；沒有對應列的持股才新增一筆，之後不用重打一次
   const [syncingHoldings, setSyncingHoldings] = useState(false);
-  const handleSyncHoldings = async () => {
+  const handleSyncHoldings = useCallback(async () => {
     setSyncingHoldings(true);
     try {
       const res = await authFetch("/api/investment-strategy/sync-holdings", { method: "POST" });
@@ -292,7 +286,15 @@ export default function StrategyPage() {
     } finally {
       setSyncingHoldings(false);
     }
-  };
+  }, [fetchAll, handleRefreshPrices]);
+
+  // 進頁面時自動同步一次持股（均價/股數才會即時反映「股票投資」頁最新的異動，
+  // 包含成本調整這類不改股數只調整成本的記錄），不用每次都手動按「同步持股」才會更新
+  useEffect(() => {
+    fetchAll().then((authenticated) => {
+      if (authenticated) handleSyncHoldings();
+    });
+  }, [fetchAll, handleSyncHoldings]);
 
   const handleChange = (id: string, field: keyof StrategyRow, value: string) => {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
