@@ -3,6 +3,7 @@ export interface HoldingInput {
   name?: string | null;
   quantity?: number | null;
   price?: number | null;
+  amount?: number | null; // 股數為0的純成本調整記錄用這個欄位直接加減成本，不影響股數
   action: "BUY" | "SELL";
   date: string | Date;
 }
@@ -23,8 +24,16 @@ export function computeHoldings(investments: HoldingInput[]): Holding[] {
   const sorted = [...investments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   for (const inv of sorted) {
-    if (!inv.quantity || !inv.price) continue;
     const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
+    if (!inv.quantity || !inv.price) {
+      // 股數為0的成本調整記錄（例如用賣出其他股票的獲利攤平這檔的虧損）：
+      // 只加減成本，股數不變；沒有金額的一般空白列則照舊跳過不處理
+      if (inv.amount) {
+        if (!groups.has(key)) groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0 });
+        groups.get(key)!.cost += inv.amount;
+      }
+      continue;
+    }
     if (!groups.has(key)) {
       groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0 });
     }

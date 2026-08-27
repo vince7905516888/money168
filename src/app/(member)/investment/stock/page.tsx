@@ -42,6 +42,7 @@ const DEFAULT_BROKERS = [
 ];
 
 const EMPTY_ADD_FORM = {
+  mode: "TRADE" as "TRADE" | "COST_ADJUST",
   name: "",
   code: "",
   date: new Date().toISOString().split("T")[0],
@@ -53,7 +54,9 @@ const EMPTY_ADD_FORM = {
   discount: "1",
   taxRate: "0.3",
   feeAmount: "",
+  taxAmount: "",
   adjustAmount: "",
+  costAdjustAmount: "",
   note: "",
 };
 
@@ -134,7 +137,10 @@ export default function StockPage() {
   // 不填才用費率*折扣自動試算
   const fee = addForm.feeAmount !== "" ? (parseFloat(addForm.feeAmount) || 0) : calcFee;
   const calcTax = addForm.action === "SELL" ? Math.round(principal * (taxRate / 100)) : 0;
-  const calcSubtotal = addForm.action === "BUY" ? principal + fee : principal - fee - calcTax;
+  // 證券交易稅金額：實際扣款常因四捨五入或券商計算方式跟試算有落差，填了就直接用這個金額，
+  // 不填才用稅率自動試算
+  const tax = addForm.taxAmount !== "" ? (parseFloat(addForm.taxAmount) || 0) : calcTax;
+  const calcSubtotal = addForm.action === "BUY" ? principal + fee : principal - fee - tax;
   // 調帳金額：如果填了就以此為準（實際扣款/入帳金額可能與試算有落差），否則採自動試算結果
   const subtotal = addForm.adjustAmount !== "" ? (parseFloat(addForm.adjustAmount) || 0) : calcSubtotal;
 
@@ -148,6 +154,37 @@ export default function StockPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (addForm.mode === "COST_ADJUST") {
+      if (!addForm.code) {
+        alert("請選擇要調整成本的股票");
+        return;
+      }
+      const adjustCost = parseFloat(addForm.costAdjustAmount) || 0;
+      if (adjustCost <= 0) {
+        alert("請填寫調整金額");
+        return;
+      }
+      setAddSaving(true);
+      await authFetch("/api/investments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "STOCK",
+          name: addForm.name,
+          code: addForm.code,
+          date: addForm.date,
+          action: "SELL",
+          amount: -adjustCost,
+          note: addForm.note || "成本調整（用其他持股獲利攤平此檔虧損，股數不變）",
+        }),
+      });
+      setAddSaving(false);
+      setShowAddModal(false);
+      fetchAll();
+      return;
+    }
+
     if (quantity <= 0 || price <= 0) {
       alert("請填寫股數與每股價格");
       return;
@@ -167,7 +204,7 @@ export default function StockPage() {
         price: addForm.price,
         discount: addForm.discount,
         fee,
-        tax: calcTax,
+        tax,
         amount: addForm.action === "SELL" ? -subtotal : subtotal,
         note: addForm.note,
       }),
@@ -340,117 +377,181 @@ export default function StockPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-slate-900 mb-5">新增股票記錄</h2>
             <form onSubmit={handleAdd} className="space-y-4">
-              {/* 買進/賣出 */}
+              {/* 買進/賣出/成本調整 */}
               <div className="flex gap-2">
-                {(["BUY", "SELL"] as const).map((a) => (
-                  <button key={a} type="button" onClick={() => setAddForm({ ...addForm, action: a })}
-                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                      addForm.action === a
-                        ? a === "BUY" ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
-                        : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                    }`}>
-                    {a === "BUY" ? "買進" : "賣出"}
-                  </button>
-                ))}
+                <button type="button" onClick={() => setAddForm({ ...addForm, mode: "TRADE", action: "BUY" })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    addForm.mode === "TRADE" && addForm.action === "BUY" ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}>
+                  買進
+                </button>
+                <button type="button" onClick={() => setAddForm({ ...addForm, mode: "TRADE", action: "SELL" })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    addForm.mode === "TRADE" && addForm.action === "SELL" ? "bg-red-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}>
+                  賣出
+                </button>
+                <button type="button" onClick={() => setAddForm({ ...addForm, mode: "COST_ADJUST" })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    addForm.mode === "COST_ADJUST" ? "bg-indigo-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}>
+                  成本調整
+                </button>
               </div>
+              {addForm.mode === "COST_ADJUST" && (
+                <p className="text-xs text-slate-400 -mt-2">
+                  用其他持股的獲利攤平這檔的虧損：股數不會變動，只會扣減這檔的累計投入成本（總額），
+                  盈虧試算與「投資策略」頁會同步反映
+                </p>
+              )}
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">申購日期</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{addForm.mode === "COST_ADJUST" ? "調整日期" : "申購日期"}</label>
                 <input required type="date" value={addForm.date}
                   onChange={(e) => setAddForm({ ...addForm, date: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">證券公司（選填）</label>
-                <Combobox
-                  value={addForm.broker}
-                  onChange={(v) => setAddForm({ ...addForm, broker: v })}
-                  options={allBrokers}
-                  placeholder="搜尋或選擇證券公司"
-                />
-                {addBrokerOpen ? (
-                  <div className="flex gap-2 mt-2">
-                    <input value={addBrokerInput} onChange={(e) => setAddBrokerInput(e.target.value)}
-                      placeholder="輸入證券公司名稱"
-                      className="flex-1 border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:border-indigo-400" />
-                    <button type="button" onClick={handleAddBroker} disabled={addBrokerLoading}
-                      className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60">
-                      {addBrokerLoading ? "..." : "新增"}
+              {addForm.mode === "TRADE" && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">證券公司（選填）</label>
+                  <Combobox
+                    value={addForm.broker}
+                    onChange={(v) => setAddForm({ ...addForm, broker: v })}
+                    options={allBrokers}
+                    placeholder="搜尋或選擇證券公司"
+                  />
+                  {addBrokerOpen ? (
+                    <div className="flex gap-2 mt-2">
+                      <input value={addBrokerInput} onChange={(e) => setAddBrokerInput(e.target.value)}
+                        placeholder="輸入證券公司名稱"
+                        className="flex-1 border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:border-indigo-400" />
+                      <button type="button" onClick={handleAddBroker} disabled={addBrokerLoading}
+                        className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60">
+                        {addBrokerLoading ? "..." : "新增"}
+                      </button>
+                      <button type="button" onClick={() => setAddBrokerOpen(false)}
+                        className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-500 hover:bg-slate-50">取消</button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => setAddBrokerOpen(true)}
+                      className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline">
+                      + 找不到？申請新增證券公司
                     </button>
-                    <button type="button" onClick={() => setAddBrokerOpen(false)}
-                      className="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-500 hover:bg-slate-50">取消</button>
+                  )}
+                </div>
+              )}
+
+              {(addForm.mode === "COST_ADJUST" || (addForm.mode === "TRADE" && addForm.action === "SELL")) ? (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">選擇持股</label>
+                  {holdings.length === 0 ? (
+                    <p className="text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg px-3.5 py-2.5">目前沒有任何持股可選</p>
+                  ) : (
+                    <select
+                      required
+                      value={addForm.code}
+                      onChange={(e) => {
+                        const h = holdings.find((x) => x.code === e.target.value);
+                        setAddForm({ ...addForm, code: h?.code ?? "", name: h?.name ?? "" });
+                      }}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                    >
+                      <option value="">請選擇目前持有的股票</option>
+                      {holdings.map((h) => (
+                        <option key={h.code} value={h.code}>{h.name}（{h.code}）· 持有 {h.quantity.toLocaleString("zh-TW")} 股</option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="text-[11px] text-slate-400 mt-1">從目前持股選擇，會自動帶入名稱與代碼</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">名稱（選填）</label>
+                    <input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                      placeholder="例如：台積電" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                   </div>
-                ) : (
-                  <button type="button" onClick={() => setAddBrokerOpen(true)}
-                    className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline">
-                    + 找不到？申請新增證券公司
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">名稱（選填）</label>
-                  <input value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
-                    placeholder="例如：台積電" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">代碼（選填）</label>
+                    <input value={addForm.code} onChange={(e) => setAddForm({ ...addForm, code: e.target.value })}
+                      placeholder="例如：2330" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">代碼（選填）</label>
-                  <input value={addForm.code} onChange={(e) => setAddForm({ ...addForm, code: e.target.value })}
-                    placeholder="例如：2330" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                </div>
-              </div>
+              )}
 
-              <div className="grid grid-cols-2 gap-3">
+              {addForm.mode === "COST_ADJUST" && (
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">股數</label>
-                  <input required type="number" min="0" step="any" value={addForm.quantity}
-                    onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })} placeholder="例如：1000"
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">調整金額（從投入成本中扣除）</label>
+                  <input required type="number" min="0" step="any" value={addForm.costAdjustAmount}
+                    onChange={(e) => setAddForm({ ...addForm, costAdjustAmount: e.target.value })} placeholder="例如：5000"
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">每股價格</label>
-                  <input required type="number" min="0" step="any" value={addForm.price}
-                    onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder="例如：600"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                </div>
-              </div>
+              )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費率 (%)</label>
-                  <input type="number" min="0" step="any" value={addForm.feeRate}
-                    onChange={(e) => setAddForm({ ...addForm, feeRate: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                  <p className="text-[11px] text-slate-400 mt-1">預設帶入後台「手續費設定」</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">券商折扣</label>
-                  <input type="number" min="0" max="1" step="0.01" value={addForm.discount}
-                    onChange={(e) => setAddForm({ ...addForm, discount: e.target.value })} placeholder="例如 6 折請輸入 0.6"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                  <p className="text-[11px] text-slate-400 mt-1">1 = 無折扣，0.6 = 6 折</p>
-                </div>
-              </div>
+              {addForm.mode === "TRADE" && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">股數</label>
+                      <input required type="number" min="0" step="any" value={addForm.quantity}
+                        onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })} placeholder="例如：1000"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">每股價格</label>
+                      <input required type="number" min="0" step="any" value={addForm.price}
+                        onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder="例如：600"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費金額（選填）</label>
-                <input type="number" min="0" step="any" value={addForm.feeAmount}
-                  onChange={(e) => setAddForm({ ...addForm, feeAmount: e.target.value })}
-                  placeholder={`留空則用費率試算為 ${fmt(calcFee)}`}
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                <p className="text-[11px] text-slate-400 mt-1">定期定額等扣款方式常常不是比照一般費率算，可以直接輸入實際手續費金額覆蓋試算</p>
-              </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費率 (%)</label>
+                      <input type="number" min="0" step="any" value={addForm.feeRate}
+                        onChange={(e) => setAddForm({ ...addForm, feeRate: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                      <p className="text-[11px] text-slate-400 mt-1">預設帶入後台「手續費設定」</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">券商折扣</label>
+                      <input type="number" min="0" max="1" step="0.01" value={addForm.discount}
+                        onChange={(e) => setAddForm({ ...addForm, discount: e.target.value })} placeholder="例如 6 折請輸入 0.6"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                      <p className="text-[11px] text-slate-400 mt-1">1 = 無折扣，0.6 = 6 折</p>
+                    </div>
+                  </div>
 
-              {addForm.action === "SELL" && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">證券交易稅率 (%)</label>
-                  <input type="number" min="0" step="any" value={addForm.taxRate}
-                    onChange={(e) => setAddForm({ ...addForm, taxRate: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                  <p className="text-[11px] text-slate-400 mt-1">僅賣出課徵，預設 0.3%</p>
-                </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費金額（選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.feeAmount}
+                      onChange={(e) => setAddForm({ ...addForm, feeAmount: e.target.value })}
+                      placeholder={`留空則用費率試算為 ${fmt(calcFee)}`}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    <p className="text-[11px] text-slate-400 mt-1">定期定額等扣款方式常常不是比照一般費率算，可以直接輸入實際手續費金額覆蓋試算</p>
+                  </div>
+
+                  {addForm.action === "SELL" && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">證券交易稅率 (%)</label>
+                        <input type="number" min="0" step="any" value={addForm.taxRate}
+                          onChange={(e) => setAddForm({ ...addForm, taxRate: e.target.value })}
+                          className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                        <p className="text-[11px] text-slate-400 mt-1">僅賣出課徵，預設 0.3%</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">證券交易稅金額（選填）</label>
+                        <input type="number" min="0" step="any" value={addForm.taxAmount}
+                          onChange={(e) => setAddForm({ ...addForm, taxAmount: e.target.value })}
+                          placeholder={`留空則用稅率試算為 ${fmt(calcTax)}`}
+                          className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                        <p className="text-[11px] text-slate-400 mt-1">實際扣款常因四捨五入跟試算有落差，可以直接輸入實際證券交易稅金額覆蓋試算</p>
+                      </div>
+                    </>
+                  )}
+                </>
               )}
 
               <div>
@@ -459,37 +560,42 @@ export default function StockPage() {
                   placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">調帳金額（選填）</label>
-                <input type="number" min="0" step="any" value={addForm.adjustAmount}
-                  onChange={(e) => setAddForm({ ...addForm, adjustAmount: e.target.value })}
-                  placeholder={`試算為 ${fmt(calcSubtotal)}，如與實際金額不同可在此輸入覆蓋`}
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                <p className="text-[11px] text-slate-400 mt-1">留空則採用下方自動試算的小計；填寫後將以此金額為準</p>
-              </div>
-
-              {/* 試算小計 */}
-              <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>成交金額</span><span>{fmt(principal)}</span>
-                </div>
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>手續費</span>
-                  <span>{fmt(fee)}{addForm.feeAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（手動輸入）</span>}</span>
-                </div>
-                {addForm.action === "SELL" && (
-                  <div className="flex justify-between text-xs text-slate-500">
-                    <span>證券交易稅</span><span>{fmt(calcTax)}</span>
+              {addForm.mode === "TRADE" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">調帳金額（選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.adjustAmount}
+                      onChange={(e) => setAddForm({ ...addForm, adjustAmount: e.target.value })}
+                      placeholder={`試算為 ${fmt(calcSubtotal)}，如與實際金額不同可在此輸入覆蓋`}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    <p className="text-[11px] text-slate-400 mt-1">留空則採用下方自動試算的小計；填寫後將以此金額為準</p>
                   </div>
-                )}
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>自動試算小計</span><span>{fmt(calcSubtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
-                  <span>{addForm.action === "BUY" ? "最終小計（應付）" : "最終小計（應收）"}</span>
-                  <span>{fmt(subtotal)}{addForm.adjustAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調帳）</span>}</span>
-                </div>
-              </div>
+
+                  {/* 試算小計 */}
+                  <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>成交金額</span><span>{fmt(principal)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>手續費</span>
+                      <span>{fmt(fee)}{addForm.feeAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（手動輸入）</span>}</span>
+                    </div>
+                    {addForm.action === "SELL" && (
+                      <div className="flex justify-between text-xs text-slate-500">
+                        <span>證券交易稅</span>
+                        <span>{fmt(tax)}{addForm.taxAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（手動輸入）</span>}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>自動試算小計</span><span>{fmt(calcSubtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
+                      <span>{addForm.action === "BUY" ? "最終小計（應付）" : "最終小計（應收）"}</span>
+                      <span>{fmt(subtotal)}{addForm.adjustAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調帳）</span>}</span>
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowAddModal(false)}
@@ -498,7 +604,7 @@ export default function StockPage() {
                 </button>
                 <button type="submit" disabled={addSaving}
                   className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60">
-                  {addSaving ? "儲存中..." : "儲存"}
+                  {addSaving ? "儲存中..." : addForm.mode === "COST_ADJUST" ? "儲存調整" : "儲存"}
                 </button>
               </div>
             </form>
