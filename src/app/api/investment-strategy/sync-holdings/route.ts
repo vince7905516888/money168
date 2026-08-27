@@ -3,14 +3,14 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { computeHoldings } from "@/lib/stock-holdings";
 
-// 把「股票投資」「美股投資」頁面算出來的目前持股（代碼/名稱/股數/均價）同步進投資策略表，
+// 把「股票投資」「美股投資」「虛擬貨幣」頁面算出來的目前持股（代碼/名稱/股數/均價）同步進投資策略表，
 // 已存在同代碼（同市場）的列只更新這幾個欄位，券商/方案/未來目標價等其他手動欄位維持不變；
-// 找不到對應列的持股才新增一筆。台股/美股用 assetType 分開比對，避免代碼剛好相同時互相蓋掉。
+// 找不到對應列的持股才新增一筆。各市場用 assetType 分開比對，避免代碼剛好相同時互相蓋掉。
 export async function POST() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
-  const [stockInvestments, usstockInvestments] = await Promise.all([
+  const [stockInvestments, usstockInvestments, cryptoInvestments] = await Promise.all([
     prisma.investment.findMany({
       where: { userId: session.user.id, type: "STOCK" },
       select: { code: true, name: true, quantity: true, price: true, amount: true, action: true, date: true },
@@ -19,11 +19,16 @@ export async function POST() {
       where: { userId: session.user.id, type: "USSTOCK" },
       select: { code: true, name: true, quantity: true, price: true, amount: true, action: true, date: true },
     }),
+    prisma.investment.findMany({
+      where: { userId: session.user.id, type: "CRYPTO" },
+      select: { code: true, name: true, quantity: true, price: true, amount: true, action: true, date: true },
+    }),
   ]);
 
   const holdingsByType = [
     { assetType: "STOCK", holdings: computeHoldings(stockInvestments).filter((h) => h.code && h.code !== "—") },
     { assetType: "USSTOCK", holdings: computeHoldings(usstockInvestments).filter((h) => h.code && h.code !== "—") },
+    { assetType: "CRYPTO", holdings: computeHoldings(cryptoInvestments).filter((h) => h.code && h.code !== "—") },
   ];
 
   const existingEntries = await prisma.investmentStrategyEntry.findMany({
