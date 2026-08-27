@@ -16,7 +16,7 @@ export async function GET() {
 
   const list = await prisma.userWatchStock.findMany({
     where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });
 
   // 會員打開觀察名單時，順手同步全站觀察名單涵蓋到的股票（去重、只補今天還沒抓過的），
@@ -57,10 +57,16 @@ export async function POST(req: NextRequest) {
 
   const name = await lookupStockName(cleanCode).catch(() => null);
 
+  const last = await prisma.userWatchStock.findFirst({
+    where: { userId: session.user.id },
+    orderBy: { order: "desc" },
+    select: { order: true },
+  });
+
   const item = await prisma.userWatchStock.upsert({
     where: { userId_code: { userId: session.user.id, code: cleanCode } },
     update: {},
-    create: { userId: session.user.id, code: cleanCode, name },
+    create: { userId: session.user.id, code: cleanCode, name, order: (last?.order ?? -1) + 1 },
   });
   return NextResponse.json(item);
 }

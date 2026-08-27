@@ -122,6 +122,7 @@ interface WatchStock {
   id: string;
   code: string;
   name: string | null;
+  order?: number;
   lastUpdated?: string | null; // 資料庫裡該股票最新一筆三大法人快照日期，讓會員看得到背景同步有在跑
 }
 
@@ -1111,6 +1112,31 @@ export default function TwStockPage() {
     fetch(`/api/market/tw-stock/watchlist/${code}`, { method: "DELETE" }).catch(() => {});
   };
 
+  // 觀察名單上移/下移：跟相鄰項目互換 order，樂觀更新畫面順序，背景才送出兩個PATCH
+  const moveWatchlistItem = (index: number, dir: -1 | 1, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const target = index + dir;
+    if (target < 0 || target >= watchlist.length) return;
+    const current = [...watchlist];
+    const a = current[index];
+    const b = current[target];
+    const orderA = a.order ?? index;
+    const orderB = b.order ?? target;
+    current[index] = { ...b, order: orderA };
+    current[target] = { ...a, order: orderB };
+    setWatchlist(current);
+    fetch(`/api/market/tw-stock/watchlist/${a.code}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: orderB }),
+    }).catch(() => {});
+    fetch(`/api/market/tw-stock/watchlist/${b.code}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: orderA }),
+    }).catch(() => {});
+  };
+
   const fetchStock = useCallback(async (code: string, interval: ChartInterval = "1d") => {
     setLoading(true);
     setError(null);
@@ -1371,7 +1397,7 @@ export default function TwStockPage() {
             </button>
           </div>
           <div className="divide-y divide-slate-50">
-            {watchlist.map((w) => (
+            {watchlist.map((w, i) => (
               <div
                 key={w.id}
                 onClick={() => selectWatchStock(w.code)}
@@ -1388,13 +1414,33 @@ export default function TwStockPage() {
                     {w.lastUpdated ? `最後更新 ${w.lastUpdated}` : "尚無資料"}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => removeFromWatchlist(w.code, e)}
-                  className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 hover:text-red-500 px-2.5 py-1 rounded-lg transition-opacity ml-6 shrink-0"
-                >
-                  移除
-                </button>
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-6 shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => moveWatchlistItem(i, -1, e)}
+                    disabled={i === 0}
+                    className="text-slate-300 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-300 text-xs leading-none px-1.5 py-1 transition-colors"
+                    title="上移"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => moveWatchlistItem(i, 1, e)}
+                    disabled={i === watchlist.length - 1}
+                    className="text-slate-300 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-300 text-xs leading-none px-1.5 py-1 transition-colors"
+                    title="下移"
+                  >
+                    ▼
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => removeFromWatchlist(w.code, e)}
+                    className="text-xs text-slate-300 hover:text-red-500 px-2.5 py-1 rounded-lg transition-colors"
+                  >
+                    移除
+                  </button>
+                </div>
               </div>
             ))}
           </div>

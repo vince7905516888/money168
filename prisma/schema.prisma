@@ -153,6 +153,7 @@ model UserWatchStock {
   id        String   @id @default(cuid())
   code      String
   name      String?
+  order     Int      @default(0)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
