@@ -13,11 +13,11 @@ export async function POST() {
   const [stockInvestments, usstockInvestments] = await Promise.all([
     prisma.investment.findMany({
       where: { userId: session.user.id, type: "STOCK" },
-      select: { code: true, name: true, quantity: true, price: true, action: true, date: true },
+      select: { code: true, name: true, quantity: true, price: true, amount: true, action: true, date: true },
     }),
     prisma.investment.findMany({
       where: { userId: session.user.id, type: "USSTOCK" },
-      select: { code: true, name: true, quantity: true, price: true, action: true, date: true },
+      select: { code: true, name: true, quantity: true, price: true, amount: true, action: true, date: true },
     }),
   ]);
 
