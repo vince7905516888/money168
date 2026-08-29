@@ -140,7 +140,8 @@ model UserCurrency {
 model UserFundNav {
   id        String   @id @default(cuid())
   fundKey   String
-  nav       Float
+  nav       Float    @default(0)
+  url       String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())

@@ -35,6 +35,7 @@ interface UserFundNav {
   id: string;
   fundKey: string;
   nav: number;
+  url?: string | null;
 }
 
 const DEFAULT_BANKS = [
@@ -87,6 +88,8 @@ export default function FundPage() {
   const [savedNavs, setSavedNavs] = useState<UserFundNav[]>([]);
   const [navInputs, setNavInputs] = useState<Record<string, string>>({});
   const [navSavingKey, setNavSavingKey] = useState<string | null>(null);
+  const [linkInputs, setLinkInputs] = useState<Record<string, string>>({});
+  const [linkSavingKey, setLinkSavingKey] = useState<string | null>(null);
 
   const [recordPage, setRecordPage] = useState(1);
 
@@ -172,7 +175,7 @@ export default function FundPage() {
   }, {} as Record<string, { name: string; code?: string; count: number; amount: number; units: number }>);
   const fundGroupList = Object.values(fundGroups);
 
-  // 目前淨值輸入欄位第一次出現時，帶入已儲存的淨值
+  // 目前淨值輸入欄位第一次出現時，帶入已儲存的淨值與查詢連結
   useEffect(() => {
     if (loading) return;
     setNavInputs((prev) => {
@@ -183,6 +186,19 @@ export default function FundPage() {
         if (next[key] === undefined) {
           const saved = savedNavs.find((n) => n.fundKey === key);
           next[key] = saved ? String(saved.nav) : "";
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setLinkInputs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const g of fundGroupList) {
+        const key = g.code || g.name;
+        if (next[key] === undefined) {
+          const saved = savedNavs.find((n) => n.fundKey === key);
+          next[key] = saved?.url ?? "";
           changed = true;
         }
       }
@@ -207,6 +223,27 @@ export default function FundPage() {
       body: JSON.stringify({ fundKey, nav: navVal }),
     });
     setNavSavingKey(null);
+    if (res.ok) {
+      const updated = await res.json();
+      setSavedNavs((prev) => [...prev.filter((n) => n.fundKey !== fundKey), updated]);
+    }
+  };
+
+  const handleLinkChange = (fundKey: string, value: string) => {
+    setLinkInputs((prev) => ({ ...prev, [fundKey]: value }));
+  };
+
+  const handleLinkBlur = async (fundKey: string) => {
+    const urlVal = linkInputs[fundKey]?.trim() ?? "";
+    const existing = savedNavs.find((n) => n.fundKey === fundKey);
+    if ((existing?.url ?? "") === urlVal) return;
+    setLinkSavingKey(fundKey);
+    const res = await authFetch("/api/user-fund-nav", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fundKey, url: urlVal }),
+    });
+    setLinkSavingKey(null);
     if (res.ok) {
       const updated = await res.json();
       setSavedNavs((prev) => [...prev.filter((n) => n.fundKey !== fundKey), updated]);
@@ -373,11 +410,24 @@ export default function FundPage() {
               const currentValue = hasNav ? g.units * navVal : 0;
               const gain = hasNav ? currentValue - g.amount : 0;
               const gainPct = hasNav && g.amount !== 0 ? (gain / g.amount) * 100 : 0;
+              const linkUrl = savedNavs.find((n) => n.fundKey === key)?.url;
               return (
                 <div key={key} className="py-2.5 text-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-slate-700 truncate">{g.name}</span>
+                      {linkUrl ? (
+                        <a
+                          href={linkUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="前往查詢淨值"
+                          className="text-slate-700 truncate hover:text-indigo-600 hover:underline"
+                        >
+                          {g.name}
+                        </a>
+                      ) : (
+                        <span className="text-slate-700 truncate">{g.name}</span>
+                      )}
                       {g.code && <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded shrink-0">{g.code}</span>}
                     </div>
                     <div className="flex items-center gap-4 shrink-0">
@@ -385,6 +435,18 @@ export default function FundPage() {
                       <span className="text-xs text-slate-400">{g.count} 筆</span>
                       <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5">
+                    <label className="text-xs text-slate-400 shrink-0">淨值連結</label>
+                    <input
+                      type="url"
+                      value={linkInputs[key] ?? ""}
+                      onChange={(e) => handleLinkChange(key, e.target.value)}
+                      onBlur={() => handleLinkBlur(key)}
+                      placeholder="貼上基富通等查詢淨值的網址"
+                      className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1 text-xs focus:border-indigo-400 transition-colors"
+                    />
+                    {linkSavingKey === key && <span className="text-[10px] text-slate-400 shrink-0">儲存中...</span>}
                   </div>
                   <div className="flex items-center justify-end gap-3 mt-1.5">
                     <label className="text-xs text-slate-400 shrink-0">目前淨值</label>
