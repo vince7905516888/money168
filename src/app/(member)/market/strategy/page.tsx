@@ -399,7 +399,7 @@ export default function StrategyPage() {
           <h1 className="text-2xl font-bold text-slate-900">投資策略</h1>
           <p className="text-slate-500 text-sm mt-1">
             手動記錄持股策略與未來目標價，支援台股、美股與虛擬貨幣；台股「當前」會自動抓證交所當日收盤價回填，
-            虛擬貨幣常見幣別（BTC/ETH/SOL/XRP/DOGE）會自動抓 Kraken 報價，其餘幣別跟美股一樣需手動輸入；
+            虛擬貨幣常見幣別（BTC/ETH/SOL/XRP/DOGE）會自動抓 Kraken 報價並換算成台幣，其餘幣別跟美股一樣需手動輸入；
             總額與「股票投資」／「美股投資」／「虛擬貨幣」頁的淨投入金額同步；
             台股盈虧／報酬率會自動扣除賣出手續費（依折扣）與證券交易稅，美股與虛擬貨幣沒有這兩項所以不扣除
           </p>
@@ -552,7 +552,7 @@ export default function StrategyPage() {
                   <th className="px-2 py-2.5 text-left font-semibold">方案</th>
                   <th className="px-2 py-2.5 text-right font-semibold" title="可手動輸入；如果代碼有對應到投資頁的持股，按「同步持股」會自動覆蓋">股數</th>
                   <th className="px-2 py-2.5 text-right font-semibold" title="可手動輸入；如果代碼有對應到投資頁的持股，按「同步持股」會自動覆蓋">均價</th>
-                  <th className="px-2 py-2.5 text-right font-semibold" title="台股唯讀，自動抓永豐/證交所報價；美股沒有自動報價來源，需手動輸入">當前</th>
+                  <th className="px-2 py-2.5 text-right font-semibold" title="台股唯讀，自動抓永豐/證交所報價；虛擬貨幣常見幣別自動抓 Kraken 報價並換算成台幣；美股與其餘幣別沒有自動報價來源，需手動輸入">當前</th>
                   <th className="px-2 py-2.5 text-left font-semibold">配息日</th>
                   <th className="px-2 py-2.5 text-right font-semibold">金額</th>
                   <th className="px-2 py-2.5 text-right font-semibold">折扣</th>
@@ -607,7 +607,7 @@ export default function StrategyPage() {
                       {numCol(row, "avgPrice", "均價", "w-24")}
                       {row.assetType === "STOCK"
                         ? readonlyCol(row.currentPrice, "right", "w-24", "自動抓報價")
-                        : numCol(row, "currentPrice", row.assetType === "CRYPTO" ? "常見幣別自動抓價" : "手動輸入目前股價", "w-24")}
+                        : numCol(row, "currentPrice", row.assetType === "CRYPTO" ? "常見幣別自動抓價（台幣）" : "手動輸入目前股價", "w-24")}
                       {textCol(row, "dividendDate", "配息日", "w-20")}
                       {numCol(row, "dividendAmount", "金額", "w-20")}
                       {numCol(row, "discount", "1", "w-16")}

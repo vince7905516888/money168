@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { fetchClosePrices } from "@/lib/tw-stock-chip";
 import { fetchLiveQuote } from "@/lib/shioaji-gateway";
 import { SYMBOL_TO_PAIR, firstResultValue } from "@/lib/kraken";
+import { fetchTwelveQuote } from "@/lib/twelvedata";
 
 interface KrakenTicker {
   c: [string, string]; // 最新成交價, 成交量
@@ -28,8 +29,10 @@ async function fetchKrakenPrice(symbol: string): Promise<number | null> {
 // 「當前」欄位：
 // 台股 —— 優先打永豐 Shioaji 閘道抓即時報價（開盤期間會是最新成交價，收盤後就是當天收盤價），
 // 閘道抓不到（沒設定/逾時/該代碼沒有報價）的代碼才退回用證交所 STOCK_DAY_ALL 的收盤價補齊。
-// 虛擬貨幣 —— 打 Kraken 公開行情，只涵蓋 SYMBOL_TO_PAIR 裡列的幣別（見 lib/kraken.ts），
-// 抓不到的幣別維持使用者手動輸入的值不動。
+// 虛擬貨幣 —— 打 Kraken 公開行情（回傳美元價），只涵蓋 SYMBOL_TO_PAIR 裡列的幣別（見 lib/kraken.ts），
+// 再乘上 Twelve Data 抓到的即時美元兌台幣匯率換算成台幣存起來，跟「虛擬貨幣投資」頁台幣計價的
+// 投入成本才是同一個幣別，盈虧試算才不會錯；匯率抓不到的話這輪就先不更新虛擬貨幣價格，
+// 避免把美元原始價存成台幣。抓不到報價的幣別維持使用者手動輸入的值不動。
 // 美股目前沒有整合報價來源，「當前」一律手動輸入，這支API不處理。
 export async function POST() {
   const session = await auth();
@@ -64,11 +67,15 @@ export async function POST() {
   }
 
   if (cryptoCodes.length > 0) {
-    const krakenResults = await Promise.all(
-      cryptoCodes.map(async (code) => [code, await fetchKrakenPrice(code)] as const)
-    );
-    for (const [code, price] of krakenResults) {
-      if (price != null) priceMap.set(`CRYPTO:${code}`, price);
+    const usdTwdQuote = await fetchTwelveQuote("USD/TWD");
+    const usdToTwd = usdTwdQuote && usdTwdQuote.lastPrice > 0 ? usdTwdQuote.lastPrice : null;
+    if (usdToTwd) {
+      const krakenResults = await Promise.all(
+        cryptoCodes.map(async (code) => [code, await fetchKrakenPrice(code)] as const)
+      );
+      for (const [code, price] of krakenResults) {
+        if (price != null) priceMap.set(`CRYPTO:${code}`, price * usdToTwd);
+      }
     }
   }
 
