@@ -57,6 +57,7 @@ const EMPTY_ADD_FORM = {
   taxAmount: "",
   adjustAmount: "",
   costAdjustAmount: "",
+  costAdjustQuantity: "",
   note: "",
 };
 
@@ -161,10 +162,14 @@ export default function StockPage() {
         return;
       }
       const adjustCost = parseFloat(addForm.costAdjustAmount) || 0;
-      if (adjustCost <= 0) {
-        alert("請填寫調整金額");
+      const adjustQty = parseFloat(addForm.costAdjustQuantity) || 0;
+      if (adjustCost <= 0 && adjustQty <= 0) {
+        alert("請填寫調整金額或配股股數");
         return;
       }
+      const defaultNote = adjustQty > 0
+        ? (adjustCost > 0 ? "成本調整＋配股（增加股數並自其他持股獲利中扣抵成本）" : "配股（股數增加，成本不變，平均成本自動下降）")
+        : "成本調整（用其他持股獲利攤平此檔虧損，股數不變）";
       setAddSaving(true);
       await authFetch("/api/investments", {
         method: "POST",
@@ -174,9 +179,10 @@ export default function StockPage() {
           name: addForm.name,
           code: addForm.code,
           date: addForm.date,
-          action: "SELL",
+          action: adjustQty > 0 ? "BUY" : "SELL",
           amount: -adjustCost,
-          note: addForm.note || "成本調整（用其他持股獲利攤平此檔虧損，股數不變）",
+          quantity: adjustQty > 0 ? adjustQty : undefined,
+          note: addForm.note || defaultNote,
         }),
       });
       setAddSaving(false);
@@ -400,8 +406,9 @@ export default function StockPage() {
               </div>
               {addForm.mode === "COST_ADJUST" && (
                 <p className="text-xs text-slate-400 -mt-2">
-                  用其他持股的獲利攤平這檔的虧損：股數不會變動，只會扣減這檔的累計投入成本（總額），
-                  盈虧試算與「投資策略」頁會同步反映
+                  可用其他持股的獲利攤平這檔的虧損（只扣減累計投入成本，股數不變），
+                  也可以在配股、增資等股數異動時直接增加這檔的股數（成本留白代表股數增加、平均成本自動下降），
+                  兩者也可以同時填寫，盈虧試算與「投資策略」頁會同步反映
                 </p>
               )}
 
@@ -481,12 +488,21 @@ export default function StockPage() {
               )}
 
               {addForm.mode === "COST_ADJUST" && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">調整金額（從投入成本中扣除）</label>
-                  <input required type="number" min="0" step="any" value={addForm.costAdjustAmount}
-                    onChange={(e) => setAddForm({ ...addForm, costAdjustAmount: e.target.value })} placeholder="例如：5000"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                </div>
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">調整金額（從投入成本中扣除，選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.costAdjustAmount}
+                      onChange={(e) => setAddForm({ ...addForm, costAdjustAmount: e.target.value })} placeholder="例如：5000"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">配股股數（增加股數，選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.costAdjustQuantity}
+                      onChange={(e) => setAddForm({ ...addForm, costAdjustQuantity: e.target.value })} placeholder="例如：100"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    <p className="text-[11px] text-slate-400 mt-1">配股、增資配發等免成本增加的股數，填了會直接加到這檔的合計股數</p>
+                  </div>
+                </>
               )}
 
               {addForm.mode === "TRADE" && (
