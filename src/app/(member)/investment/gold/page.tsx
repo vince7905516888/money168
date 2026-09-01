@@ -105,16 +105,18 @@ export default function GoldPage() {
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
 
-  // 依名稱分組統計：同一個名稱（優先用代碼判斷，trim 後比對）的買賣筆數與累計淨額
+  // 依名稱分組統計：同一個名稱（優先用代碼判斷，trim 後比對）的買賣筆數、累計淨額與淨重量；
+  // 賣出的重量要扣減（跟金額的淨投入邏輯一致），這樣平均每公克價格才是「目前淨持有部位」的均價
   const nameGroups = investments.reduce((acc, i) => {
     const name = i.name?.trim() || "(未命名)";
     const code = i.code?.trim() || undefined;
     const key = code || name;
-    if (!acc[key]) acc[key] = { name, code, count: 0, amount: 0 };
+    if (!acc[key]) acc[key] = { name, code, count: 0, amount: 0, units: 0 };
     acc[key].count += 1;
     acc[key].amount += i.amount;
+    acc[key].units += i.action === "SELL" ? -(i.quantity ?? 0) : (i.quantity ?? 0);
     return acc;
-  }, {} as Record<string, { name: string; code?: string; count: number; amount: number }>);
+  }, {} as Record<string, { name: string; code?: string; count: number; amount: number; units: number }>);
   const nameGroupList = Object.values(nameGroups);
 
   // ---- 新增表單：即時試算 ----
@@ -249,7 +251,13 @@ export default function GoldPage() {
                   {g.code && <span className="text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded shrink-0">{g.code}</span>}
                 </div>
                 <div className="flex items-center gap-4 shrink-0">
+                  <span className="text-xs text-slate-400">{fmt2(g.units)} 公克</span>
                   <span className="text-xs text-slate-400">{g.count} 筆</span>
+                  {g.units > 0 && (
+                    <span className="text-xs text-slate-500">
+                      平均每公克 <span className="font-semibold text-slate-800">{fmt2(g.amount / g.units)}</span>
+                    </span>
+                  )}
                   <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
                 </div>
               </div>
