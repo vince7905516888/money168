@@ -186,11 +186,28 @@ model InvestmentStrategyEntry {
   batch4         Float?
   batch5         Float?
   batch6         Float?
+  // 記錄上次通知加碼信件時，該批的目標價是多少；跟目前 batchN 值相同代表已通知過，不用重複寄信，
+  // 使用者改了目標價（值不同）就會被視為新目標，價格再次到價時會重新通知
+  batch1NotifiedPrice Float?
+  batch2NotifiedPrice Float?
+  batch3NotifiedPrice Float?
+  batch4NotifiedPrice Float?
+  batch5NotifiedPrice Float?
+  batch6NotifiedPrice Float?
   order          Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([userId])
+}
+
+// 系統寄信設定（後台可改，不用重新部署）：目前只支援 Gmail SMTP，全站共用同一組寄件帳號，
+// 只會有一筆資料（用 findFirst 取得），沒設定或密碼是空字串時寄信功能視為未啟用。
+model MailSetting {
+  id        String   @id @default(cuid())
+  gmailUser String
+  gmailPass String
+  updatedAt DateTime @updatedAt
 }
 
 model Category {

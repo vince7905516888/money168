@@ -10,4 +10,9 @@ export async function register() {
 
   const { startFuturesAutoRefresh } = await import("@/lib/taifex-auto-refresh");
   startFuturesAutoRefresh();
+
+  // 投資策略加碼價通知：只掃有填加碼目標價的列（見 batch-alert-check.ts），量級跟上面
+  // 期貨未平倉排程同等級，不是全市場排程。
+  const { startBatchAlertCheck } = await import("@/lib/batch-alert-check");
+  startBatchAlertCheck();
 }
