@@ -207,7 +207,7 @@ model InvestmentStrategyEntry {
 // 取得，只會有一筆），沒設定 API Key 時寄信功能視為未啟用。
 model MailSetting {
   id           String   @id @default(cuid())
-  resendApiKey String
+  resendApiKey String?
   fromEmail    String   @default("MoneyFlow <onboarding@resend.dev>")
   updatedAt    DateTime @updatedAt
 }
