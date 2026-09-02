@@ -15,8 +15,8 @@ export async function GET() {
 
   const setting = await prisma.mailSetting.findFirst();
   return NextResponse.json({
-    gmailUser: setting?.gmailUser ?? "",
-    hasPassword: !!setting?.gmailPass,
+    fromEmail: setting?.fromEmail ?? "",
+    hasApiKey: !!setting?.resendApiKey,
     updatedAt: setting?.updatedAt ?? null,
   });
 }
@@ -25,21 +25,26 @@ export async function PUT(req: NextRequest) {
   const session = await requireSuperAdmin();
   if (!session) return NextResponse.json({ error: "無權限" }, { status: 403 });
 
-  const { gmailUser, gmailPass } = await req.json();
-  if (!gmailUser) return NextResponse.json({ error: "請填寫 Gmail 帳號" }, { status: 400 });
-
+  const { resendApiKey, fromEmail } = await req.json();
   const existing = await prisma.mailSetting.findFirst();
+  if (!existing && !resendApiKey) {
+    return NextResponse.json({ error: "請填寫 Resend API Key" }, { status: 400 });
+  }
+
   const updated = existing
     ? await prisma.mailSetting.update({
         where: { id: existing.id },
-        // 密碼留空代表不修改，避免每次改帳號都要重打一次應用程式密碼
-        data: { gmailUser, ...(gmailPass ? { gmailPass } : {}) },
+        // API Key 留空代表不修改，避免每次改寄件人都要重貼一次 Key
+        data: {
+          ...(resendApiKey ? { resendApiKey } : {}),
+          ...(fromEmail ? { fromEmail } : {}),
+        },
       })
     : await prisma.mailSetting.create({
-        data: { gmailUser, gmailPass: gmailPass || "" },
+        data: { resendApiKey, ...(fromEmail ? { fromEmail } : {}) },
       });
 
-  return NextResponse.json({ gmailUser: updated.gmailUser, hasPassword: !!updated.gmailPass });
+  return NextResponse.json({ fromEmail: updated.fromEmail, hasApiKey: !!updated.resendApiKey });
 }
 
 export async function POST(req: NextRequest) {

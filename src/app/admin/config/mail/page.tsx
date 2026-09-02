@@ -7,9 +7,9 @@ export default function MailSettingsPage() {
   const { themeKey } = useAdminTheme();
   const skin = ADMIN_THEMES[themeKey];
 
-  const [gmailUser, setGmailUser] = useState("");
-  const [gmailPass, setGmailPass] = useState("");
-  const [hasPassword, setHasPassword] = useState(false);
+  const [fromEmail, setFromEmail] = useState("");
+  const [resendApiKey, setResendApiKey] = useState("");
+  const [hasApiKey, setHasApiKey] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -23,8 +23,8 @@ export default function MailSettingsPage() {
     const res = await fetch("/api/admin/mail-settings");
     if (res.ok) {
       const data = await res.json();
-      setGmailUser(data.gmailUser ?? "");
-      setHasPassword(!!data.hasPassword);
+      setFromEmail(data.fromEmail ?? "");
+      setHasApiKey(!!data.hasApiKey);
       setUpdatedAt(data.updatedAt ?? null);
     }
     setLoading(false);
@@ -39,11 +39,11 @@ export default function MailSettingsPage() {
     const res = await fetch("/api/admin/mail-settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gmailUser, gmailPass }),
+      body: JSON.stringify({ resendApiKey, fromEmail }),
     });
     setSaving(false);
     if (res.ok) {
-      setGmailPass("");
+      setResendApiKey("");
       fetchSetting();
     } else {
       const err = await res.json().catch(() => null);
@@ -69,7 +69,14 @@ export default function MailSettingsPage() {
       <div className="mb-8">
         <h1 className={`text-2xl font-bold ${skin.heading}`}>寄信設定</h1>
         <p className={`${skin.subheading} text-sm mt-1`}>
-          設定全站共用的 Gmail 寄件帳號，用於「投資策略」加碼價通知等系統信件
+          設定全站共用的 Resend 寄信帳號，用於「投資策略」加碼價通知等系統信件
+        </p>
+      </div>
+
+      <div className="mb-4 bg-amber-900/20 border border-amber-700/40 rounded-xl px-5 py-4">
+        <p className="text-xs text-amber-300">
+          Railway 對外網路把 SMTP 埠（25/465/587）擋掉了，Gmail SMTP 之類的方案在這裡連不出去，
+          所以改用 Resend 的 HTTPS API 寄信（跟網站抓報價打的 API 走同一種協定，已確認暢通）
         </p>
       </div>
 
@@ -79,32 +86,34 @@ export default function MailSettingsPage() {
         <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6">
           <form onSubmit={handleSave} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">Gmail 帳號</label>
-              <input
-                type="email"
-                required
-                value={gmailUser}
-                onChange={(e) => setGmailUser(e.target.value)}
-                placeholder="例如：yourname@gmail.com"
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">應用程式密碼（App Password）</label>
+              <label className="block text-sm font-medium text-slate-300 mb-1.5">Resend API Key</label>
               <input
                 type="password"
-                value={gmailPass}
-                onChange={(e) => setGmailPass(e.target.value)}
-                placeholder={hasPassword ? "已設定，留空表示不修改" : "請至 Google 帳號設定申請應用程式密碼"}
+                value={resendApiKey}
+                onChange={(e) => setResendApiKey(e.target.value)}
+                placeholder={hasApiKey ? "已設定，留空表示不修改" : "例如：re_xxxxxxxxxxxxxxxxxxxx"}
                 className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
               />
               <p className="text-[11px] text-slate-500 mt-1">
-                需先在 Google 帳號開啟兩步驟驗證，才能在「應用程式密碼」頁面產生 16 碼密碼，不是 Gmail 登入密碼本身
+                到 resend.com 免費註冊，在「API Keys」頁面建立一組 Key（免費額度每月 3000 封）
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1.5">寄件人（選填）</label>
+              <input
+                value={fromEmail}
+                onChange={(e) => setFromEmail(e.target.value)}
+                placeholder="MoneyFlow <onboarding@resend.dev>"
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:border-indigo-500 transition-colors"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                留空預設用 Resend 的測試寄件人 onboarding@resend.dev；沒有另外到 Resend 驗證自己的網域之前，
+                這個測試寄件人只能寄到你註冊 Resend 帳號當時用的那個信箱，寄給其他信箱會失敗
               </p>
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className={`w-2 h-2 rounded-full ${hasPassword ? "bg-emerald-400" : "bg-slate-500"}`} />
-              {hasPassword ? "目前已設定，寄信功能已啟用" : "尚未設定應用程式密碼，寄信功能尚未啟用"}
+              <span className={`w-2 h-2 rounded-full ${hasApiKey ? "bg-emerald-400" : "bg-slate-500"}`} />
+              {hasApiKey ? "目前已設定，寄信功能已啟用" : "尚未設定 API Key，寄信功能尚未啟用"}
               {updatedAt && <span className="text-slate-500">· 最後更新 {new Date(updatedAt).toLocaleString("zh-TW")}</span>}
             </div>
             <div className="pt-2">

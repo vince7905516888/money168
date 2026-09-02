@@ -201,13 +201,15 @@ model InvestmentStrategyEntry {
   @@index([userId])
 }
 
-// 系統寄信設定（後台可改，不用重新部署）：目前只支援 Gmail SMTP，全站共用同一組寄件帳號，
-// 只會有一筆資料（用 findFirst 取得），沒設定或密碼是空字串時寄信功能視為未啟用。
+// 系統寄信設定（後台可改，不用重新部署）：改用 Resend 的 HTTPS API 寄信，不是 SMTP——
+// Railway 對外網路把 SMTP 埠（25/465/587）整個擋掉了，Gmail SMTP 之類的方案在這個平台
+// 上注定連不出去，只有走一般 HTTPS 的 API 才行得通。全站共用一組設定（用 findFirst
+// 取得，只會有一筆），沒設定 API Key 時寄信功能視為未啟用。
 model MailSetting {
-  id        String   @id @default(cuid())
-  gmailUser String
-  gmailPass String
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  resendApiKey String
+  fromEmail    String   @default("MoneyFlow <onboarding@resend.dev>")
+  updatedAt    DateTime @updatedAt
 }
 
 model Category {
