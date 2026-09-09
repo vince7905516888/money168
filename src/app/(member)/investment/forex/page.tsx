@@ -204,6 +204,15 @@ export default function ForexPage() {
     return acc;
   }, {} as Record<string, number>);
 
+  // 各幣別累計利息（僅「利息收入」這個交易類型，以外幣計）
+  const currencyInterestTotals = investments.reduce((acc, i) => {
+    if (i.currency && flowMeta(i.name).label === "利息收入") {
+      const key = i.currency;
+      acc[key] = (acc[key] || 0) + (i.quantity || 0);
+    }
+    return acc;
+  }, {} as Record<string, number>);
+
   // ---- 新增表單：即時試算 ----
   const twdInput = parseFloat(addForm.twdAmount) || 0;
   const foreignInput = parseFloat(addForm.foreignAmount) || 0;
@@ -429,18 +438,35 @@ export default function ForexPage() {
         </div>
       )}
 
-      {/* 各幣別累計手續費 */}
-      {Object.keys(currencyFeeTotals).length > 0 && (
-        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別累計手續費</div>
-          <div className="space-y-2">
-            {Object.entries(currencyFeeTotals).map(([currency, fee]) => (
-              <div key={currency} className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">{currency}</span>
-                <span className="font-semibold text-slate-900">{fmt2(fee)}</span>
+      {/* 各幣別累計利息 / 累計手續費 */}
+      {(Object.keys(currencyInterestTotals).length > 0 || Object.keys(currencyFeeTotals).length > 0) && (
+        <div className="grid grid-cols-2 gap-4 mb-8">
+          {Object.keys(currencyInterestTotals).length > 0 && (
+            <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別累計利息</div>
+              <div className="space-y-2">
+                {Object.entries(currencyInterestTotals).map(([currency, interest]) => (
+                  <div key={currency} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">{currency}</span>
+                    <span className="font-semibold text-emerald-600">{fmt2(interest)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
+          {Object.keys(currencyFeeTotals).length > 0 && (
+            <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">各幣別累計手續費</div>
+              <div className="space-y-2">
+                {Object.entries(currencyFeeTotals).map(([currency, fee]) => (
+                  <div key={currency} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">{currency}</span>
+                    <span className="font-semibold text-slate-900">{fmt2(fee)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
