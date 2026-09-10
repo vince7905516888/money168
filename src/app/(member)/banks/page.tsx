@@ -24,6 +24,7 @@ interface BankRecord {
   note?: string;
   categoryId?: string;
   category?: { name: string; icon?: string; color?: string };
+  bankBalances?: { bankName: string; balance: number }[];
 }
 
 interface Category {
@@ -122,6 +123,7 @@ export default function BanksPage() {
 
   // 記錄篩選 + 分頁
   const [recordMonth, setRecordMonth] = useState("recent2");
+  const [recordBankFilter, setRecordBankFilter] = useState("");
   const [recordPage, setRecordPage] = useState(1);
 
   // 表單狀態
@@ -142,11 +144,16 @@ export default function BanksPage() {
   const allBanks = [...DEFAULT_BANKS, ...userBanks.map((b) => b.name)];
   const allThirdParties = [...DEFAULT_THIRD_PARTY, ...userThirdParties.map((t) => t.name)];
 
+  // 銀行記錄篩選用的銀行清單：實際有記錄的銀行（不論餘額是否為 0）＋使用者自訂的銀行別名
+  const recordBankOptions = Array.from(new Set([...banks.map((b) => b.name), ...userBanks.map((b) => b.name)]))
+    .sort((a, b) => a.localeCompare(b, "zh-TW"));
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     const recParams = new URLSearchParams({ source: "BANK", page: String(recordPage), pageSize: String(PAGE_SIZE) });
     if (recordMonth === "recent2") recParams.set("months", "2");
     else if (recordMonth) recParams.set("month", recordMonth);
+    if (recordBankFilter) recParams.set("bankName", recordBankFilter);
     const [summaryRes, recordsRes] = await Promise.all([
       fetch("/api/banks/summary"),
       fetch(`/api/transactions?${recParams}`),
@@ -156,10 +163,10 @@ export default function BanksPage() {
     setRecords(Array.isArray(recordsData?.items) ? recordsData.items : []);
     setRecordsTotal(typeof recordsData?.total === "number" ? recordsData.total : 0);
     setLoading(false);
-  }, [recordMonth, recordPage]);
+  }, [recordMonth, recordBankFilter, recordPage]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
-  useEffect(() => { setRecordPage(1); }, [recordMonth]);
+  useEffect(() => { setRecordPage(1); }, [recordMonth, recordBankFilter]);
 
   // 過濾掉餘額為 0 的銀行，並排序
   const sortedBanks = [...banks]
@@ -472,16 +479,23 @@ export default function BanksPage() {
           onToggle={() => setShowRecords((v) => !v)}
           extra={
             showRecords ? (
-              <select value={recordMonth} onChange={(e) => setRecordMonth(e.target.value)}
-                className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-600 bg-white">
-                <option value="recent2">近兩個月</option>
-                <option value="">全部月份</option>
-                {Array.from({ length: 6 }, (_, i) => {
-                  const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                  const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                  return <option key={val} value={val}>{d.getFullYear()} 年 {d.getMonth() + 1} 月</option>;
-                })}
-              </select>
+              <>
+                <select value={recordBankFilter} onChange={(e) => setRecordBankFilter(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-600 bg-white">
+                  <option value="">全部銀行</option>
+                  {recordBankOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
+                <select value={recordMonth} onChange={(e) => setRecordMonth(e.target.value)}
+                  className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-600 bg-white">
+                  <option value="recent2">近兩個月</option>
+                  <option value="">全部月份</option>
+                  {Array.from({ length: 6 }, (_, i) => {
+                    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                    return <option key={val} value={val}>{d.getFullYear()} 年 {d.getMonth() + 1} 月</option>;
+                  })}
+                </select>
+              </>
             ) : undefined
           }
         />
@@ -515,12 +529,21 @@ export default function BanksPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className={`text-sm font-semibold ${
-                        r.type === "INCOME" ? "text-emerald-600" :
-                        r.type === "TRANSFER" ? "text-indigo-500" : "text-red-500"
-                      }`}>
-                        {r.type === "INCOME" ? "+" : r.type === "TRANSFER" ? "" : "-"}{fmt(r.amount)}
-                      </span>
+                      <div className="text-right">
+                        <div className={`text-sm font-semibold ${
+                          r.type === "INCOME" ? "text-emerald-600" :
+                          r.type === "TRANSFER" ? "text-indigo-500" : "text-red-500"
+                        }`}>
+                          {r.type === "INCOME" ? "+" : r.type === "TRANSFER" ? "" : "-"}{fmt(r.amount)}
+                        </div>
+                        {(r.bankBalances ?? [])
+                          .filter((b) => !recordBankFilter || b.bankName === recordBankFilter)
+                          .map((b) => (
+                            <div key={b.bankName} className="text-[11px] text-slate-400 whitespace-nowrap">
+                              {recordBankFilter ? "餘額" : `${b.bankName} 餘額`} {fmt(b.balance)}
+                            </div>
+                          ))}
+                      </div>
                       <div className="flex gap-1">
                         <button onClick={() => openEdit(r)}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors border border-slate-100">
