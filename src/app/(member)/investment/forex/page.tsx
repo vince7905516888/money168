@@ -333,9 +333,15 @@ export default function ForexPage() {
     fetchAll();
   };
 
+  // 兌換記錄依「兌換日期」由新到舊排序，補登前幾天的帳也會照日期排在正確位置；
+  // 同一天的多筆再依建立時間由新到舊，同日內的先後順序才穩定
+  const sortedInvestments = [...investments].sort((a, b) => {
+    const byDate = new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime();
+    return byDate !== 0 ? byDate : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
   const filteredInvestments = filterType
-    ? investments.filter((inv) => flowMeta(inv.name).key === filterType)
-    : investments;
+    ? sortedInvestments.filter((inv) => flowMeta(inv.name).key === filterType)
+    : sortedInvestments;
   const pageCount = Math.max(1, Math.ceil(filteredInvestments.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const pagedInvestments = filteredInvestments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
