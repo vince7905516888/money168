@@ -58,6 +58,7 @@ const EMPTY_ADD_FORM = {
   adjustAmount: "",
   costAdjustAmount: "",
   costAdjustQuantity: "",
+  costAdjustSource: "",
   note: "",
 };
 
@@ -125,6 +126,14 @@ export default function StockPage() {
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
   const holdings = computeHoldings(investments);
+  // 成本調整可選的「獲利來源股票」：所有出現過紀錄的股票（含已全數賣出的），排除被調整的那檔
+  const sourceStocks = Array.from(
+    investments.reduce((m, i) => {
+      const code = i.code?.trim();
+      if (code && !m.has(code)) m.set(code, { code, name: i.name || code });
+      return m;
+    }, new Map<string, { code: string; name: string }>()).values()
+  ).filter((s) => s.code !== addForm.code);
 
   // ---- 新增表單：即時試算 ----
   const quantity = parseFloat(addForm.quantity) || 0;
@@ -170,8 +179,9 @@ export default function StockPage() {
       const defaultNote = adjustQty > 0
         ? (adjustCost > 0 ? "成本調整＋配股（增加股數並自其他持股獲利中扣抵成本）" : "配股（股數增加，成本不變，平均成本自動下降）")
         : "成本調整（用其他持股獲利攤平此檔虧損，股數不變）";
+      const source = adjustCost > 0 ? sourceStocks.find((s) => s.code === addForm.costAdjustSource) : undefined;
       setAddSaving(true);
-      await authFetch("/api/investments", {
+      const adjustRes = await authFetch("/api/investments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -182,9 +192,28 @@ export default function StockPage() {
           action: adjustQty > 0 ? "BUY" : "SELL",
           amount: -adjustCost,
           quantity: adjustQty > 0 ? adjustQty : undefined,
-          note: addForm.note || defaultNote,
+          note: addForm.note || (source ? `${defaultNote}，獲利來源：${source.name}` : defaultNote),
         }),
       });
+      // 獲利來自其他股票時，該股票賣出後的獲利還留在它的總投入金額裡（賣出以整筆成交金額入帳），
+      // 只扣這檔的成本會讓同一筆獲利被扣兩次，所以要在來源股票補一筆同金額的沖銷
+      if (adjustRes.ok && source) {
+        const offsetRes = await authFetch("/api/investments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "STOCK",
+            name: source.name,
+            code: source.code,
+            date: addForm.date,
+            action: "BUY",
+            amount: adjustCost,
+            note: `沖銷：${source.name}獲利已於${addForm.name}成本調整扣抵，避免資產重複扣除`,
+          }),
+        });
+        if (!offsetRes.ok) alert(`「${addForm.name}」成本調整已儲存，但「${source.name}」的沖銷紀錄新增失敗，請手動補一筆買進 ${adjustCost} 的沖銷`);
+      }
+      if (!adjustRes.ok) alert("成本調整儲存失敗，請稍後再試");
       setAddSaving(false);
       setShowAddModal(false);
       fetchAll();
@@ -494,6 +523,18 @@ export default function StockPage() {
                     <input type="number" min="0" step="any" value={addForm.costAdjustAmount}
                       onChange={(e) => setAddForm({ ...addForm, costAdjustAmount: e.target.value })} placeholder="例如：5000"
                       className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">獲利來源股票（選填）</label>
+                    <select value={addForm.costAdjustSource}
+                      onChange={(e) => setAddForm({ ...addForm, costAdjustSource: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                      <option value="">無（例如配息，不用沖銷）</option>
+                      {sourceStocks.map((s) => (
+                        <option key={s.code} value={s.code}>{s.name}（{s.code}）</option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-slate-400 mt-1">調整金額來自賣出其他股票的獲利時請選擇該股票，系統會同步沖銷它留在總投入金額裡的獲利，避免資產總攬重複扣除</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">配股股數（增加股數，選填）</label>

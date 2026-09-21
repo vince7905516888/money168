@@ -25,6 +25,9 @@ export function computeHoldings(investments: HoldingInput[]): Holding[] {
 
   for (const inv of sorted) {
     const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
+    // 獲利沖銷列（成本調整時沖回來源股票賣出後留在總投入金額裡的獲利，只影響資產總攬的加總）：
+    // 移動平均成本法賣出時已按比例扣除成本，持股成本與均價不需要再動，直接略過
+    if (!inv.price && !inv.quantity && inv.action === "BUY" && (inv.amount ?? 0) > 0) continue;
     if (!inv.price) {
       // 沒有股價的調整列（成本調整／配股等）：只加減成本與／或股數，不套用買賣均價邏輯；
       // 例如用賣出其他股票的獲利攤平這檔的虧損（只調成本），或配股增加股數（只調股數、平均成本自動下降）
