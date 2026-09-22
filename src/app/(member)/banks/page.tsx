@@ -117,6 +117,15 @@ export default function BanksPage() {
   // 顯示/隱藏切換
   const [showSummary, setShowSummary] = useState(true);
   const [showRecords, setShowRecords] = useState(true);
+  // 各銀行明細卡片展開狀態：預設全部收合，只顯示名稱與餘額，點擊才展開收入/支出/調帳明細
+  const [expandedBanks, setExpandedBanks] = useState<Set<string>>(new Set());
+  const toggleBankExpanded = (name: string) => {
+    setExpandedBanks((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
 
   // 排序
   const [sortKey, setSortKey] = useState<SortKey>("balance_desc");
@@ -382,12 +391,19 @@ export default function BanksPage() {
           onToggle={() => setShowSummary((v) => !v)}
           extra={
             showSummary && sortedBanks.length > 0 ? (
-              <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}
-                className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-600 bg-white">
-                <option value="balance_desc">餘額由高到低</option>
-                <option value="balance_asc">餘額由低到高</option>
-                <option value="name_asc">名稱排序</option>
-              </select>
+              <div className="flex items-center gap-2">
+                <button type="button"
+                  onClick={() => setExpandedBanks(expandedBanks.size === sortedBanks.length ? new Set() : new Set(sortedBanks.map((b) => b.name)))}
+                  className="text-xs text-indigo-500 hover:underline whitespace-nowrap">
+                  {expandedBanks.size === sortedBanks.length ? "全部收合" : "全部展開"}
+                </button>
+                <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}
+                  className="border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-600 bg-white">
+                  <option value="balance_desc">餘額由高到低</option>
+                  <option value="balance_asc">餘額由低到高</option>
+                  <option value="name_asc">名稱排序</option>
+                </select>
+              </div>
             ) : undefined
           }
         />
@@ -430,41 +446,48 @@ export default function BanksPage() {
                 </div>
               )}
 
-              {/* 明細列表 */}
+              {/* 明細列表：預設收合只顯示名稱與餘額，點擊該列展開收入/支出/調帳明細 */}
               <div className="divide-y divide-slate-50">
-                {sortedBanks.map((bank, i) => (
-                  <div key={bank.name} className="px-6 py-4 hover:bg-slate-50 transition-colors">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-3 h-3 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
-                        <div className="w-9 h-9 rounded-xl bg-sky-50 flex items-center justify-center text-base">🏦</div>
-                        <span className="text-sm font-semibold text-slate-800">{bank.name}</span>
-                      </div>
-                      <span className={`text-sm font-bold ${bank.balance >= 0 ? "text-slate-800" : "text-red-500"}`}>
-                        {fmt(bank.balance)}
-                      </span>
+                {sortedBanks.map((bank, i) => {
+                  const expanded = expandedBanks.has(bank.name);
+                  return (
+                    <div key={bank.name} className="px-6 py-4 hover:bg-slate-50 transition-colors">
+                      <button type="button" onClick={() => toggleBankExpanded(bank.name)}
+                        className="w-full flex items-center justify-between text-left">
+                        <div className="flex items-center gap-3">
+                          <span className={`text-slate-300 text-xs transition-transform ${expanded ? "rotate-90" : ""}`}>▸</span>
+                          <div className="w-3 h-3 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                          <div className="w-9 h-9 rounded-xl bg-sky-50 flex items-center justify-center text-base">🏦</div>
+                          <span className="text-sm font-semibold text-slate-800">{bank.name}</span>
+                        </div>
+                        <span className={`text-sm font-bold ${bank.balance >= 0 ? "text-slate-800" : "text-red-500"}`}>
+                          {fmt(bank.balance)}
+                        </span>
+                      </button>
+                      {expanded && (
+                        <div className="grid grid-cols-4 gap-2 ml-12 mt-3">
+                          <div className="bg-emerald-50 rounded-lg px-3 py-1.5">
+                            <div className="text-xs text-emerald-600 font-medium">收入</div>
+                            <div className="text-sm font-semibold text-emerald-700">{fmt(bank.income)}</div>
+                          </div>
+                          <div className="bg-red-50 rounded-lg px-3 py-1.5">
+                            <div className="text-xs text-red-500 font-medium">支出</div>
+                            <div className="text-sm font-semibold text-red-600">{fmt(bank.expense)}</div>
+                          </div>
+                          <div className="bg-indigo-50 rounded-lg px-3 py-1.5">
+                            <div className="text-xs text-indigo-500 font-medium">調帳流入</div>
+                            <div className="text-sm font-semibold text-indigo-600">{fmt(bank.transferIn)}</div>
+                          </div>
+                          <div className="bg-slate-50 rounded-lg px-3 py-1.5">
+                            <div className="text-xs text-slate-500 font-medium">調帳流出</div>
+                            <div className="text-sm font-semibold text-slate-600">{fmt(bank.transferOut)}</div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="grid grid-cols-4 gap-2 ml-12">
-                      <div className="bg-emerald-50 rounded-lg px-3 py-1.5">
-                        <div className="text-xs text-emerald-600 font-medium">收入</div>
-                        <div className="text-sm font-semibold text-emerald-700">{fmt(bank.income)}</div>
-                      </div>
-                      <div className="bg-red-50 rounded-lg px-3 py-1.5">
-                        <div className="text-xs text-red-500 font-medium">支出</div>
-                        <div className="text-sm font-semibold text-red-600">{fmt(bank.expense)}</div>
-                      </div>
-                      <div className="bg-indigo-50 rounded-lg px-3 py-1.5">
-                        <div className="text-xs text-indigo-500 font-medium">調帳流入</div>
-                        <div className="text-sm font-semibold text-indigo-600">{fmt(bank.transferIn)}</div>
-                      </div>
-                      <div className="bg-slate-50 rounded-lg px-3 py-1.5">
-                        <div className="text-xs text-slate-500 font-medium">調帳流出</div>
-                        <div className="text-sm font-semibold text-slate-600">{fmt(bank.transferOut)}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )
