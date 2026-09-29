@@ -220,9 +220,15 @@ export default function DebtsPage() {
     fetchAll();
   };
 
-  const pageCount = Math.max(1, Math.ceil(debts.length / PAGE_SIZE));
+  // 負債記錄依「異動日期」由新到舊排序，補登前幾天的帳也會照日期排在正確位置；
+  // 同一天的多筆再依建立時間由新到舊，同日內的先後順序才穩定
+  const sortedDebts = [...debts].sort((a, b) => {
+    const byDate = new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime();
+    return byDate !== 0 ? byDate : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+  const pageCount = Math.max(1, Math.ceil(sortedDebts.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const pagedDebts = debts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pagedDebts = sortedDebts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <div className="max-w-4xl">

@@ -126,6 +126,12 @@ export default function StockPage() {
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
   const holdings = computeHoldings(investments);
+  // 投資記錄依「申購/調整日期」由新到舊排序，補登前幾天的帳也會照日期排在正確位置；
+  // 同一天的多筆再依建立時間由新到舊，同日內的先後順序才穩定
+  const sortedInvestments = [...investments].sort((a, b) => {
+    const byDate = new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime();
+    return byDate !== 0 ? byDate : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
   // 成本調整可選的「獲利來源股票」：所有出現過紀錄的股票（含已全數賣出的），排除被調整的那檔
   const sourceStocks = Array.from(
     investments.reduce((m, i) => {
@@ -366,7 +372,7 @@ export default function StockPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {investments.map((inv) => (
+            {sortedInvestments.map((inv) => (
               <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
                 <div className="flex items-center gap-3">
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
