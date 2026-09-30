@@ -311,7 +311,9 @@ export default function InvestmentOverviewPage() {
   // 虛擬貨幣資產＝目前仍持有部位的投入成本；用 remainingCostByAmount 而非 computeHoldings，
   // 理由見該函式註解（虛擬貨幣的單價欄位不一定可靠，不能拿來重算成本）
   const cryptoTotal = remainingCostByAmount(byType("CRYPTO"));
-  const goldTotal = sumAmount(goldInvestments);
+  // 黃金資產＝目前仍持有部位的投入成本；跟虛擬貨幣一樣用 remainingCostByAmount 而非
+  // computeHoldings（黃金頁的單價欄位同樣有「實際金額」可覆蓋輸入，不一定等於 amount÷數量）
+  const goldTotal = remainingCostByAmount(goldInvestments);
   const realestateTotal = sumAmount(byType("REALESTATE"));
   const insuranceTotal = sumAmount(byType("INSURANCE"));
   const debtTotal = debts.reduce((s, d) => s + d.amount, 0);
