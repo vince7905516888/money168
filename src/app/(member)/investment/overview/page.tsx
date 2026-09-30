@@ -105,6 +105,37 @@ export default function InvestmentOverviewPage() {
   const byType = (t: InvestmentType) => investments.filter((i) => i.type === t);
   const sumAmount = (list: Investment[]) => list.reduce((s, i) => s + i.amount, 0);
 
+  // 目前持有部位的投入成本（移動平均成本法，依實際入帳金額 amount 計算，不重算 quantity×price）：
+  // 跟股票/美股用的 computeHoldings（src/lib/stock-holdings.ts）同樣邏輯，但改用 amount 而非
+  // 重新用單價×數量推算成本。虛擬貨幣頁的單價欄位可能跟實際入帳金額對不上（有「實際金額」覆蓋
+  // 輸入框，也有把 USDT 當中介幣拿去買美股等用法，quantity×price 不一定等於 amount），
+  // 若沿用 computeHoldings 重算成本，一筆單價填錯或不一致的紀錄就會讓總額嚴重失真；
+  // 直接用帳上金額才能保證買了多少算多少、賣出只按比例扣掉平均成本，出清後成本歸零。
+  const remainingCostByAmount = (list: Investment[]) => {
+    const groups = new Map<string, { qty: number; cost: number }>();
+    const sorted = [...list].sort((a, b) => new Date(a.date ?? a.createdAt).getTime() - new Date(b.date ?? b.createdAt).getTime());
+    for (const inv of sorted) {
+      const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
+      if (!groups.has(key)) groups.set(key, { qty: 0, cost: 0 });
+      const g = groups.get(key)!;
+      if (!inv.quantity) {
+        // 沒有數量異動的純成本調整列，直接加減成本
+        g.cost += inv.amount;
+        continue;
+      }
+      if (inv.action === "SELL") {
+        const avgCost = g.qty > 0 ? g.cost / g.qty : 0;
+        const sellQty = Math.min(inv.quantity, g.qty);
+        g.cost -= avgCost * sellQty;
+        g.qty -= sellQty;
+      } else {
+        g.qty += inv.quantity;
+        g.cost += inv.amount;
+      }
+    }
+    return Array.from(groups.values()).filter((g) => g.qty > 0.0001).reduce((s, g) => s + g.cost, 0);
+  };
+
   // 外匯各幣別「目前餘額」（時序，含息）：加總所有外匯記錄的外幣數量，等同外匯投資頁的餘額
   const forexInvestments = byType("FOREX");
   const forexCurrencyBalances: Record<string, number> = {};
@@ -165,12 +196,18 @@ export default function InvestmentOverviewPage() {
   }
   const fundCurrencyList = Object.keys(fundCurrencyBalances).filter((c) => c !== "TWD").sort();
 
-  // 美股投資各幣別淨投入金額：多半是美金計價，跟外匯/基金一樣需要換算才能併入正資產總計
+  // 美股投資各幣別「目前持有部位」的投入成本（跟股票投資同一套移動平均成本法，理由同 stockTotal
+  // 的說明）：不用金額直接加總，避免賣出獲利入帳後，已出清的標的留下負殘值拖累總資產。
+  // 多半是美金計價，跟外匯/基金一樣需要換算才能併入正資產總計。
   const usstockInvestments = byType("USSTOCK");
   const usstockCurrencyBalances: Record<string, number> = {};
-  for (const i of usstockInvestments) {
-    const cur = i.currency || "USD";
-    usstockCurrencyBalances[cur] = (usstockCurrencyBalances[cur] || 0) + i.amount;
+  for (const currency of new Set(usstockInvestments.map((i) => i.currency || "USD"))) {
+    const holdings = computeHoldings(
+      usstockInvestments
+        .filter((i) => (i.currency || "USD") === currency)
+        .map((i) => ({ ...i, action: i.action ?? "BUY", date: i.date ?? i.createdAt }))
+    );
+    usstockCurrencyBalances[currency] = holdings.reduce((s, h) => s + h.cost, 0);
   }
   const usstockCurrencyList = Object.keys(usstockCurrencyBalances).filter((c) => c !== "TWD").sort();
 
@@ -237,7 +274,7 @@ export default function InvestmentOverviewPage() {
     return s + fundCurrencyBalances[currency] * rate;
   }, 0) + (fundCurrencyBalances.TWD || 0);
 
-  // 美股總計（台幣）＝各幣別淨投入金額 × 手動輸入的匯率加總（跟外匯/基金共用同一份匯率）
+  // 美股總計（台幣）＝各幣別「目前持有部位」的投入成本 × 手動輸入的匯率加總（跟外匯/基金共用同一份匯率）
   const usstockHasUnratedCurrency = usstockCurrencyList.some((c) => !parseFloat(rateInputs[c] ?? ""));
   const usstockTwdTotal = usstockCurrencyList.reduce((s, currency) => {
     const rate = parseFloat(rateInputs[currency] ?? "") || 0;
@@ -271,7 +308,9 @@ export default function InvestmentOverviewPage() {
   // 已出清（股數為 0）的股票在移動平均成本法下成本自然歸零，不會再產生這個殘值。
   const stockTotal = computeHoldings(byType("STOCK").map((i) => ({ ...i, action: i.action ?? "BUY", date: i.date ?? i.createdAt })))
     .reduce((s, h) => s + h.cost, 0);
-  const cryptoTotal = sumAmount(byType("CRYPTO"));
+  // 虛擬貨幣資產＝目前仍持有部位的投入成本；用 remainingCostByAmount 而非 computeHoldings，
+  // 理由見該函式註解（虛擬貨幣的單價欄位不一定可靠，不能拿來重算成本）
+  const cryptoTotal = remainingCostByAmount(byType("CRYPTO"));
   const goldTotal = sumAmount(goldInvestments);
   const realestateTotal = sumAmount(byType("REALESTATE"));
   const insuranceTotal = sumAmount(byType("INSURANCE"));
@@ -431,10 +470,10 @@ export default function InvestmentOverviewPage() {
         </div>
       )}
 
-      {/* 美股投資：各幣別淨投入金額 + 手動匯率換算（跟現金/外匯/基金共用同一份匯率） */}
+      {/* 美股投資：各幣別「目前持有部位」投入成本 + 手動匯率換算（跟現金/外匯/基金共用同一份匯率） */}
       {usstockCurrencyList.length > 0 && (
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-8">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">美股投資（各幣別淨投入金額與換算匯率）</div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">美股投資（各幣別持有成本與換算匯率）</div>
           <div className="space-y-3">
             {(usstockCurrencyBalances.TWD || 0) !== 0 && (
               <div className="flex items-center gap-3 text-sm">
