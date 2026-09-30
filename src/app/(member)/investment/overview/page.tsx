@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { computeHoldings } from "@/lib/stock-holdings";
 
 type InvestmentType = "STOCK" | "USSTOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD" | "REALESTATE" | "INSURANCE";
 
@@ -12,6 +13,8 @@ interface Investment {
   code?: string;
   amount: number;
   quantity?: number;
+  price?: number;
+  action?: "BUY" | "SELL";
   currency?: string;
   exchangeRate?: number;
   note?: string;
@@ -262,7 +265,12 @@ export default function InvestmentOverviewPage() {
   const goldGroupList = Object.values(goldGroups);
 
   const bankTotal = banks.reduce((s, b) => s + b.balance, 0);
-  const stockTotal = sumAmount(byType("STOCK"));
+  // 股票資產＝目前仍持有部位的投入成本（跟持股列表同一套移動平均成本法），不是累計買賣金額加總：
+  // 賣出以整筆成交金額入帳，若改用金額加總，賣出獲利會讓已出清的股票留下一筆負的殘值，
+  // 導致獲利明明已經變現入帳到銀行，資產總攬卻沒有跟著增加，甚至因為後續的成本調整被重複扣除。
+  // 已出清（股數為 0）的股票在移動平均成本法下成本自然歸零，不會再產生這個殘值。
+  const stockTotal = computeHoldings(byType("STOCK").map((i) => ({ ...i, action: i.action ?? "BUY", date: i.date ?? i.createdAt })))
+    .reduce((s, h) => s + h.cost, 0);
   const cryptoTotal = sumAmount(byType("CRYPTO"));
   const goldTotal = sumAmount(goldInvestments);
   const realestateTotal = sumAmount(byType("REALESTATE"));
