@@ -119,6 +119,13 @@ export default function UsStockPage() {
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
   const holdings = computeHoldings(investments);
+  // 持股狀況小計：依幣別分開加總投資總額，避免不同幣別混在一起
+  const holdingSubtotals = [...new Set(investments.map((i) => i.currency || "USD"))]
+    .map((currency) => ({
+      currency,
+      cost: computeHoldings(investments.filter((i) => (i.currency || "USD") === currency)).reduce((s, h) => s + h.cost, 0),
+    }))
+    .filter((t) => Math.abs(t.cost) > 0.0001);
 
   // ---- 新增表單：即時試算 ----
   const quantity = parseFloat(addForm.quantity) || 0;
@@ -292,6 +299,15 @@ export default function UsStockPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                {holdingSubtotals.map((t) => (
+                  <tr key={t.currency} className="border-t border-slate-100 bg-slate-50">
+                    <td colSpan={3} className="px-6 py-3 font-semibold text-slate-800">小計（{t.currency}）</td>
+                    <td className="px-6 py-3 text-right font-bold text-slate-900">{fmtCur(t.cost, t.currency)}</td>
+                    <td />
+                  </tr>
+                ))}
+              </tfoot>
             </table>
           </div>
         )}
