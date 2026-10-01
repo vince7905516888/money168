@@ -342,9 +342,11 @@ export default function InvestmentOverviewPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  // 股票改用持股實際投入成本（stockTotal），跟資產總攬一致；其他類型維持金額加總
-  const typeTotal = (t: InvestmentType) => (t === "STOCK" ? stockTotal : sumAmount(byType(t)));
-  const total = investments.filter((i) => i.type !== "STOCK").reduce((s, i) => s + i.amount, 0) + stockTotal;
+  // 股票、虛擬貨幣、黃金改用目前持有部位的投入成本，跟資產總攬一致；其他類型維持金額加總
+  const holdingTotals: Partial<Record<InvestmentType, number>> = { STOCK: stockTotal, CRYPTO: cryptoTotal, GOLD: goldTotal };
+  const typeTotal = (t: InvestmentType) => holdingTotals[t] ?? sumAmount(byType(t));
+  const total = investments.filter((i) => holdingTotals[i.type] === undefined).reduce((s, i) => s + i.amount, 0)
+    + Object.values(holdingTotals).reduce((s, n) => s + n, 0);
 
   return (
     <div className="max-w-4xl">
