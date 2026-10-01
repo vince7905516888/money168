@@ -121,11 +121,12 @@ export default function StockPage() {
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
 
-  // 淨投入金額：買進為正、賣出為負（賣出淨額會抵銷買進金額）
-  const netInvested = investments.reduce((s, i) => s + i.amount, 0);
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
   const holdings = computeHoldings(investments);
+  // 持股成本：目前仍持有部位的實際投入成本，跟資產總攬的股票投資同一個數字。
+  // 不用買賣金額直接加總：賣出獲利/虧損會讓已出清的股票留下殘值，成本調整也會被算進去
+  const netInvested = holdings.reduce((s, h) => s + h.bookCost, 0);
   // 投資記錄依「申購/調整日期」由新到舊排序，補登前幾天的帳也會照日期排在正確位置；
   // 同一天的多筆再依建立時間由新到舊，同日內的先後順序才穩定
   const sortedInvestments = [...investments].sort((a, b) => {
@@ -309,9 +310,9 @@ export default function StockPage() {
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4 mb-8">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">淨投入金額</div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">持股成本</div>
           <div className={`text-2xl font-bold mt-1 ${netInvested >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(netInvested)}</div>
-          <div className="text-xs text-slate-400 mt-0.5">買進金額 − 賣出淨額</div>
+          <div className="text-xs text-slate-400 mt-0.5">目前持股的實際投入成本</div>
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">買進筆數</div>

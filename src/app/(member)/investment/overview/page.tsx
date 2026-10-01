@@ -342,7 +342,9 @@ export default function InvestmentOverviewPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  const total = investments.reduce((s, i) => s + i.amount, 0);
+  // 股票改用持股實際投入成本（stockTotal），跟資產總攬一致；其他類型維持金額加總
+  const typeTotal = (t: InvestmentType) => (t === "STOCK" ? stockTotal : sumAmount(byType(t)));
+  const total = investments.filter((i) => i.type !== "STOCK").reduce((s, i) => s + i.amount, 0) + stockTotal;
 
   return (
     <div className="max-w-4xl">
@@ -646,7 +648,7 @@ export default function InvestmentOverviewPage() {
           <div key={type} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">{TYPE_LABEL[type]}</div>
             <div className="text-2xl font-bold text-slate-900 mt-1">
-              {fmt(byType(type).reduce((s, i) => s + i.amount, 0))}
+              {fmt(typeTotal(type))}
             </div>
             <div className="text-xs text-slate-400 mt-0.5">{byType(type).length} 筆</div>
           </div>
