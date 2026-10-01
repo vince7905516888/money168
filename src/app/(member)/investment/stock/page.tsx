@@ -34,6 +34,8 @@ interface UserBroker {
   name: string;
 }
 
+const PAGE_SIZE = 20;
+
 const DEFAULT_BROKERS = [
   "元大證券", "富邦證券", "國泰證券", "凱基證券", "群益證券",
   "統一證券", "永豐金證券", "兆豐證券", "中國信託證券", "玉山證券",
@@ -65,6 +67,7 @@ const EMPTY_ADD_FORM = {
 export default function StockPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [addSaving, setAddSaving] = useState(false);
@@ -136,6 +139,9 @@ export default function StockPage() {
     const byDate = new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime();
     return byDate !== 0 ? byDate : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
+  const pageCount = Math.max(1, Math.ceil(sortedInvestments.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedInvestments = sortedInvestments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   // 成本調整可選的「獲利來源股票」：所有出現過紀錄的股票（含已全數賣出的），排除被調整的那檔
   const sourceStocks = Array.from(
     investments.reduce((m, i) => {
@@ -226,6 +232,7 @@ export default function StockPage() {
       if (!adjustRes.ok) alert("成本調整儲存失敗，請稍後再試");
       setAddSaving(false);
       setShowAddModal(false);
+      setPage(1);
       fetchAll();
       return;
     }
@@ -256,6 +263,7 @@ export default function StockPage() {
     });
     setAddSaving(false);
     setShowAddModal(false);
+    setPage(1);
     fetchAll();
   };
 
@@ -381,7 +389,7 @@ export default function StockPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {sortedInvestments.map((inv) => (
+            {pagedInvestments.map((inv) => (
               <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
                 <div className="flex items-center gap-3">
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
@@ -434,6 +442,23 @@ export default function StockPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        {!loading && pageCount > 1 && (
+          <div className="flex items-center justify-between px-6 py-3 border-t border-slate-50">
+            <span className="text-xs text-slate-400">
+              第 {currentPage} / {pageCount} 頁・共 {sortedInvestments.length} 筆
+            </span>
+            <div className="flex gap-1">
+              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                上一頁
+              </button>
+              <button type="button" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={currentPage >= pageCount}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                下一頁
+              </button>
+            </div>
           </div>
         )}
       </div>
