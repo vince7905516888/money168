@@ -207,7 +207,7 @@ export default function InvestmentOverviewPage() {
         .filter((i) => (i.currency || "USD") === currency)
         .map((i) => ({ ...i, action: i.action ?? "BUY", date: i.date ?? i.createdAt }))
     );
-    usstockCurrencyBalances[currency] = holdings.reduce((s, h) => s + h.cost, 0);
+    usstockCurrencyBalances[currency] = holdings.reduce((s, h) => s + h.bookCost, 0);
   }
   const usstockCurrencyList = Object.keys(usstockCurrencyBalances).filter((c) => c !== "TWD").sort();
 
@@ -306,8 +306,10 @@ export default function InvestmentOverviewPage() {
   // 賣出以整筆成交金額入帳，若改用金額加總，賣出獲利會讓已出清的股票留下一筆負的殘值，
   // 導致獲利明明已經變現入帳到銀行，資產總攬卻沒有跟著增加，甚至因為後續的成本調整被重複扣除。
   // 已出清（股數為 0）的股票在移動平均成本法下成本自然歸零，不會再產生這個殘值。
+  // 加總用 bookCost（不含成本調整）而非 cost：成本調整只是把已入帳銀行的獲利拿去攤平均價，
+  // 若算進資產，每做一次成本調整總資產就會少掉那筆金額。
   const stockTotal = computeHoldings(byType("STOCK").map((i) => ({ ...i, action: i.action ?? "BUY", date: i.date ?? i.createdAt })))
-    .reduce((s, h) => s + h.cost, 0);
+    .reduce((s, h) => s + h.bookCost, 0);
   // 虛擬貨幣資產＝目前仍持有部位的投入成本；用 remainingCostByAmount 而非 computeHoldings，
   // 理由見該函式註解（虛擬貨幣的單價欄位不一定可靠，不能拿來重算成本）
   const cryptoTotal = remainingCostByAmount(byType("CRYPTO"));

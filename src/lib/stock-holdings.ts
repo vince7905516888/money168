@@ -15,11 +15,14 @@ export interface Holding {
   quantity: number;
   cost: number;
   avgPrice: number;
+  // 實際投入成本：不含成本調整列（用其他持股獲利攤平虧損）。成本調整只是改變均價的帳面處理，
+  // 獲利早已變現入帳到銀行，若資產總攬用 cost 加總，每做一次成本調整總資產就會被多扣一次。
+  bookCost: number;
 }
 
 // 移動平均成本法：買進累加股數與成本，賣出則按賣出前的平均成本比例扣除，平均成本不變、只有股數與總成本下降
 export function computeHoldings(investments: HoldingInput[]): Holding[] {
-  const groups = new Map<string, { name: string; code: string; qty: number; cost: number }>();
+  const groups = new Map<string, { name: string; code: string; qty: number; cost: number; book: number }>();
 
   const sorted = [...investments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -32,26 +35,29 @@ export function computeHoldings(investments: HoldingInput[]): Holding[] {
       // 沒有股價的調整列（成本調整／配股等）：只加減成本與／或股數，不套用買賣均價邏輯；
       // 例如用賣出其他股票的獲利攤平這檔的虧損（只調成本），或配股增加股數（只調股數、平均成本自動下降）
       if (inv.amount || inv.quantity) {
-        if (!groups.has(key)) groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0 });
+        if (!groups.has(key)) groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0, book: 0 });
         const g = groups.get(key)!;
-        if (inv.amount) g.cost += inv.amount;
+        if (inv.amount) g.cost += inv.amount; // 只動均價用的 cost，不動實際投入成本 book
         if (inv.quantity) g.qty += inv.quantity;
       }
       continue;
     }
     if (!inv.quantity) continue;
     if (!groups.has(key)) {
-      groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0 });
+      groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0, book: 0 });
     }
     const g = groups.get(key)!;
     if (inv.action === "BUY") {
       g.qty += inv.quantity;
       g.cost += inv.quantity * inv.price;
+      g.book += inv.quantity * inv.price;
     } else {
       const avgCost = g.qty > 0 ? g.cost / g.qty : 0;
+      const avgBook = g.qty > 0 ? g.book / g.qty : 0;
       const sellQty = Math.min(inv.quantity, g.qty);
       g.qty -= sellQty;
       g.cost -= avgCost * sellQty;
+      g.book -= avgBook * sellQty;
     }
   }
 
@@ -64,5 +70,6 @@ export function computeHoldings(investments: HoldingInput[]): Holding[] {
       quantity: g.qty,
       cost: g.cost,
       avgPrice: g.cost / g.qty,
+      bookCost: g.book,
     }));
 }
