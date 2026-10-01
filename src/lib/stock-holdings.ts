@@ -1,4 +1,5 @@
 export interface HoldingInput {
+  id?: string;
   code?: string | null;
   name?: string | null;
   quantity?: number | null;
@@ -6,6 +7,7 @@ export interface HoldingInput {
   amount?: number | null; // 沒有股價的調整列用這個欄位直接加減成本；quantity 則可同時用來調整股數（例如配股）
   action: "BUY" | "SELL";
   date: string | Date;
+  createdAt?: string | Date;
 }
 
 export interface Holding {
@@ -20,56 +22,90 @@ export interface Holding {
   bookCost: number;
 }
 
-// 移動平均成本法：買進累加股數與成本，賣出則按賣出前的平均成本比例扣除，平均成本不變、只有股數與總成本下降
-export function computeHoldings(investments: HoldingInput[]): Holding[] {
-  const groups = new Map<string, { name: string; code: string; qty: number; cost: number; book: number }>();
+// 單筆賣出的已實現損益（先進先出）
+export interface SaleResult {
+  proceeds: number; // 賣出淨額（已扣手續費、交易稅）
+  cost: number; // 賣掉的那幾批的實際買進成本
+  pnl: number; // 實際損益 = proceeds − cost
+  adjustedCost: number; // 同上，但成本已扣除成本調整（攤平）
+  adjustedPnl: number; // 攤平後損益
+}
 
-  const sorted = [...investments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+// 一批買進：cost 是實際投入成本，adjCost 是扣掉成本調整後的成本（用來算攤平後均價）
+interface Lot { qty: number; cost: number; adjCost: number }
+
+// 先進先出（FIFO）：每次買進是一批，賣出時從最早買進的那批開始扣，
+// 賣掉的那幾批成本就是這次賣出的成本，賣出淨額減掉它就是這次的已實現損益
+export function computeStockLedger(investments: HoldingInput[]): { holdings: Holding[]; sales: Map<string, SaleResult> } {
+  const groups = new Map<string, { name: string; code: string; lots: Lot[]; pendingAdj: number }>();
+  const sales = new Map<string, SaleResult>();
+
+  const time = (d: string | Date | undefined) => (d ? new Date(d).getTime() : 0);
+  const sorted = [...investments].sort((a, b) => time(a.date) - time(b.date) || time(a.createdAt) - time(b.createdAt));
 
   for (const inv of sorted) {
     const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
-    // 獲利沖銷列（成本調整時沖回來源股票賣出後留在總投入金額裡的獲利，只影響資產總攬的加總）：
-    // 移動平均成本法賣出時已按比例扣除成本，持股成本與均價不需要再動，直接略過
+    // 獲利沖銷列（舊版成本調整在來源股票補的沖銷）：已不影響任何計算，直接略過
     if (!inv.price && !inv.quantity && inv.action === "BUY" && (inv.amount ?? 0) > 0) continue;
+    if (!groups.has(key)) groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", lots: [], pendingAdj: 0 });
+    const g = groups.get(key)!;
+
     if (!inv.price) {
-      // 沒有股價的調整列（成本調整／配股等）：只加減成本與／或股數，不套用買賣均價邏輯；
-      // 例如用賣出其他股票的獲利攤平這檔的虧損（只調成本），或配股增加股數（只調股數、平均成本自動下降）
-      if (inv.amount || inv.quantity) {
-        if (!groups.has(key)) groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0, book: 0 });
-        const g = groups.get(key)!;
-        if (inv.amount) g.cost += inv.amount; // 只動均價用的 cost，不動實際投入成本 book
-        if (inv.quantity) g.qty += inv.quantity;
+      // 沒有股價的調整列：
+      // - 成本調整（用其他股票獲利攤平這檔虧損）：依股數比例攤到目前每一批的 adjCost，不動實際成本
+      // - 配股：新增一批零成本的股數
+      if (inv.quantity) g.lots.push({ qty: inv.quantity, cost: 0, adjCost: 0 });
+      if (inv.amount) {
+        const totalQty = g.lots.reduce((s, l) => s + l.qty, 0);
+        if (totalQty > 0) {
+          for (const l of g.lots) l.adjCost += inv.amount * (l.qty / totalQty);
+        } else {
+          g.pendingAdj += inv.amount; // 目前沒有持股，留到下一批買進再套用
+        }
       }
       continue;
     }
     if (!inv.quantity) continue;
-    if (!groups.has(key)) {
-      groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, cost: 0, book: 0 });
-    }
-    const g = groups.get(key)!;
+
     if (inv.action === "BUY") {
-      g.qty += inv.quantity;
-      g.cost += inv.quantity * inv.price;
-      g.book += inv.quantity * inv.price;
+      // 實際投入成本以帳上金額為準（含手續費、或使用者手動調帳的實際扣款），沒有金額才用股數×股價
+      const cost = inv.amount && inv.amount > 0 ? inv.amount : inv.quantity * inv.price;
+      g.lots.push({ qty: inv.quantity, cost, adjCost: cost + g.pendingAdj });
+      g.pendingAdj = 0;
     } else {
-      const avgCost = g.qty > 0 ? g.cost / g.qty : 0;
-      const avgBook = g.qty > 0 ? g.book / g.qty : 0;
-      const sellQty = Math.min(inv.quantity, g.qty);
-      g.qty -= sellQty;
-      g.cost -= avgCost * sellQty;
-      g.book -= avgBook * sellQty;
+      let remaining = inv.quantity;
+      let cost = 0;
+      let adjustedCost = 0;
+      while (remaining > 0.0001 && g.lots.length > 0) {
+        const lot = g.lots[0];
+        const take = Math.min(remaining, lot.qty);
+        const ratio = take / lot.qty;
+        cost += lot.cost * ratio;
+        adjustedCost += lot.adjCost * ratio;
+        lot.cost -= lot.cost * ratio;
+        lot.adjCost -= lot.adjCost * ratio;
+        lot.qty -= take;
+        remaining -= take;
+        if (lot.qty <= 0.0001) g.lots.shift();
+      }
+      // 賣出金額存成負數（賣出淨額）；沒有金額時用股數×股價估算
+      const proceeds = inv.amount ? Math.abs(inv.amount) : inv.quantity * inv.price;
+      if (inv.id) sales.set(inv.id, { proceeds, cost, pnl: proceeds - cost, adjustedCost, adjustedPnl: proceeds - adjustedCost });
     }
   }
 
-  return Array.from(groups.entries())
-    .filter(([, g]) => g.qty > 0.0001)
-    .map(([key, g]) => ({
-      key,
-      name: g.name,
-      code: g.code,
-      quantity: g.qty,
-      cost: g.cost,
-      avgPrice: g.cost / g.qty,
-      bookCost: g.book,
-    }));
+  const holdings = Array.from(groups.entries())
+    .map(([key, g]) => {
+      const quantity = g.lots.reduce((s, l) => s + l.qty, 0);
+      const cost = g.lots.reduce((s, l) => s + l.adjCost, 0);
+      const bookCost = g.lots.reduce((s, l) => s + l.cost, 0);
+      return { key, name: g.name, code: g.code, quantity, cost, avgPrice: quantity > 0 ? cost / quantity : 0, bookCost };
+    })
+    .filter((h) => h.quantity > 0.0001);
+
+  return { holdings, sales };
+}
+
+export function computeHoldings(investments: HoldingInput[]): Holding[] {
+  return computeStockLedger(investments).holdings;
 }

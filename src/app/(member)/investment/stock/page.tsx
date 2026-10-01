@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
-import { computeHoldings } from "@/lib/stock-holdings";
+import { computeStockLedger } from "@/lib/stock-holdings";
 import Combobox from "@/components/ui/Combobox";
 
 interface Investment {
@@ -123,7 +123,10 @@ export default function StockPage() {
 
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
-  const holdings = computeHoldings(investments);
+  // 先進先出：賣出從最早買進的那批開始扣，sales 是每筆賣出的成本與已實現損益
+  const { holdings, sales } = computeStockLedger(investments);
+  const realizedPnl = [...sales.values()].reduce((s, x) => s + x.pnl, 0);
+  const signedFmt = (n: number) => `${n > 0 ? "+" : ""}${fmt(n)}`;
   // 持股成本：目前仍持有部位的實際投入成本，跟資產總攬的股票投資同一個數字。
   // 不用買賣金額直接加總：賣出獲利/虧損會讓已出清的股票留下殘值，成本調整也會被算進去
   const netInvested = holdings.reduce((s, h) => s + h.bookCost, 0);
@@ -308,11 +311,16 @@ export default function StockPage() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">持股成本</div>
           <div className={`text-2xl font-bold mt-1 ${netInvested >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(netInvested)}</div>
           <div className="text-xs text-slate-400 mt-0.5">目前持股的實際投入成本</div>
+        </div>
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">已實現損益</div>
+          <div className={`text-2xl font-bold mt-1 ${realizedPnl >= 0 ? "text-red-500" : "text-emerald-600"}`}>{signedFmt(realizedPnl)}</div>
+          <div className="text-xs text-slate-400 mt-0.5">所有賣出累計（先進先出）</div>
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">買進筆數</div>
@@ -396,6 +404,23 @@ export default function StockPage() {
                       {inv.note ? ` · ${inv.note}` : ""}
                       {inv.transactionId && <span className="ml-1 text-indigo-400">· 已連結支出</span>}
                     </div>
+                    {(() => {
+                      const sale = sales.get(inv.id);
+                      if (!sale) return null;
+                      const adjusted = Math.abs(sale.adjustedPnl - sale.pnl) >= 1;
+                      return (
+                        <div className="text-xs mt-0.5 text-slate-500">
+                          成本 {fmt(sale.cost)} · 損益{" "}
+                          <span className={`font-semibold ${sale.pnl >= 0 ? "text-red-500" : "text-emerald-600"}`}>{signedFmt(sale.pnl)}</span>
+                          {adjusted && (
+                            <>
+                              {" "}· 攤平後{" "}
+                              <span className={`font-semibold ${sale.adjustedPnl >= 0 ? "text-red-500" : "text-emerald-600"}`}>{signedFmt(sale.adjustedPnl)}</span>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
