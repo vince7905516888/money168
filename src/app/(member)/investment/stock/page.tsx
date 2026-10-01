@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
-import { computeStockLedger } from "@/lib/stock-holdings";
+import { computeStockLedger, type SaleResult } from "@/lib/stock-holdings";
 import Combobox from "@/components/ui/Combobox";
 
 interface Investment {
@@ -130,6 +130,27 @@ export default function StockPage() {
   const { holdings, sales } = computeStockLedger(investments);
   const realizedPnl = [...sales.values()].reduce((s, x) => s + x.pnl, 0);
   const signedFmt = (n: number) => `${n > 0 ? "+" : ""}${fmt(n)}`;
+  // 已實現損益明細：依股票分組，每次賣出列出當次股數、賣價與先進先出扣掉的成本
+  const realizedGroups = (() => {
+    const map = new Map<string, { key: string; name: string; code: string; qty: number; pnl: number; adjustedPnl: number; rows: { inv: Investment; sale: SaleResult }[] }>();
+    for (const inv of investments) {
+      const sale = sales.get(inv.id);
+      if (!sale) continue;
+      const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
+      if (!map.has(key)) map.set(key, { key, name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, pnl: 0, adjustedPnl: 0, rows: [] });
+      const g = map.get(key)!;
+      g.qty += inv.quantity ?? 0;
+      g.pnl += sale.pnl;
+      g.adjustedPnl += sale.adjustedPnl;
+      g.rows.push({ inv, sale });
+    }
+    const time = (i: Investment) => new Date(i.date ?? i.createdAt).getTime();
+    const groups = [...map.values()];
+    for (const g of groups) g.rows.sort((a, b) => time(b.inv) - time(a.inv));
+    // 最近有賣出的股票排在前面
+    return groups.sort((a, b) => time(b.rows[0].inv) - time(a.rows[0].inv));
+  })();
+  const pnlColor = (n: number) => (n >= 0 ? "text-red-500" : "text-emerald-600");
   // 持股成本：目前仍持有部位的實際投入成本，跟資產總攬的股票投資同一個數字。
   // 不用買賣金額直接加總：賣出獲利/虧損會讓已出清的股票留下殘值，成本調整也會被算進去
   const netInvested = holdings.reduce((s, h) => s + h.bookCost, 0);
@@ -374,6 +395,63 @@ export default function StockPage() {
           </div>
         )}
       </div>
+
+      {/* 已實現損益明細 */}
+      {realizedGroups.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
+          <div className="px-6 py-4 border-b border-slate-50">
+            <h2 className="font-semibold text-slate-900">已實現損益明細</h2>
+            <p className="text-xs text-slate-400 mt-0.5">每次賣出依先進先出扣除最早買進的批次計算成本</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm whitespace-nowrap">
+              <thead>
+                <tr className="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-50">
+                  <th className="text-left font-semibold px-6 py-3">日期</th>
+                  <th className="text-right font-semibold px-4 py-3">賣出股數</th>
+                  <th className="text-right font-semibold px-4 py-3">賣價</th>
+                  <th className="text-right font-semibold px-4 py-3">成本均價</th>
+                  <th className="text-right font-semibold px-4 py-3">賣出淨額</th>
+                  <th className="text-right font-semibold px-4 py-3">成本</th>
+                  <th className="text-right font-semibold px-4 py-3">損益</th>
+                  <th className="text-right font-semibold px-6 py-3">攤平後損益</th>
+                </tr>
+              </thead>
+              {realizedGroups.map((g) => (
+                <tbody key={g.key} className="border-b border-slate-100 last:border-b-0">
+                  <tr className="bg-slate-50">
+                    <td className="px-6 py-2.5 font-semibold text-slate-800">
+                      {g.name}
+                      <span className="ml-2 text-xs text-slate-400 font-mono bg-white px-1.5 py-0.5 rounded">{g.code}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-semibold text-slate-700">{g.qty.toLocaleString("zh-TW")}</td>
+                    <td colSpan={4} />
+                    <td className={`px-4 py-2.5 text-right font-bold ${pnlColor(g.pnl)}`}>{signedFmt(g.pnl)}</td>
+                    <td className={`px-6 py-2.5 text-right font-bold ${pnlColor(g.adjustedPnl)}`}>{signedFmt(g.adjustedPnl)}</td>
+                  </tr>
+                  {g.rows.map(({ inv, sale }) => {
+                    const qty = inv.quantity ?? 0;
+                    return (
+                      <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-2.5 text-slate-500">{new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{qty.toLocaleString("zh-TW")}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{inv.price ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{qty > 0 ? (sale.cost / qty).toFixed(2) : "—"}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{fmt(sale.proceeds)}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{fmt(sale.cost)}</td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${pnlColor(sale.pnl)}`}>{signedFmt(sale.pnl)}</td>
+                        <td className={`px-6 py-2.5 text-right ${Math.abs(sale.adjustedPnl - sale.pnl) >= 1 ? `font-semibold ${pnlColor(sale.adjustedPnl)}` : "text-slate-300"}`}>
+                          {Math.abs(sale.adjustedPnl - sale.pnl) >= 1 ? signedFmt(sale.adjustedPnl) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              ))}
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
