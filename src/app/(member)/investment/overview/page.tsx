@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
-import { computeHoldings } from "@/lib/stock-holdings";
+import { computeHoldings, remainingCostByAmount } from "@/lib/stock-holdings";
 
 type InvestmentType = "STOCK" | "USSTOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD" | "REALESTATE" | "INSURANCE";
 
@@ -104,37 +104,6 @@ export default function InvestmentOverviewPage() {
 
   const byType = (t: InvestmentType) => investments.filter((i) => i.type === t);
   const sumAmount = (list: Investment[]) => list.reduce((s, i) => s + i.amount, 0);
-
-  // 目前持有部位的投入成本（移動平均成本法，依實際入帳金額 amount 計算，不重算 quantity×price）：
-  // 跟股票/美股用的 computeHoldings（src/lib/stock-holdings.ts）同樣邏輯，但改用 amount 而非
-  // 重新用單價×數量推算成本。虛擬貨幣頁的單價欄位可能跟實際入帳金額對不上（有「實際金額」覆蓋
-  // 輸入框，也有把 USDT 當中介幣拿去買美股等用法，quantity×price 不一定等於 amount），
-  // 若沿用 computeHoldings 重算成本，一筆單價填錯或不一致的紀錄就會讓總額嚴重失真；
-  // 直接用帳上金額才能保證買了多少算多少、賣出只按比例扣掉平均成本，出清後成本歸零。
-  const remainingCostByAmount = (list: Investment[]) => {
-    const groups = new Map<string, { qty: number; cost: number }>();
-    const sorted = [...list].sort((a, b) => new Date(a.date ?? a.createdAt).getTime() - new Date(b.date ?? b.createdAt).getTime());
-    for (const inv of sorted) {
-      const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
-      if (!groups.has(key)) groups.set(key, { qty: 0, cost: 0 });
-      const g = groups.get(key)!;
-      if (!inv.quantity) {
-        // 沒有數量異動的純成本調整列，直接加減成本
-        g.cost += inv.amount;
-        continue;
-      }
-      if (inv.action === "SELL") {
-        const avgCost = g.qty > 0 ? g.cost / g.qty : 0;
-        const sellQty = Math.min(inv.quantity, g.qty);
-        g.cost -= avgCost * sellQty;
-        g.qty -= sellQty;
-      } else {
-        g.qty += inv.quantity;
-        g.cost += inv.amount;
-      }
-    }
-    return Array.from(groups.values()).filter((g) => g.qty > 0.0001).reduce((s, g) => s + g.cost, 0);
-  };
 
   // 外匯各幣別「目前餘額」（時序，含息）：加總所有外匯記錄的外幣數量，等同外匯投資頁的餘額
   const forexInvestments = byType("FOREX");

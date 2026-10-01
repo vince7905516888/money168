@@ -109,3 +109,33 @@ export function computeStockLedger(investments: HoldingInput[]): { holdings: Hol
 export function computeHoldings(investments: HoldingInput[]): Holding[] {
   return computeStockLedger(investments).holdings;
 }
+
+// 目前持有部位的投入成本（移動平均成本法，依實際入帳金額 amount 計算，不重算 quantity×price）：
+// 虛擬貨幣、黃金頁的單價欄位可能跟實際入帳金額對不上（有「實際金額」覆蓋輸入，也有把 USDT 當中介幣
+// 拿去買美股等用法），若用單價重算成本，一筆單價填錯或不一致的紀錄就會讓總額嚴重失真；
+// 直接用帳上金額才能保證買了多少算多少、賣出只按比例扣掉平均成本，出清後成本歸零。
+// 前台資產總攬與後台全站統計共用，兩邊數字才會對得起來。
+export function remainingCostByAmount(list: { code?: string | null; name?: string | null; quantity?: number | null; amount: number; action?: "BUY" | "SELL" | null; date?: string | Date | null; createdAt: string | Date }[]): number {
+  const groups = new Map<string, { qty: number; cost: number }>();
+  const sorted = [...list].sort((a, b) => new Date(a.date ?? a.createdAt).getTime() - new Date(b.date ?? b.createdAt).getTime());
+  for (const inv of sorted) {
+    const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
+    if (!groups.has(key)) groups.set(key, { qty: 0, cost: 0 });
+    const g = groups.get(key)!;
+    if (!inv.quantity) {
+      // 沒有數量異動的純成本調整列，直接加減成本
+      g.cost += inv.amount;
+      continue;
+    }
+    if (inv.action === "SELL") {
+      const avgCost = g.qty > 0 ? g.cost / g.qty : 0;
+      const sellQty = Math.min(inv.quantity, g.qty);
+      g.cost -= avgCost * sellQty;
+      g.qty -= sellQty;
+    } else {
+      g.qty += inv.quantity;
+      g.cost += inv.amount;
+    }
+  }
+  return Array.from(groups.values()).filter((g) => g.qty > 0.0001).reduce((s, g) => s + g.cost, 0);
+}

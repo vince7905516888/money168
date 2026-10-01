@@ -2,11 +2,13 @@
 // 完全一樣的公式，抽出來讓後台總覽可以逐一算出每個會員的數字再加總成「站結」全站數字，
 // 兩邊才會對得起來。修改任一邊的公式時記得另一邊也要跟著改。
 import { prisma } from "@/lib/prisma";
+import { computeHoldings, remainingCostByAmount } from "@/lib/stock-holdings";
 
 export interface UserAssetSummary {
   cashBalance: number;
   bankTotal: number;
   stockTotal: number;
+  usstockTwdTotal: number;
   fundTwdTotal: number;
   forexTwdTotal: number;
   cryptoTotal: number;
@@ -111,9 +113,21 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
   }
   const bankTotal = Object.values(bankMap).reduce((s, d) => s + d.income + d.transferIn - d.expense - d.transferOut, 0);
 
-  const stockTotal = sumAmount(byType("STOCK"));
-  const cryptoTotal = sumAmount(byType("CRYPTO"));
-  const goldTotal = sumAmount(byType("GOLD"));
+  // 股票、美股、虛擬貨幣、黃金：目前仍持有部位的投入成本，跟前台資產總攬同一套算法
+  // （不用買賣金額直接加總，否則賣出獲利/虧損會讓已出清的標的留下殘值，成本調整也會被算進去）
+  const toHoldingInput = (list: typeof investments) => list.map((i) => ({ ...i, action: i.action ?? "BUY", date: i.date ?? i.createdAt }));
+  const stockTotal = computeHoldings(toHoldingInput(byType("STOCK"))).reduce((s, h) => s + h.bookCost, 0);
+  const cryptoTotal = remainingCostByAmount(byType("CRYPTO"));
+  const goldTotal = remainingCostByAmount(byType("GOLD"));
+
+  // 美股：各幣別持有成本，非TWD用已儲存匯率換算
+  const usstockInvestments = byType("USSTOCK");
+  let usstockTwdTotal = 0;
+  for (const cur of new Set(usstockInvestments.map((i) => i.currency || "USD"))) {
+    const cost = computeHoldings(toHoldingInput(usstockInvestments.filter((i) => (i.currency || "USD") === cur)))
+      .reduce((s, h) => s + h.bookCost, 0);
+    usstockTwdTotal += cur === "TWD" ? cost : cost * (savedRateMap.get(cur) ?? 0);
+  }
   const realestateTotal = sumAmount(byType("REALESTATE"));
   const insuranceTotal = sumAmount(byType("INSURANCE"));
 
@@ -147,13 +161,14 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
   const debtTotal = debts.reduce((s, d) => s + d.amount, 0);
 
   const positiveAssetsTotal =
-    cashBalance + bankTotal + stockTotal + fundTwdTotal + forexTwdTotal + cryptoTotal + goldTotal + realestateTotal + insuranceTotal;
+    cashBalance + bankTotal + stockTotal + usstockTwdTotal + fundTwdTotal + forexTwdTotal + cryptoTotal + goldTotal + realestateTotal + insuranceTotal;
   const netWorth = positiveAssetsTotal - debtTotal;
 
   return {
     cashBalance,
     bankTotal,
     stockTotal,
+    usstockTwdTotal,
     fundTwdTotal,
     forexTwdTotal,
     cryptoTotal,
@@ -171,6 +186,7 @@ export function emptyAssetSummary(): UserAssetSummary {
     cashBalance: 0,
     bankTotal: 0,
     stockTotal: 0,
+    usstockTwdTotal: 0,
     fundTwdTotal: 0,
     forexTwdTotal: 0,
     cryptoTotal: 0,
@@ -188,6 +204,7 @@ export function sumAssetSummaries(list: UserAssetSummary[]): UserAssetSummary {
     cashBalance: acc.cashBalance + s.cashBalance,
     bankTotal: acc.bankTotal + s.bankTotal,
     stockTotal: acc.stockTotal + s.stockTotal,
+    usstockTwdTotal: acc.usstockTwdTotal + s.usstockTwdTotal,
     fundTwdTotal: acc.fundTwdTotal + s.fundTwdTotal,
     forexTwdTotal: acc.forexTwdTotal + s.forexTwdTotal,
     cryptoTotal: acc.cryptoTotal + s.cryptoTotal,
