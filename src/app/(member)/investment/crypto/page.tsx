@@ -99,6 +99,7 @@ export default function CryptoPage() {
   const [addSaving, setAddSaving] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("DATE_DESC");
   const [page, setPage] = useState(1);
+  const [holdingsOpen, setHoldingsOpen] = useState(false);
   // 即時台幣價格（key 為大寫代碼），每次進入頁面重新抓取
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [pricesAt, setPricesAt] = useState<string | null>(null);
@@ -676,13 +677,23 @@ export default function CryptoPage() {
 
       {/* 持有狀況 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50">
-          <h2 className="font-semibold text-slate-900">持有狀況</h2>
-          <span className="text-[11px] text-slate-400">
-            {pricesFailed ? "即時價格暫時抓不到" : pricesAt ? `價格更新於 ${new Date(pricesAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}` : "價格更新中…"}
-          </span>
-        </div>
-        {holdings.length === 0 ? (
+        <button type="button" onClick={() => setHoldingsOpen((o) => !o)} aria-expanded={holdingsOpen}
+          className={`w-full flex items-center justify-between gap-3 px-6 py-4 text-left hover:bg-slate-50 transition-colors ${holdingsOpen ? "border-b border-slate-50" : ""}`}>
+          <div>
+            <h2 className="font-semibold text-slate-900">持有狀況</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {pricesFailed ? "即時價格暫時抓不到" : pricesAt ? `價格更新於 ${new Date(pricesAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}` : "價格更新中…"}
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0 text-right">
+            <div>
+              <div className="text-sm font-bold text-slate-900">市值 {fmt(marketTotal + (suspenseMarket ?? 0))}</div>
+              <div className="text-[11px] text-slate-400">成本 {fmt(netInvested)}</div>
+            </div>
+            <span className="text-xs text-indigo-600 font-medium">{holdingsOpen ? "收合 ▲" : "展開 ▼"}</span>
+          </div>
+        </button>
+        {!holdingsOpen ? null : holdings.length === 0 ? (
           <div className="py-10 text-center text-slate-400 text-sm">目前沒有持有虛擬貨幣</div>
         ) : (
           <div className="overflow-x-auto">
