@@ -324,10 +324,13 @@ export default function CryptoPage() {
       return;
     }
 
-    if (quantity <= 0 || price <= 0) {
-      alert("請填寫數量與單價");
+    // 單價與總金額擇一填寫：只填總金額時，單價用總金額 ÷ 數量回推
+    const hasTotal = addForm.override !== "" && subtotal > 0;
+    if (quantity <= 0 || (price <= 0 && !hasTotal)) {
+      alert("請填寫數量，以及單價或總金額其中一項");
       return;
     }
+    const unitPrice = price > 0 ? price : subtotal / quantity;
 
     if (quote === "USDT") {
       // USDT 計價：subtotal 是 USDT 數量，依 USDT 平均成本換算台幣成本，並自動扣除／加回 USDT 持有
@@ -344,7 +347,7 @@ export default function CryptoPage() {
         return;
       }
       const twd = subtotal * usdtUnitCost;
-      const usdtNote = `USDT 計價：${fmtQty(quantity)} × ${price} USDT${fee ? `，手續費 ${fee} USDT` : ""}，共 ${fmtQty(Math.round(subtotal * 1e6) / 1e6)} USDT（@${fmt2(usdtUnitCost)}）`;
+      const usdtNote = `USDT 計價：${price > 0 ? `${fmtQty(quantity)} × ${price} USDT` : `${fmtQty(quantity)} 顆`}${fee ? `，手續費 ${fee} USDT` : ""}，共 ${fmtQty(Math.round(subtotal * 1e6) / 1e6)} USDT（@${fmt2(usdtUnitCost)}）`;
       setAddSaving(true);
       const res = await postInvestment({
         name: addForm.name || tradeCode, code: tradeCode, date: addForm.date, action: addForm.action, broker: addForm.broker,
@@ -383,7 +386,7 @@ export default function CryptoPage() {
         action: addForm.action,
         broker: addForm.broker,
         quantity: addForm.quantity,
-        price: addForm.price,
+        price: unitPrice,
         fee: addForm.fee || undefined,
         amount: addForm.action === "SELL" ? -subtotal : subtotal,
         note: addForm.note,
@@ -974,7 +977,7 @@ export default function CryptoPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">單價（{quote === "USDT" ? "USDT" : "台幣"}）</label>
-                  <input required type="number" min="0" step="any" value={addForm.price}
+                  <input type="number" min="0" step="any" value={addForm.price}
                     onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder={quote === "USDT" ? "例如：65000" : "例如：2000000"}
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
@@ -994,12 +997,12 @@ export default function CryptoPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">實際金額（選填）</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">總金額（選填，{quote === "USDT" ? "USDT" : "台幣"}）</label>
                 <input type="number" min="0" step="any" value={addForm.override}
                   onChange={(e) => setAddForm({ ...addForm, override: e.target.value })}
                   placeholder={`試算為 ${fmtQuote(calcSubtotal)}，如與交易所實際金額不同可在此輸入覆蓋`}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                <p className="text-[11px] text-slate-400 mt-1">留空則採用下方自動試算的小計；填寫後將以此金額為準</p>
+                <p className="text-[11px] text-slate-400 mt-1">單價和總金額填一個就好：只填總金額時單價自動回推；兩個都填則以總金額為準</p>
               </div>
 
               {/* 試算小計 */}
