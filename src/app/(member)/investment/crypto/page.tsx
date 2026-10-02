@@ -981,9 +981,9 @@ export default function CryptoPage() {
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">單價（{quote === "USDT" ? "USDT" : "台幣"}）</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">單價（選填，{quote === "USDT" ? "USDT" : "台幣"}）</label>
                   <input type="number" min="0" step="any" value={addForm.price}
-                    onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder={autoPrice > 0 ? `留空用平均成本 ${fmt2(autoPrice)}` : quote === "USDT" ? "例如：65000" : "例如：2000000"}
+                    onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder={autoPrice > 0 ? `留空用平均成本 ${fmt2(autoPrice)}` : "留空用平均成本"}
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
               </div>
