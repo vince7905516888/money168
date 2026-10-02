@@ -22,16 +22,22 @@ interface Investment {
   createdAt: string;
 }
 
-// 暫計帳：只做備查（例如自動交易軟體的購買成本），銀行端已記過支出，不影響任何資產計算
+// 暫計帳：用持有的 USDT 支付的項目（例如自動交易軟體），新增時自動扣除持有數量，賺回後可回補
 interface SuspenseEntry {
   id: string;
   name: string;
-  amount: number;
+  code: string;
+  quantity: number;
+  unitCost: number;
   date: string;
   note?: string | null;
+  deductInvestmentId?: string | null;
+  reversedAt?: string | null;
+  reverseInvestmentId?: string | null;
 }
 
-const EMPTY_SUSPENSE_FORM = { name: "", amount: "", date: "", note: "" };
+const SUSPENSE_CODE = "USDT";
+const EMPTY_SUSPENSE_FORM = { name: "", quantity: "", date: "", note: "" };
 
 interface UserExchange {
   id: string;
@@ -167,8 +173,14 @@ export default function CryptoPage() {
   const twdBalance = holdings.find((h) => h.code === TWD_CODE)?.quantity ?? 0;
   // 台幣餘額校正記錄（備註以 TWD_CALIBRATE_NOTE 開頭）
   const TWD_CALIBRATE_NOTE = "台幣餘額校正";
+  // 暫計帳自動產生的扣除／回補記錄：只能從暫計帳操作，投資記錄裡不提供編輯／刪除
+  const suspenseDeductIds = new Set(suspenseEntries.map((e) => e.deductInvestmentId).filter(Boolean));
+  const suspenseReverseIds = new Set(suspenseEntries.map((e) => e.reverseInvestmentId).filter(Boolean));
+  const isSuspenseRecord = (i: Investment) => suspenseDeductIds.has(i.id) || suspenseReverseIds.has(i.id);
   const recordLabel = (i: Investment) =>
-    isTwd(i) && i.note?.startsWith(TWD_CALIBRATE_NOTE) ? { text: "台幣調帳", cls: "bg-violet-100 text-violet-700" }
+    suspenseDeductIds.has(i.id) ? { text: "暫計帳扣除", cls: "bg-violet-100 text-violet-700" }
+    : suspenseReverseIds.has(i.id) ? { text: "暫計帳回補", cls: "bg-violet-100 text-violet-700" }
+    : isTwd(i) && i.note?.startsWith(TWD_CALIBRATE_NOTE) ? { text: "台幣調帳", cls: "bg-violet-100 text-violet-700" }
     : isTwd(i) ? (i.action === "BUY" ? { text: "台幣入帳", cls: "bg-sky-100 text-sky-700" } : { text: "台幣扣款", cls: "bg-slate-200 text-slate-600" })
     : isDividend(i) ? { text: "配息", cls: "bg-amber-100 text-amber-700" }
     : i.action === "BUY" ? { text: "買進", cls: "bg-emerald-100 text-emerald-700" }
@@ -383,13 +395,33 @@ export default function CryptoPage() {
     fetchAll();
   };
 
-  const suspenseTotal = suspenseEntries.reduce((s, e) => s + e.amount, 0);
+  // 尚未回補（目前從持有中扣住）的暫計帳數量
+  const suspenseOpenQty = suspenseEntries.filter((e) => !e.reversedAt).reduce((s, e) => s + e.quantity, 0);
+  const suspenseHeld = holdings.find((h) => h.code === SUSPENSE_CODE)?.quantity ?? 0;
 
   const openSuspense = (entry: SuspenseEntry | null) => {
     setSuspenseForm(entry
-      ? { name: entry.name, amount: String(entry.amount), date: entry.date.split("T")[0], note: entry.note ?? "" }
+      ? { name: entry.name, quantity: String(entry.quantity), date: entry.date.split("T")[0], note: entry.note ?? "" }
       : { ...EMPTY_SUSPENSE_FORM, date: new Date().toLocaleDateString("sv-SE") });
     setSuspenseModal({ editing: entry });
+  };
+
+  const handleReverseSuspense = async (entry: SuspenseEntry, undo: boolean) => {
+    const msg = undo
+      ? `確定要取消「${entry.name}」的回補？${fmtQty(entry.quantity)} ${entry.code} 會重新從持有中扣除`
+      : `確定「${entry.name}」已經賺回？會把 ${fmtQty(entry.quantity)} ${entry.code} 加回持有`;
+    if (!confirm(msg)) return;
+    const res = await authFetch(`/api/suspense-entries/${entry.id}/reverse`, {
+      method: undo ? "DELETE" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: undo ? undefined : JSON.stringify({ date: new Date().toLocaleDateString("sv-SE") }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "操作失敗，請稍後再試");
+      return;
+    }
+    fetchAll();
   };
 
   const handleSaveSuspense = async (e: React.FormEvent) => {
@@ -413,7 +445,7 @@ export default function CryptoPage() {
   };
 
   const handleDeleteSuspense = async (id: string) => {
-    if (!confirm("確定要刪除這筆暫計帳？")) return;
+    if (!confirm("確定要刪除這筆暫計帳？自動產生的扣除／回補記錄會一起刪除，持有數量恢復成沒有這筆暫計帳的狀態")) return;
     await authFetch(`/api/suspense-entries/${id}`, { method: "DELETE" });
     fetchAll();
   };
@@ -506,10 +538,12 @@ export default function CryptoPage() {
         <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50">
           <div>
             <h2 className="font-semibold text-slate-900">暫計帳</h2>
-            <p className="text-xs text-slate-400 mt-0.5">備查用（例如自動交易軟體成本），不計入資產</p>
+            <p className="text-xs text-slate-400 mt-0.5">用 USDT 支付的項目（例如自動交易軟體），新增時從持有扣除，賺回後可回補</p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {suspenseEntries.length > 0 && <span className="text-sm font-bold text-slate-900">{fmt(suspenseTotal)}</span>}
+            {suspenseOpenQty > 0 && (
+              <span className="text-sm font-bold text-violet-700" title="尚未回補">待賺回 {fmtQty(suspenseOpenQty)} {SUSPENSE_CODE}</span>
+            )}
             <button type="button" onClick={() => openSuspense(null)}
               className="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1.5 hover:bg-indigo-50 transition-colors">
               + 新增
@@ -521,16 +555,28 @@ export default function CryptoPage() {
         ) : (
           <div className="divide-y divide-slate-50">
             {suspenseEntries.map((en) => (
-              <div key={en.id} className="flex items-center justify-between px-6 py-3.5 hover:bg-slate-50 transition-colors group">
+              <div key={en.id} className="flex items-center justify-between gap-3 px-6 py-3.5 hover:bg-slate-50 transition-colors group">
                 <div>
-                  <div className="text-sm font-medium text-slate-800">{en.name}</div>
+                  <div className="text-sm font-medium text-slate-800">
+                    {en.name}
+                    <span className={`ml-2 text-[11px] font-semibold px-2 py-0.5 rounded-full ${en.reversedAt ? "bg-emerald-100 text-emerald-700" : "bg-violet-100 text-violet-700"}`}>
+                      {en.reversedAt ? `已回補 ${new Date(en.reversedAt).toLocaleDateString("zh-TW")}` : "待賺回"}
+                    </span>
+                  </div>
                   <div className="text-xs text-slate-400 mt-0.5">
                     {new Date(en.date).toLocaleDateString("zh-TW")}
+                    {` · 成本 ${fmt(en.quantity * en.unitCost)}（@${fmt2(en.unitCost)}）`}
                     {en.note ? ` · ${en.note}` : ""}
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-semibold text-slate-700">{fmt(en.amount)}</span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-sm font-semibold text-slate-700 font-mono">{fmtQty(en.quantity)} {en.code}</span>
+                  <button type="button" onClick={() => handleReverseSuspense(en, !!en.reversedAt)}
+                    className={`text-xs font-semibold rounded-lg px-2.5 py-1.5 border transition-colors ${
+                      en.reversedAt ? "text-slate-500 border-slate-200 hover:bg-slate-50" : "text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                    }`}>
+                    {en.reversedAt ? "取消回補" : "回補"}
+                  </button>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => openSuspense(en)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
                     <button onClick={() => handleDeleteSuspense(en.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
@@ -555,10 +601,14 @@ export default function CryptoPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">金額（台幣）</label>
-                  <input required type="number" step="any" value={suspenseForm.amount}
-                    onChange={(e) => setSuspenseForm({ ...suspenseForm, amount: e.target.value })} placeholder="例如：30000"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">數量（{SUSPENSE_CODE}）</label>
+                  <input required type="number" min="0" step="any" value={suspenseForm.quantity}
+                    disabled={!!suspenseModal.editing}
+                    onChange={(e) => setSuspenseForm({ ...suspenseForm, quantity: e.target.value })} placeholder="例如：500"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors disabled:bg-slate-50 disabled:text-slate-400" />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {suspenseModal.editing ? "數量不能修改，要改請刪除後重新新增" : `目前持有 ${fmtQty(suspenseHeld)} ${SUSPENSE_CODE}`}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">日期</label>
@@ -631,10 +681,14 @@ export default function CryptoPage() {
                   <span className={`text-sm font-semibold ${inv.amount >= 0 ? "text-slate-700" : "text-red-500"}`}>
                     {fmt(Math.abs(inv.amount))}
                   </span>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openEdit(inv)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
-                    <button onClick={() => handleDelete(inv.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
-                  </div>
+                  {isSuspenseRecord(inv) ? (
+                    <span className="text-[11px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">由暫計帳管理</span>
+                  ) : (
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => openEdit(inv)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
+                      <button onClick={() => handleDelete(inv.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

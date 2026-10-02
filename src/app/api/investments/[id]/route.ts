@@ -3,6 +3,15 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logMemberActivity } from "@/lib/activity-log";
 
+// 暫計帳自動產生的扣除／回補記錄不能單獨編輯或刪除，否則暫計帳與持有數量會對不上
+async function isSuspenseLinked(investmentId: string) {
+  const linked = await prisma.suspenseEntry.findFirst({
+    where: { OR: [{ deductInvestmentId: investmentId }, { reverseInvestmentId: investmentId }] },
+    select: { id: true },
+  });
+  return !!linked;
+}
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -17,6 +26,9 @@ export async function PUT(
     where: { id, userId: session.user.id },
   });
   if (!existing) return NextResponse.json({ error: "找不到記錄" }, { status: 404 });
+  if (await isSuspenseLinked(id)) {
+    return NextResponse.json({ error: "這筆是暫計帳自動產生的記錄，請到「暫計帳」編輯或刪除" }, { status: 400 });
+  }
 
   const updated = await prisma.investment.update({
     where: { id },
@@ -61,6 +73,9 @@ export async function DELETE(
     where: { id, userId: session.user.id },
   });
   if (!existing) return NextResponse.json({ error: "找不到記錄" }, { status: 404 });
+  if (await isSuspenseLinked(id)) {
+    return NextResponse.json({ error: "這筆是暫計帳自動產生的記錄，請到「暫計帳」編輯或刪除" }, { status: 400 });
+  }
 
   await prisma.investment.delete({ where: { id } });
 

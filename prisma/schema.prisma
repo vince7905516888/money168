@@ -114,17 +114,24 @@ model UserExchangeRate {
   @@unique([userId, currency])
 }
 
-// 暫計帳：只做備查的項目（例如購買自動交易軟體的成本），銀行端已經記過支出，不影響任何資產計算
+// 暫計帳：用持有的虛擬貨幣（預設 USDT）支付的項目，例如購買自動交易軟體。
+// 新增時在虛擬貨幣記錄補一筆扣除（deductInvestmentId），賺回後可回補（reverseInvestmentId），
+// 扣除／回補都是一般的 Investment 記錄，持有數量與資產計算自然跟著變動
 model SuspenseEntry {
-  id        String   @id @default(cuid())
-  name      String
-  amount    Float
-  date      DateTime @default(now())
-  note      String?
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String    @id @default(cuid())
+  name                String
+  code                String    @default("USDT")
+  quantity            Float
+  unitCost            Float // 扣除當下的每顆平均成本（台幣），回補時用同一個成本加回
+  date                DateTime  @default(now())
+  note                String?
+  deductInvestmentId  String?
+  reversedAt          DateTime?
+  reverseInvestmentId String?
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }
 
 model Debt {
