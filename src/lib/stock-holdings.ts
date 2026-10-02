@@ -54,7 +54,22 @@ export function computeStockLedger(investments: HoldingInput[]): { holdings: Hol
       // 沒有股價的調整列：
       // - 成本調整（用其他股票獲利攤平這檔虧損）：依股數比例攤到目前每一批的 adjCost，不動實際成本
       // - 配股：新增一批零成本的股數
-      if (inv.quantity) g.lots.push({ qty: inv.quantity, cost: 0, adjCost: 0 });
+      if (inv.quantity && inv.action === "SELL") {
+        // 沒有單價的減少數量（例如虛擬貨幣調帳調少零成本的幣）：先進先出扣掉股數與對應成本
+        let remaining = inv.quantity;
+        while (remaining > 0.0001 && g.lots.length > 0) {
+          const lot = g.lots[0];
+          const take = Math.min(remaining, lot.qty);
+          const ratio = take / lot.qty;
+          lot.cost -= lot.cost * ratio;
+          lot.adjCost -= lot.adjCost * ratio;
+          lot.qty -= take;
+          remaining -= take;
+          if (lot.qty <= 0.0001) g.lots.shift();
+        }
+      } else if (inv.quantity) {
+        g.lots.push({ qty: inv.quantity, cost: 0, adjCost: 0 });
+      }
       if (inv.amount) {
         const totalQty = g.lots.reduce((s, l) => s + l.qty, 0);
         if (totalQty > 0) {
