@@ -22,6 +22,17 @@ interface Investment {
   createdAt: string;
 }
 
+// 暫計帳：只做備查（例如自動交易軟體的購買成本），銀行端已記過支出，不影響任何資產計算
+interface SuspenseEntry {
+  id: string;
+  name: string;
+  amount: number;
+  date: string;
+  note?: string | null;
+}
+
+const EMPTY_SUSPENSE_FORM = { name: "", amount: "", date: "", note: "" };
+
 interface UserExchange {
   id: string;
   name: string;
@@ -73,6 +84,11 @@ export default function CryptoPage() {
   const [addSaving, setAddSaving] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("DATE_DESC");
 
+  const [suspenseEntries, setSuspenseEntries] = useState<SuspenseEntry[]>([]);
+  const [suspenseModal, setSuspenseModal] = useState<{ editing: SuspenseEntry | null } | null>(null);
+  const [suspenseForm, setSuspenseForm] = useState(EMPTY_SUSPENSE_FORM);
+  const [suspenseSaving, setSuspenseSaving] = useState(false);
+
   const [editing, setEditing] = useState<Investment | null>(null);
   const [editForm, setEditForm] = useState({ name: "", code: "", date: "", action: "BUY" as "BUY" | "SELL", broker: "", quantity: "", amount: "", note: "" });
   const [saving, setSaving] = useState(false);
@@ -84,12 +100,14 @@ export default function CryptoPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, exchangeRes] = await Promise.all([
+    const [invRes, exchangeRes, suspenseRes] = await Promise.all([
       fetch("/api/investments?type=CRYPTO"),
       fetch("/api/user-exchanges"),
+      fetch("/api/suspense-entries"),
     ]);
-    const [invData, exchangeData] = await Promise.all([invRes.json(), exchangeRes.json()]);
+    const [invData, exchangeData, suspenseData] = await Promise.all([invRes.json(), exchangeRes.json(), suspenseRes.json()]);
     setInvestments(Array.isArray(invData) ? invData : []);
+    setSuspenseEntries(Array.isArray(suspenseData) ? suspenseData : []);
     setUserExchanges(Array.isArray(exchangeData) ? exchangeData : []);
     setLoading(false);
   }, []);
@@ -365,6 +383,41 @@ export default function CryptoPage() {
     fetchAll();
   };
 
+  const suspenseTotal = suspenseEntries.reduce((s, e) => s + e.amount, 0);
+
+  const openSuspense = (entry: SuspenseEntry | null) => {
+    setSuspenseForm(entry
+      ? { name: entry.name, amount: String(entry.amount), date: entry.date.split("T")[0], note: entry.note ?? "" }
+      : { ...EMPTY_SUSPENSE_FORM, date: new Date().toLocaleDateString("sv-SE") });
+    setSuspenseModal({ editing: entry });
+  };
+
+  const handleSaveSuspense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!suspenseModal) return;
+    setSuspenseSaving(true);
+    const editing = suspenseModal.editing;
+    const res = await authFetch(editing ? `/api/suspense-entries/${editing.id}` : "/api/suspense-entries", {
+      method: editing ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(suspenseForm),
+    });
+    setSuspenseSaving(false);
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "儲存失敗，請稍後再試");
+      return;
+    }
+    setSuspenseModal(null);
+    fetchAll();
+  };
+
+  const handleDeleteSuspense = async (id: string) => {
+    if (!confirm("確定要刪除這筆暫計帳？")) return;
+    await authFetch(`/api/suspense-entries/${id}`, { method: "DELETE" });
+    fetchAll();
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆投資記錄？")) return;
     await authFetch(`/api/investments/${id}`, { method: "DELETE" });
@@ -447,6 +500,92 @@ export default function CryptoPage() {
           </div>
         )}
       </div>
+
+      {/* 暫計帳 */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50">
+          <div>
+            <h2 className="font-semibold text-slate-900">暫計帳</h2>
+            <p className="text-xs text-slate-400 mt-0.5">備查用（例如自動交易軟體成本），不計入資產</p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {suspenseEntries.length > 0 && <span className="text-sm font-bold text-slate-900">{fmt(suspenseTotal)}</span>}
+            <button type="button" onClick={() => openSuspense(null)}
+              className="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1.5 hover:bg-indigo-50 transition-colors">
+              + 新增
+            </button>
+          </div>
+        </div>
+        {suspenseEntries.length === 0 ? (
+          <div className="py-8 text-center text-slate-400 text-sm">還沒有暫計帳</div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {suspenseEntries.map((en) => (
+              <div key={en.id} className="flex items-center justify-between px-6 py-3.5 hover:bg-slate-50 transition-colors group">
+                <div>
+                  <div className="text-sm font-medium text-slate-800">{en.name}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    {new Date(en.date).toLocaleDateString("zh-TW")}
+                    {en.note ? ` · ${en.note}` : ""}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-semibold text-slate-700">{fmt(en.amount)}</span>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => openSuspense(en)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
+                    <button onClick={() => handleDeleteSuspense(en.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-xs transition-colors">刪除</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 暫計帳 Modal */}
+      {suspenseModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-bold text-slate-900 mb-5">{suspenseModal.editing ? "編輯暫計帳" : "新增暫計帳"}</h2>
+            <form onSubmit={handleSaveSuspense} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">項目名稱</label>
+                <input required value={suspenseForm.name} onChange={(e) => setSuspenseForm({ ...suspenseForm, name: e.target.value })}
+                  placeholder="例如：自動交易軟體" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">金額（台幣）</label>
+                  <input required type="number" step="any" value={suspenseForm.amount}
+                    onChange={(e) => setSuspenseForm({ ...suspenseForm, amount: e.target.value })} placeholder="例如：30000"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">日期</label>
+                  <input required type="date" value={suspenseForm.date}
+                    onChange={(e) => setSuspenseForm({ ...suspenseForm, date: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+                <input value={suspenseForm.note} onChange={(e) => setSuspenseForm({ ...suspenseForm, note: e.target.value })}
+                  placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setSuspenseModal(null)}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                  取消
+                </button>
+                <button type="submit" disabled={suspenseSaving}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60">
+                  {suspenseSaving ? "儲存中..." : "儲存"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
