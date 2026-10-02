@@ -39,6 +39,7 @@ const DEFAULT_BROKERS = [
 const CURRENCIES = ["USD", "TWD", "HKD"];
 
 const EMPTY_ADD_FORM = {
+  mode: "TRADE" as "TRADE" | "COST_ADJUST",
   name: "",
   code: "",
   date: new Date().toISOString().split("T")[0],
@@ -49,6 +50,9 @@ const EMPTY_ADD_FORM = {
   price: "",
   fee: "",
   adjustAmount: "",
+  costAdjustAmount: "",
+  costAdjustQuantity: "",
+  costAdjustSource: "",
   note: "",
 };
 
@@ -110,15 +114,27 @@ export default function UsStockPage() {
     }
   };
 
-  // 淨投入金額：買進為正、賣出為負，依幣別分開加總（美股常見美金計價，也可能有複委託掛牌在其他幣別的情況）
-  const currencyTotals = investments.reduce((acc, i) => {
-    const cur = i.currency || "USD";
-    acc[cur] = (acc[cur] || 0) + i.amount;
-    return acc;
-  }, {} as Record<string, number>);
+  // 持股成本：依幣別分開加總目前持股的實際投入成本（美股常見美金計價，也可能有複委託掛牌在其他幣別的情況）。
+  // 跟股票頁一樣不用買賣金額直接加總：賣出損益會讓已出清的股票留下殘值，成本調整也會被算進去
+  const currencyTotals = Object.fromEntries(
+    [...new Set(investments.map((i) => i.currency || "USD"))].map((cur) => [
+      cur,
+      computeHoldings(investments.filter((i) => (i.currency || "USD") === cur)).reduce((s, h) => s + h.bookCost, 0),
+    ])
+  ) as Record<string, number>;
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
   const holdings = computeHoldings(investments);
+  // 每檔持股的幣別（成本調整要記在同一個幣別底下）
+  const currencyByCode = new Map(investments.filter((i) => i.code).map((i) => [i.code!.trim(), i.currency || "USD"]));
+  // 成本調整可選的「獲利來源」：所有出現過紀錄的美股（含已全數賣出的），排除被調整的那檔
+  const sourceStocks = Array.from(
+    investments.reduce((m, i) => {
+      const code = i.code?.trim();
+      if (code && !m.has(code)) m.set(code, { code, name: i.name || code });
+      return m;
+    }, new Map<string, { code: string; name: string }>()).values()
+  ).filter((s) => s.code !== addForm.code);
   // 持股狀況小計：依幣別分開加總投資總額，避免不同幣別混在一起
   const holdingSubtotals = [...new Set(investments.map((i) => i.currency || "USD"))]
     .map((currency) => ({
@@ -146,6 +162,46 @@ export default function UsStockPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (addForm.mode === "COST_ADJUST") {
+      if (!addForm.code) {
+        alert("請選擇要調整成本的股票");
+        return;
+      }
+      const adjustCost = parseFloat(addForm.costAdjustAmount) || 0;
+      const adjustQty = parseFloat(addForm.costAdjustQuantity) || 0;
+      if (adjustCost <= 0 && adjustQty <= 0) {
+        alert("請填寫調整金額或配股股數");
+        return;
+      }
+      const defaultNote = adjustQty > 0
+        ? (adjustCost > 0 ? "成本調整＋配股（增加股數並自其他持股獲利中扣抵成本）" : "配股（股數增加，成本不變，平均成本自動下降）")
+        : "成本調整（用其他持股獲利攤平此檔虧損，股數不變）";
+      // 獲利來源只記在備註裡：成本調整只影響均價，不影響實際投入成本，不需要再補沖銷紀錄
+      const source = adjustCost > 0 ? sourceStocks.find((s) => s.code === addForm.costAdjustSource) : undefined;
+      setAddSaving(true);
+      const res = await authFetch("/api/investments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "USSTOCK",
+          name: addForm.name,
+          code: addForm.code,
+          date: addForm.date,
+          currency: currencyByCode.get(addForm.code) ?? addForm.currency,
+          action: adjustQty > 0 ? "BUY" : "SELL",
+          amount: -adjustCost,
+          quantity: adjustQty > 0 ? adjustQty : undefined,
+          note: addForm.note || (source ? `${defaultNote}，獲利來源：${source.name}` : defaultNote),
+        }),
+      });
+      if (!res.ok) alert("成本調整儲存失敗，請稍後再試");
+      setAddSaving(false);
+      setShowAddModal(false);
+      fetchAll();
+      return;
+    }
+
     if (quantity <= 0 || price <= 0) {
       alert("請填寫股數與每股價格");
       return;
@@ -231,7 +287,7 @@ export default function UsStockPage() {
         {Object.keys(currencyTotals).length === 0 ? (
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">淨投入金額</div>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">持股成本</div>
               <div className="text-2xl font-bold text-slate-900 mt-1">{fmtCur(0, "USD")}</div>
             </div>
             <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
@@ -251,7 +307,7 @@ export default function UsStockPage() {
                 <div className="text-xs font-semibold text-slate-400 mb-1.5">{currency}</div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">淨投入金額</div>
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">持股成本</div>
                     <div className={`text-2xl font-bold mt-1 ${amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmtCur(amount, currency)}</div>
                   </div>
                   <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
@@ -372,27 +428,97 @@ export default function UsStockPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-slate-900 mb-5">新增美股記錄</h2>
             <form onSubmit={handleAdd} className="space-y-4">
-              {/* 買進/賣出 */}
+              {/* 買進/賣出/成本調整 */}
               <div className="flex gap-2">
                 {(["BUY", "SELL"] as const).map((a) => (
-                  <button key={a} type="button" onClick={() => setAddForm({ ...addForm, action: a })}
+                  <button key={a} type="button" onClick={() => setAddForm({ ...addForm, mode: "TRADE", action: a })}
                     className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                      addForm.action === a
+                      addForm.mode === "TRADE" && addForm.action === a
                         ? a === "BUY" ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
                         : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                     }`}>
                     {a === "BUY" ? "買進" : "賣出"}
                   </button>
                 ))}
+                <button type="button" onClick={() => setAddForm({ ...addForm, mode: "COST_ADJUST" })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    addForm.mode === "COST_ADJUST" ? "bg-indigo-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}>
+                  成本調整
+                </button>
               </div>
+              {addForm.mode === "COST_ADJUST" && (
+                <p className="text-xs text-slate-400 -mt-2">
+                  可用其他持股的獲利攤平這檔的虧損（調整金額會依股數攤到目前全部持股，股數不變、平均成本下降），
+                  也可以在配股時直接增加這檔的股數（成本留白代表股數增加、平均成本自動下降），兩者也可以同時填寫
+                </p>
+              )}
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">交易日期</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{addForm.mode === "COST_ADJUST" ? "調整日期" : "交易日期"}</label>
                 <input required type="date" value={addForm.date}
                   onChange={(e) => setAddForm({ ...addForm, date: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
 
+              {addForm.mode === "COST_ADJUST" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">選擇持股</label>
+                    {holdings.length === 0 ? (
+                      <p className="text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg px-3.5 py-2.5">目前沒有任何持股可選</p>
+                    ) : (
+                      <select
+                        required
+                        value={addForm.code}
+                        onChange={(e) => {
+                          const h = holdings.find((x) => x.code === e.target.value);
+                          setAddForm({ ...addForm, code: h?.code ?? "", name: h?.name ?? "", currency: (h && currencyByCode.get(h.code)) || "USD" });
+                        }}
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                      >
+                        <option value="">請選擇目前持有的股票</option>
+                        {holdings.map((h) => (
+                          <option key={h.key} value={h.code}>{h.name}（{h.code}）· 持有 {h.quantity.toLocaleString("en-US")} 股</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      調整金額（從投入成本中扣除，選填{addForm.code ? `，${addForm.currency}` : ""}）
+                    </label>
+                    <input type="number" min="0" step="any" value={addForm.costAdjustAmount}
+                      onChange={(e) => setAddForm({ ...addForm, costAdjustAmount: e.target.value })} placeholder="例如：50"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">獲利來源股票（選填）</label>
+                    <select value={addForm.costAdjustSource}
+                      onChange={(e) => setAddForm({ ...addForm, costAdjustSource: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                      <option value="">無（例如配息）</option>
+                      {sourceStocks.map((s) => (
+                        <option key={s.code} value={s.code}>{s.name}（{s.code}）</option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-slate-400 mt-1">只會記在備註，方便日後查看這筆攤平的獲利從哪裡來</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">配股股數（增加股數，選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.costAdjustQuantity}
+                      onChange={(e) => setAddForm({ ...addForm, costAdjustQuantity: e.target.value })} placeholder="例如：1"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+                    <input value={addForm.note} onChange={(e) => setAddForm({ ...addForm, note: e.target.value })}
+                      placeholder="留空會自動帶入說明" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                </>
+              )}
+
+              {addForm.mode === "TRADE" && (<>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">券商（選填）</label>
                 <Combobox
@@ -496,6 +622,7 @@ export default function UsStockPage() {
                   <span>{subtotal.toFixed(2)}{addForm.adjustAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調帳）</span>}</span>
                 </div>
               </div>
+              </>)}
 
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowAddModal(false)}
@@ -504,7 +631,7 @@ export default function UsStockPage() {
                 </button>
                 <button type="submit" disabled={addSaving}
                   className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-60">
-                  {addSaving ? "儲存中..." : "儲存"}
+                  {addSaving ? "儲存中..." : addForm.mode === "COST_ADJUST" ? "儲存調整" : "儲存"}
                 </button>
               </div>
             </form>
