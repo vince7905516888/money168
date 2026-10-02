@@ -110,16 +110,22 @@ export function computeHoldings(investments: HoldingInput[]): Holding[] {
   return computeStockLedger(investments).holdings;
 }
 
+// 虛擬貨幣配息：買進、沒有單價，且金額為 0（早期只加數量的配息）或備註以「配息」開頭（有換算台幣價值的配息）
+export function isCryptoDividend(i: { action?: string | null; price?: number | null; amount: number; quantity?: number | null; note?: string | null }): boolean {
+  return i.action === "BUY" && !i.price && !!i.quantity && (!i.amount || !!i.note?.startsWith("配息"));
+}
+
 export interface AmountHolding {
   key: string;
   name: string;
   code: string;
   quantity: number;
   cost: number;
-  dividendQty: number; // 累計配息數量（只增加數量、不增加成本）
+  dividendQty: number; // 累計配息數量
+  dividendValue: number; // 累計配息的台幣價值（配息時換算計入成本的部分）
 }
 
-type AmountHoldingInput = { code?: string | null; name?: string | null; quantity?: number | null; price?: number | null; amount: number; action?: "BUY" | "SELL" | null; date?: string | Date | null; createdAt: string | Date };
+type AmountHoldingInput = { note?: string | null; code?: string | null; name?: string | null; quantity?: number | null; price?: number | null; amount: number; action?: "BUY" | "SELL" | null; date?: string | Date | null; createdAt: string | Date };
 
 // 每一檔目前持有的數量與投入成本（演算法說明見 remainingCostByAmount）
 // 數量門檻用 1e-9 而非 0.0001：虛擬貨幣常有 0.00005 BTC 這種很小的持有量，不能被當成已出清
@@ -131,7 +137,7 @@ export function remainingHoldingsByAmount(list: AmountHoldingInput[]): AmountHol
     || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   for (const inv of sorted) {
     const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
-    if (!groups.has(key)) groups.set(key, { key, name: inv.name?.trim() || key, code: inv.code?.trim() || "—", quantity: 0, cost: 0, dividendQty: 0 });
+    if (!groups.has(key)) groups.set(key, { key, name: inv.name?.trim() || key, code: inv.code?.trim() || "—", quantity: 0, cost: 0, dividendQty: 0, dividendValue: 0 });
     const g = groups.get(key)!;
     if (!inv.quantity) {
       // 沒有數量異動的純成本調整列，直接加減成本
@@ -146,7 +152,10 @@ export function remainingHoldingsByAmount(list: AmountHoldingInput[]): AmountHol
     } else {
       g.quantity += inv.quantity;
       g.cost += inv.amount;
-      if (!inv.amount && !inv.price) g.dividendQty += inv.quantity;
+      if (isCryptoDividend({ ...inv, action: "BUY" })) {
+        g.dividendQty += inv.quantity;
+        g.dividendValue += inv.amount;
+      }
     }
   }
   return Array.from(groups.values()).filter((g) => g.quantity > 1e-9);
