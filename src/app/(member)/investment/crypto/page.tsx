@@ -49,6 +49,8 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 const EMPTY_ADD_FORM = {
   mode: "TRADE" as "TRADE" | "DIVIDEND" | "DEPOSIT",
   depositAmount: "",
+  twdMode: "DEPOSIT" as "DEPOSIT" | "CALIBRATE",
+  twdActual: "",
   payFromTwd: true,
   creditToTwd: false,
   name: "",
@@ -145,8 +147,11 @@ export default function CryptoPage() {
   const isTwd = (i: Investment) => i.code?.trim() === TWD_CODE;
   // 交易所台幣餘額
   const twdBalance = holdings.find((h) => h.code === TWD_CODE)?.quantity ?? 0;
+  // 台幣餘額校正記錄（備註以 TWD_CALIBRATE_NOTE 開頭）
+  const TWD_CALIBRATE_NOTE = "台幣餘額校正";
   const recordLabel = (i: Investment) =>
-    isTwd(i) ? (i.action === "BUY" ? { text: "台幣入帳", cls: "bg-sky-100 text-sky-700" } : { text: "台幣扣款", cls: "bg-slate-200 text-slate-600" })
+    isTwd(i) && i.note?.startsWith(TWD_CALIBRATE_NOTE) ? { text: "台幣調帳", cls: "bg-violet-100 text-violet-700" }
+    : isTwd(i) ? (i.action === "BUY" ? { text: "台幣入帳", cls: "bg-sky-100 text-sky-700" } : { text: "台幣扣款", cls: "bg-slate-200 text-slate-600" })
     : isDividend(i) ? { text: "配息", cls: "bg-amber-100 text-amber-700" }
     : i.action === "BUY" ? { text: "買進", cls: "bg-emerald-100 text-emerald-700" }
     : { text: "賣出", cls: "bg-red-100 text-red-700" };
@@ -189,6 +194,35 @@ export default function CryptoPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (addForm.mode === "DEPOSIT" && addForm.twdMode === "CALIBRATE") {
+      // 校正餘額：輸入交易所實際的台幣金額，補一筆差額（多了記入帳、少了記扣款），讓帳上餘額等於實際金額
+      if (addForm.twdActual === "" || (parseFloat(addForm.twdActual) || 0) < 0) {
+        alert("請填寫交易所實際的台幣餘額");
+        return;
+      }
+      const actual = parseFloat(addForm.twdActual) || 0;
+      const diff = Math.round((actual - twdBalance) * 100) / 100;
+      if (diff === 0) {
+        alert("帳上餘額已經等於實際金額，不需要校正");
+        return;
+      }
+      setAddSaving(true);
+      const res = await postInvestment({
+        name: "台幣", code: TWD_CODE, date: addForm.date, action: diff > 0 ? "BUY" : "SELL", broker: addForm.broker,
+        quantity: Math.abs(diff), price: 1, amount: diff,
+        note: `${TWD_CALIBRATE_NOTE}：${fmt(twdBalance)} → ${fmt(actual)}${addForm.note ? `（${addForm.note}）` : ""}`,
+      });
+      setAddSaving(false);
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        alert(err?.error || "儲存失敗，請稍後再試");
+        return;
+      }
+      setShowAddModal(false);
+      fetchAll();
+      return;
+    }
 
     if (addForm.mode === "DEPOSIT") {
       const amt = parseFloat(addForm.depositAmount) || 0;
@@ -512,7 +546,7 @@ export default function CryptoPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">{addForm.mode === "DIVIDEND" ? "配息日期" : addForm.mode === "DEPOSIT" ? "入金日期" : "交易日期"}</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{addForm.mode === "DIVIDEND" ? "配息日期" : addForm.mode === "DEPOSIT" ? (addForm.twdMode === "CALIBRATE" ? "校正日期" : "入金日期") : "交易日期"}</label>
                 <input required type="date" value={addForm.date}
                   onChange={(e) => setAddForm({ ...addForm, date: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
@@ -561,17 +595,56 @@ export default function CryptoPage() {
 
               {addForm.mode === "DEPOSIT" && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">入金金額（台幣）</label>
-                    <input required type="number" min="0" step="any" value={addForm.depositAmount}
-                      onChange={(e) => setAddForm({ ...addForm, depositAmount: e.target.value })} placeholder="例如：10000"
-                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                    <p className="text-[11px] text-slate-400 mt-1">目前交易所台幣餘額：{fmt(twdBalance)}</p>
+                  <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+                    {([["DEPOSIT", "入金"], ["CALIBRATE", "校正餘額"]] as const).map(([m, label]) => (
+                      <button key={m} type="button" onClick={() => setAddForm({ ...addForm, twdMode: m })}
+                        className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                          addForm.twdMode === m ? "bg-white text-sky-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                        }`}>
+                        {label}
+                      </button>
+                    ))}
                   </div>
+                  {addForm.twdMode === "DEPOSIT" ? (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">入金金額（台幣）</label>
+                      <input required type="number" min="0" step="any" value={addForm.depositAmount}
+                        onChange={(e) => setAddForm({ ...addForm, depositAmount: e.target.value })} placeholder="例如：10000"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                      <p className="text-[11px] text-slate-400 mt-1">目前交易所台幣餘額：{fmt(twdBalance)}</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">交易所實際台幣餘額</label>
+                      <input required type="number" min="0" step="any" value={addForm.twdActual}
+                        onChange={(e) => setAddForm({ ...addForm, twdActual: e.target.value })} placeholder="例如：3520"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                      {(() => {
+                        const actual = parseFloat(addForm.twdActual);
+                        const diff = Number.isFinite(actual) ? Math.round((actual - twdBalance) * 100) / 100 : null;
+                        return (
+                          <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5 mt-2">
+                            <div className="flex justify-between text-xs text-slate-500">
+                              <span>目前帳上餘額</span><span>{fmt(twdBalance)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm font-semibold pt-1.5 border-t border-slate-200">
+                              <span className="text-slate-900">校正差額</span>
+                              <span className={diff === null || diff === 0 ? "text-slate-400" : diff > 0 ? "text-sky-600" : "text-slate-600"}>
+                                {diff === null ? "—" : diff === 0 ? "無差額" : `${diff > 0 ? "+" : "−"}${fmt(Math.abs(diff))}`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        系統會補一筆差額讓帳上餘額等於實際金額。這筆差額會直接增減虛擬貨幣資產，不會動到銀行記錄
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
                     <input value={addForm.note} onChange={(e) => setAddForm({ ...addForm, note: e.target.value })}
-                      placeholder="例如：玉山銀行轉入" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                      placeholder={addForm.twdMode === "CALIBRATE" ? "例如：補登早期交易差額" : "例如：玉山銀行轉入"} className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                   </div>
                 </>
               )}
