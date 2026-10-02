@@ -218,7 +218,12 @@ export default function CryptoPage() {
   const usdtUnitCost = usdtHolding && usdtHolding.quantity > 0 ? usdtHolding.cost / usdtHolding.quantity : 0;
   const fmtQuote = (n: number) => (quote === "USDT" ? `${fmtQty(Math.round(n * 1e6) / 1e6)} USDT` : fmt(n));
   const quantity = parseFloat(addForm.quantity) || 0;
-  const price = parseFloat(addForm.price) || 0;
+  // 單價、總金額都沒填時，用這個幣目前的平均成本當單價（USDT 計價時換算成 USDT），只輸入顆數就能記帳
+  const coinHolding = holdings.find((h) => h.code === tradeCode);
+  const coinAvgTwd = coinHolding && coinHolding.quantity > 0 ? coinHolding.cost / coinHolding.quantity : 0;
+  const autoPrice = quote === "USDT" ? (usdtUnitCost > 0 ? coinAvgTwd / usdtUnitCost : 0) : coinAvgTwd;
+  const priceIsAuto = addForm.price === "" && addForm.override === "" && autoPrice > 0;
+  const price = parseFloat(addForm.price) || (priceIsAuto ? autoPrice : 0);
   const fee = parseFloat(addForm.fee) || 0;
   const principal = quantity * price;
   const calcSubtotal = addForm.action === "BUY" ? principal + fee : principal - fee;
@@ -327,7 +332,7 @@ export default function CryptoPage() {
     // 單價與總金額擇一填寫：只填總金額時，單價用總金額 ÷ 數量回推
     const hasTotal = addForm.override !== "" && subtotal > 0;
     if (quantity <= 0 || (price <= 0 && !hasTotal)) {
-      alert("請填寫數量，以及單價或總金額其中一項");
+      alert(coinHolding ? "請填寫數量" : "第一次買這個幣沒有平均成本可用，請填寫單價或總金額");
       return;
     }
     const unitPrice = price > 0 ? price : subtotal / quantity;
@@ -978,7 +983,7 @@ export default function CryptoPage() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">單價（{quote === "USDT" ? "USDT" : "台幣"}）</label>
                   <input type="number" min="0" step="any" value={addForm.price}
-                    onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder={quote === "USDT" ? "例如：65000" : "例如：2000000"}
+                    onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder={autoPrice > 0 ? `留空用平均成本 ${fmt2(autoPrice)}` : quote === "USDT" ? "例如：65000" : "例如：2000000"}
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
               </div>
@@ -1002,7 +1007,12 @@ export default function CryptoPage() {
                   onChange={(e) => setAddForm({ ...addForm, override: e.target.value })}
                   placeholder={`試算為 ${fmtQuote(calcSubtotal)}，如與交易所實際金額不同可在此輸入覆蓋`}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                <p className="text-[11px] text-slate-400 mt-1">單價和總金額填一個就好：只填總金額時單價自動回推；兩個都填則以總金額為準</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  只填顆數時以平均成本自動計算；實際價格不同時再填單價或總金額（只填總金額會自動回推單價，兩個都填以總金額為準）
+                </p>
+                {priceIsAuto && quantity > 0 && (
+                  <p className="text-[11px] text-indigo-500 mt-0.5">目前以 {tradeCode} 平均成本 {fmt2(autoPrice)}{quote === "USDT" ? " USDT" : ""} 計算</p>
+                )}
               </div>
 
               {/* 試算小計 */}
