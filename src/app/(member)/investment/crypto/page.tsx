@@ -54,6 +54,7 @@ const DEFAULT_CODES = [
 
 // 交易所裡還沒拿去買幣的台幣，記成代碼 TWD、單價 1 的一種「幣」，持有數量＝台幣餘額
 const TWD_CODE = "TWD";
+const USDT_CODE = "USDT";
 
 type SortKey = "DATE_DESC" | "DATE_ASC" | "AMOUNT_DESC" | "COIN";
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -69,6 +70,7 @@ const EMPTY_ADD_FORM = {
   twdMode: "DEPOSIT" as "DEPOSIT" | "CALIBRATE",
   twdActual: "",
   payFromTwd: true,
+  quote: "USDT" as "USDT" | "TWD",
   creditToTwd: false,
   name: "",
   code: "",
@@ -206,6 +208,15 @@ export default function CryptoPage() {
     });
 
   // ---- 新增表單：即時試算 ----
+  // 計價幣別：用 USDT 買賣其他幣時以 USDT 輸入單價／手續費，系統依 USDT 平均成本換算台幣並自動扣除／加回 USDT；
+  // 交易的幣本身是 USDT（台幣買 USDT）或台幣時一律用台幣計價
+  const tradeCode = addForm.code.trim().toUpperCase();
+  const quoteLocked = tradeCode === USDT_CODE || tradeCode === TWD_CODE;
+  const quote: "USDT" | "TWD" = quoteLocked ? "TWD" : addForm.quote;
+  const usdtHolding = holdings.find((h) => h.code === USDT_CODE);
+  const usdtHeld = usdtHolding?.quantity ?? 0;
+  const usdtUnitCost = usdtHolding && usdtHolding.quantity > 0 ? usdtHolding.cost / usdtHolding.quantity : 0;
+  const fmtQuote = (n: number) => (quote === "USDT" ? `${fmtQty(Math.round(n * 1e6) / 1e6)} USDT` : fmt(n));
   const quantity = parseFloat(addForm.quantity) || 0;
   const price = parseFloat(addForm.price) || 0;
   const fee = parseFloat(addForm.fee) || 0;
@@ -317,6 +328,49 @@ export default function CryptoPage() {
       alert("請填寫數量與單價");
       return;
     }
+
+    if (quote === "USDT") {
+      // USDT 計價：subtotal 是 USDT 數量，依 USDT 平均成本換算台幣成本，並自動扣除／加回 USDT 持有
+      if (!tradeCode) {
+        alert("請填寫代碼（例如 BTC）");
+        return;
+      }
+      if (usdtUnitCost <= 0) {
+        alert("目前沒有 USDT 持有，無法換算台幣成本，請改用台幣計價");
+        return;
+      }
+      if (addForm.action === "BUY" && subtotal > usdtHeld + 1e-9) {
+        alert(`USDT 持有不足：需要 ${fmtQty(subtotal)}，目前 ${fmtQty(usdtHeld)}`);
+        return;
+      }
+      const twd = subtotal * usdtUnitCost;
+      const usdtNote = `USDT 計價：${fmtQty(quantity)} × ${price} USDT${fee ? `，手續費 ${fee} USDT` : ""}，共 ${fmtQty(Math.round(subtotal * 1e6) / 1e6)} USDT（@${fmt2(usdtUnitCost)}）`;
+      setAddSaving(true);
+      const res = await postInvestment({
+        name: addForm.name || tradeCode, code: tradeCode, date: addForm.date, action: addForm.action, broker: addForm.broker,
+        quantity, price: twd / quantity, fee: fee ? Math.round(fee * usdtUnitCost * 100) / 100 : undefined,
+        amount: addForm.action === "SELL" ? -twd : twd,
+        note: addForm.note ? `${addForm.note} · ${usdtNote}` : usdtNote,
+      });
+      if (!res.ok) {
+        setAddSaving(false);
+        const err = await res.json().catch(() => null);
+        alert(err?.error || "儲存失敗，請稍後再試");
+        return;
+      }
+      const r = await postInvestment({
+        name: USDT_CODE, code: USDT_CODE, date: addForm.date, broker: addForm.broker,
+        action: addForm.action === "BUY" ? "SELL" : "BUY",
+        quantity: subtotal, price: usdtUnitCost, amount: (addForm.action === "BUY" ? -1 : 1) * twd,
+        note: addForm.action === "BUY" ? `買進 ${tradeCode} 扣款` : `賣出 ${tradeCode} 款項`,
+      });
+      if (!r.ok) alert(`${tradeCode} 已儲存，但 USDT ${addForm.action === "BUY" ? "扣款" : "入帳"}失敗，請手動補一筆 ${fmtQty(subtotal)} USDT`);
+      setAddSaving(false);
+      setShowAddModal(false);
+      fetchAll();
+      return;
+    }
+
     setAddSaving(true);
     const res = await authFetch("/api/investments", {
       method: "POST",
@@ -890,6 +944,27 @@ export default function CryptoPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">計價幣別</label>
+                <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+                  {(["USDT", "TWD"] as const).map((q) => (
+                    <button key={q} type="button" disabled={quoteLocked} onClick={() => setAddForm({ ...addForm, quote: q })}
+                      className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
+                        quote === q ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      }`}>
+                      {q === "USDT" ? "USDT" : "台幣"}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {quoteLocked
+                    ? `交易 ${tradeCode} 一律用台幣計價`
+                    : quote === "USDT"
+                      ? `用 USDT 買賣：自動${addForm.action === "BUY" ? "從 USDT 持有扣款" : "把款項加回 USDT 持有"}，依 USDT 平均成本 ${usdtUnitCost > 0 ? fmt2(usdtUnitCost) : "—"} 換算台幣（目前持有 ${fmtQty(usdtHeld)} USDT）`
+                      : "用台幣直接買賣"}
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">數量</label>
@@ -898,15 +973,15 @@ export default function CryptoPage() {
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">單價（台幣）</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">單價（{quote === "USDT" ? "USDT" : "台幣"}）</label>
                   <input required type="number" min="0" step="any" value={addForm.price}
-                    onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder="例如：2000000"
+                    onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder={quote === "USDT" ? "例如：65000" : "例如：2000000"}
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費（選填，台幣）</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費（選填，{quote === "USDT" ? "USDT" : "台幣"}）</label>
                 <input type="number" min="0" step="any" value={addForm.fee}
                   onChange={(e) => setAddForm({ ...addForm, fee: e.target.value })} placeholder="例如：50"
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
@@ -922,7 +997,7 @@ export default function CryptoPage() {
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">實際金額（選填）</label>
                 <input type="number" min="0" step="any" value={addForm.override}
                   onChange={(e) => setAddForm({ ...addForm, override: e.target.value })}
-                  placeholder={`試算為 ${fmt(calcSubtotal)}，如與交易所實際金額不同可在此輸入覆蓋`}
+                  placeholder={`試算為 ${fmtQuote(calcSubtotal)}，如與交易所實際金額不同可在此輸入覆蓋`}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 <p className="text-[11px] text-slate-400 mt-1">留空則採用下方自動試算的小計；填寫後將以此金額為準</p>
               </div>
@@ -930,21 +1005,29 @@ export default function CryptoPage() {
               {/* 試算小計 */}
               <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
                 <div className="flex justify-between text-xs text-slate-500">
-                  <span>成交金額</span><span>{fmt(principal)}</span>
+                  <span>成交金額</span><span>{fmtQuote(principal)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-500">
-                  <span>手續費</span><span>{fmt(fee)}</span>
+                  <span>手續費</span><span>{fmtQuote(fee)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-500">
-                  <span>自動試算小計</span><span>{fmt(calcSubtotal)}</span>
+                  <span>自動試算小計</span><span>{fmtQuote(calcSubtotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm font-semibold text-slate-900 pt-1.5 border-t border-slate-200">
                   <span>{addForm.action === "BUY" ? "最終小計（應付）" : "最終小計（應收）"}</span>
-                  <span>{fmt(subtotal)}{addForm.override !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調整）</span>}</span>
+                  <span>{fmtQuote(subtotal)}{addForm.override !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調整）</span>}</span>
                 </div>
+                {quote === "USDT" && usdtUnitCost > 0 && (
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>換算台幣成本</span><span>{fmt(subtotal * usdtUnitCost)}</span>
+                  </div>
+                )}
+                {quote === "USDT" && addForm.action === "BUY" && subtotal > usdtHeld + 1e-9 && (
+                  <p className="text-xs text-red-500">USDT 持有不足（目前 {fmtQty(usdtHeld)}）</p>
+                )}
               </div>
 
-              {addForm.action === "BUY" && twdBalance > 0 && (
+              {quote === "TWD" && addForm.action === "BUY" && twdBalance > 0 && (
                 <label className="flex items-start gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={addForm.payFromTwd} className="mt-0.5"
                     onChange={(e) => setAddForm({ ...addForm, payFromTwd: e.target.checked })} />
@@ -956,7 +1039,7 @@ export default function CryptoPage() {
                   </span>
                 </label>
               )}
-              {addForm.action === "SELL" && (
+              {quote === "TWD" && addForm.action === "SELL" && (
                 <label className="flex items-start gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={addForm.creditToTwd} className="mt-0.5"
                     onChange={(e) => setAddForm({ ...addForm, creditToTwd: e.target.checked })} />
