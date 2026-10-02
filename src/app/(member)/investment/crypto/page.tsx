@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import Combobox from "@/components/ui/Combobox";
+import { remainingHoldingsByAmount } from "@/lib/stock-holdings";
 
 interface Investment {
   id: string;
@@ -107,9 +108,13 @@ export default function CryptoPage() {
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
   const fmt2 = (n: number) => new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(n);
+  // 數量完整顯示：虛擬貨幣（尤其配息）常有很多位小數，不四捨五入，照實際輸入的位數顯示
+  const fmtQty = (n: number) => new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 12 }).format(n);
 
-  // 淨投入金額：買進為正、賣出為負（賣出淨額會抵銷買進金額）
-  const netInvested = investments.reduce((s, i) => s + i.amount, 0);
+  // 持有狀況：每種幣目前的持有數量與投入成本，跟資產總攬同一套算法（依實際金額的移動平均成本）
+  const holdings = remainingHoldingsByAmount(investments).sort((a, b) => b.cost - a.cost);
+  // 持有成本：目前持有部位的投入成本，跟資產總攬的虛擬貨幣同一個數字
+  const netInvested = holdings.reduce((s, h) => s + h.cost, 0);
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
 
@@ -267,9 +272,9 @@ export default function CryptoPage() {
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4 mb-8">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">淨投入金額</div>
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">持有成本</div>
           <div className={`text-2xl font-bold mt-1 ${netInvested >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(netInvested)}</div>
-          <div className="text-xs text-slate-400 mt-0.5">買進金額 − 賣出淨額</div>
+          <div className="text-xs text-slate-400 mt-0.5">目前持有的實際投入成本</div>
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">買進筆數</div>
@@ -279,6 +284,53 @@ export default function CryptoPage() {
           <div className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-1">賣出筆數</div>
           <div className="text-2xl font-bold text-slate-900 mt-1">{sellCount} 筆</div>
         </div>
+      </div>
+
+      {/* 持有狀況 */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
+        <div className="px-6 py-4 border-b border-slate-50">
+          <h2 className="font-semibold text-slate-900">持有狀況</h2>
+        </div>
+        {holdings.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-sm">目前沒有持有虛擬貨幣</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm whitespace-nowrap">
+              <thead>
+                <tr className="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-50">
+                  <th className="text-left font-semibold px-6 py-3">幣種</th>
+                  <th className="text-right font-semibold px-4 py-3">持有顆數</th>
+                  <th className="text-right font-semibold px-4 py-3">累計配息</th>
+                  <th className="text-right font-semibold px-4 py-3">持有成本（台幣）</th>
+                  <th className="text-right font-semibold px-6 py-3">平均成本</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {holdings.map((h) => (
+                  <tr key={h.key} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-3 font-medium text-slate-800">
+                      {h.name}
+                      {h.code !== "—" && h.code !== h.name && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{h.code}</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-700 font-mono">{fmtQty(h.quantity)}</td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {h.dividendQty > 0 ? <span className="text-amber-600">{fmtQty(h.dividendQty)}</span> : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
+                    <td className="px-6 py-3 text-right text-slate-700">{fmt2(h.cost / h.quantity)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-slate-100 bg-slate-50">
+                  <td colSpan={3} className="px-6 py-3 font-semibold text-slate-800">合計資產（投入成本）</td>
+                  <td className="px-4 py-3 text-right font-bold text-slate-900">{fmt(netInvested)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* List */}
@@ -311,7 +363,7 @@ export default function CryptoPage() {
                     <div className="text-xs text-slate-400 mt-0.5">
                       {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
                       {inv.broker ? ` · ${inv.broker}` : ""}
-                      {inv.quantity ? ` · ${fmt2(inv.quantity)} 顆` : ""}
+                      {inv.quantity ? ` · ${fmtQty(inv.quantity)} 顆` : ""}
                       {inv.price ? ` · @${fmt2(inv.price)}` : ""}
                       {inv.fee ? ` · 手續費 ${fmt(inv.fee)}` : ""}
                       {inv.note ? ` · ${inv.note}` : ""}
