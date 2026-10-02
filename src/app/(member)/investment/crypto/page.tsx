@@ -183,6 +183,22 @@ export default function CryptoPage() {
     return p == null ? null : h.quantity * p;
   };
   const marketTotal = holdings.reduce((s, h) => s + (marketValueOf(h) ?? 0), 0);
+  // 各幣種在哪些交易所持有：依記錄的「交易所／錢包」分開計算持有數量（沒填的歸到「未指定」）
+  const UNSPECIFIED_EXCHANGE = "未指定";
+  const exchangesByCode = new Map<string, { exchange: string; quantity: number }[]>();
+  for (const exchange of new Set(investments.map((i) => i.broker?.trim() || UNSPECIFIED_EXCHANGE))) {
+    const subset = investments.filter((i) => (i.broker?.trim() || UNSPECIFIED_EXCHANGE) === exchange);
+    for (const h of remainingHoldingsByAmount(subset)) {
+      if (!exchangesByCode.has(h.code)) exchangesByCode.set(h.code, []);
+      exchangesByCode.get(h.code)!.push({ exchange, quantity: h.quantity });
+    }
+  }
+  const exchangeLabel = (code: string) => {
+    const list = (exchangesByCode.get(code) ?? []).sort((a, b) => b.quantity - a.quantity);
+    if (list.length === 0) return null;
+    if (list.length === 1) return list[0].exchange;
+    return list.map((e) => `${e.exchange} ${fmtQty(e.quantity)}`).join(" · ");
+  };
   const marketMissing = holdings.filter((h) => marketValueOf(h) == null).length;
   // 持有成本：目前持有部位的投入成本，跟資產總攬的虛擬貨幣同一個數字
   // 暫計帳（待賺回）：從 USDT 扣除、尚未回補的部分，持有成本與合計都把它算進去
@@ -621,6 +637,7 @@ export default function CryptoPage() {
                     <td className="px-6 py-3 font-medium text-slate-800">
                       {h.name}
                       {h.code !== "—" && h.code !== h.name && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{h.code}</span>}
+                      {exchangeLabel(h.code) && <span className="block text-[11px] font-normal text-slate-400 mt-0.5">{exchangeLabel(h.code)}</span>}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700 font-mono">{fmtQty(h.quantity)}</td>
                     <td className="px-4 py-3 text-right font-mono">
