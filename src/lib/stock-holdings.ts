@@ -125,7 +125,10 @@ type AmountHoldingInput = { code?: string | null; name?: string | null; quantity
 // 數量門檻用 1e-9 而非 0.0001：虛擬貨幣常有 0.00005 BTC 這種很小的持有量，不能被當成已出清
 export function remainingHoldingsByAmount(list: AmountHoldingInput[]): AmountHolding[] {
   const groups = new Map<string, AmountHolding>();
-  const sorted = [...list].sort((a, b) => new Date(a.date ?? a.createdAt).getTime() - new Date(b.date ?? b.createdAt).getTime());
+  // 同一天的記錄依建立時間排先後：例如同一天先入金再買幣扣款，扣款不能排在入金前面（否則當下餘額為 0 扣不到）
+  const sorted = [...list].sort((a, b) =>
+    new Date(a.date ?? a.createdAt).getTime() - new Date(b.date ?? b.createdAt).getTime()
+    || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   for (const inv of sorted) {
     const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
     if (!groups.has(key)) groups.set(key, { key, name: inv.name?.trim() || key, code: inv.code?.trim() || "—", quantity: 0, cost: 0, dividendQty: 0 });
