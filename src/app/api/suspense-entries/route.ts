@@ -30,13 +30,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "請填寫項目名稱與數量" }, { status: 400 });
   }
 
+  const entryDate = date ? new Date(date) : new Date();
+  // 用「暫計帳日期當下」的持有數量與平均成本：持有計算依日期排序，扣除記錄會插在那一天，
+  // 若改用今天的平均成本，暫計帳記的成本會跟實際扣掉的成本對不上（補登過去日期時尤其明顯）
+  const taipeiDay = (d: Date) => d.toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
+  const entryDay = taipeiDay(entryDate);
   const cryptoInvestments = await prisma.investment.findMany({ where: { userId, type: "CRYPTO" } });
-  const holding = remainingHoldingsByAmount(cryptoInvestments).find((h) => h.code === code);
+  const upToEntry = cryptoInvestments.filter((i) => taipeiDay(i.date) <= entryDay);
+  const holding = remainingHoldingsByAmount(upToEntry).find((h) => h.code === code);
   if (!holding || holding.quantity + 1e-9 < qty) {
-    return NextResponse.json({ error: `${code} 持有數量不足（目前 ${holding?.quantity ?? 0}）` }, { status: 400 });
+    return NextResponse.json({ error: `${entryDay} 當時 ${code} 持有數量不足（${holding?.quantity ?? 0}）` }, { status: 400 });
   }
   const unitCost = holding.cost / holding.quantity;
-  const entryDate = date ? new Date(date) : new Date();
 
   const entry = await prisma.$transaction(async (tx) => {
     const deduct = await tx.investment.create({
