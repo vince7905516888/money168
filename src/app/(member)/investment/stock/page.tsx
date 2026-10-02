@@ -68,6 +68,7 @@ export default function StockPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [realizedOpen, setRealizedOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [addSaving, setAddSaving] = useState(false);
@@ -399,11 +400,18 @@ export default function StockPage() {
       {/* 已實現損益明細 */}
       {realizedGroups.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
-          <div className="px-6 py-4 border-b border-slate-50">
-            <h2 className="font-semibold text-slate-900">已實現損益明細</h2>
-            <p className="text-xs text-slate-400 mt-0.5">每次賣出依先進先出扣除最早買進的批次計算成本</p>
-          </div>
-          <div className="overflow-x-auto">
+          <button type="button" onClick={() => setRealizedOpen((o) => !o)} aria-expanded={realizedOpen}
+            className={`w-full flex items-center justify-between gap-4 px-6 py-4 text-left hover:bg-slate-50 transition-colors ${realizedOpen ? "border-b border-slate-50" : ""}`}>
+            <div>
+              <h2 className="font-semibold text-slate-900">已實現損益明細</h2>
+              <p className="text-xs text-slate-400 mt-0.5">每次賣出依先進先出扣除最早買進的批次計算成本</p>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <span className={`text-sm font-bold ${pnlColor(realizedPnl)}`}>{signedFmt(realizedPnl)}</span>
+              <span className="text-xs text-indigo-600 font-medium">{realizedOpen ? "收合 ▲" : "展開 ▼"}</span>
+            </div>
+          </button>
+          {realizedOpen && <div className="overflow-x-auto">
             <table className="w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-50">
@@ -449,7 +457,7 @@ export default function StockPage() {
                 </tbody>
               ))}
             </table>
-          </div>
+          </div>}
         </div>
       )}
 
