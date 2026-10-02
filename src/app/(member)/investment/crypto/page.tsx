@@ -185,7 +185,11 @@ export default function CryptoPage() {
   const marketTotal = holdings.reduce((s, h) => s + (marketValueOf(h) ?? 0), 0);
   const marketMissing = holdings.filter((h) => marketValueOf(h) == null).length;
   // 持有成本：目前持有部位的投入成本，跟資產總攬的虛擬貨幣同一個數字
-  const netInvested = holdings.reduce((s, h) => s + h.cost, 0);
+  // 暫計帳（待賺回）：從 USDT 扣除、尚未回補的部分，持有成本與合計都把它算進去
+  const suspenseCost = suspenseOpenCost(suspenseEntries);
+  const suspenseQty = suspenseEntries.filter((e) => !e.reversedAt).reduce((s, e) => s + e.quantity, 0);
+  const suspenseMarket = livePrice(SUSPENSE_CODE) != null ? suspenseQty * livePrice(SUSPENSE_CODE)! : null;
+  const netInvested = holdings.reduce((s, h) => s + h.cost, 0) + suspenseCost;
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
 
@@ -565,7 +569,7 @@ export default function CryptoPage() {
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">持有成本</div>
           <div className={`text-2xl font-bold mt-1 ${netInvested >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(netInvested)}</div>
-          <div className="text-xs text-slate-400 mt-0.5">目前持有的實際投入成本</div>
+          <div className="text-xs text-slate-400 mt-0.5">{suspenseCost > 0 ? `含暫計帳 ${fmt(suspenseCost)}` : "目前持有的實際投入成本"}</div>
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">買進筆數</div>
@@ -629,14 +633,29 @@ export default function CryptoPage() {
                     </td>
                   </tr>
                 ))}
+                {suspenseQty > 0 && (
+                  <tr className="bg-violet-50/40">
+                    <td className="px-6 py-3 font-medium text-violet-700">暫計帳（待賺回）</td>
+                    <td className="px-4 py-3 text-right text-slate-700 font-mono">{fmtQty(suspenseQty)} {SUSPENSE_CODE}</td>
+                    <td className="px-4 py-3 text-right text-slate-300">—</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{fmt(suspenseCost)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{fmtAvg(suspenseCost / suspenseQty)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{livePrice(SUSPENSE_CODE) != null ? fmtAvg(livePrice(SUSPENSE_CODE)!) : <span className="text-slate-300">—</span>}</td>
+                    <td className="px-6 py-3 text-right font-semibold">
+                      {suspenseMarket != null ? (
+                        <span className={suspenseMarket >= suspenseCost ? "text-red-500" : "text-emerald-600"}>{fmt(suspenseMarket)}</span>
+                      ) : <span className="text-slate-300">—</span>}
+                    </td>
+                  </tr>
+                )}
               </tbody>
               <tfoot>
                 <tr className="border-t border-slate-100 bg-slate-50">
-                  <td colSpan={3} className="px-6 py-3 font-semibold text-slate-800">合計</td>
+                  <td colSpan={3} className="px-6 py-3 font-semibold text-slate-800">合計{suspenseCost > 0 ? "（含暫計帳）" : ""}</td>
                   <td className="px-4 py-3 text-right font-bold text-slate-900">{fmt(netInvested)}</td>
                   <td colSpan={2} />
                   <td className="px-6 py-3 text-right font-bold text-slate-900">
-                    {fmt(marketTotal)}
+                    {fmt(marketTotal + (suspenseMarket ?? 0))}
                     {marketMissing > 0 && <span className="block text-[11px] font-normal text-slate-400">{marketMissing} 種幣沒有報價未計入</span>}
                   </td>
                 </tr>

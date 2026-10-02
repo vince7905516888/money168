@@ -294,18 +294,17 @@ export default function InvestmentOverviewPage() {
     .reduce((s, h) => s + h.bookCost, 0);
   // 虛擬貨幣資產＝目前仍持有部位的投入成本；用 remainingCostByAmount 而非 computeHoldings，
   // 理由見該函式註解（虛擬貨幣的單價欄位不一定可靠，不能拿來重算成本）
-  // 加上配息的即時市值（配息不計成本，持有成本裡沒有它的價值）
-  const cryptoTotal = remainingCostByAmount(byType("CRYPTO")) + dividendMarketValue(remainingHoldingsByAmount(byType("CRYPTO")), cryptoPrices);
+  // 加上配息的即時市值（配息不計成本，持有成本裡沒有它的價值），以及暫計帳（從 USDT 扣除、尚未回補的部分，以扣除當下成本計）
+  const suspenseTotal = suspenseOpenCost(suspenseEntries);
+  const cryptoTotal = remainingCostByAmount(byType("CRYPTO")) + dividendMarketValue(remainingHoldingsByAmount(byType("CRYPTO")), cryptoPrices) + suspenseTotal;
   // 黃金資產＝目前仍持有部位的投入成本；跟虛擬貨幣一樣用 remainingCostByAmount 而非
   // computeHoldings（黃金頁的單價欄位同樣有「實際金額」可覆蓋輸入，不一定等於 amount÷數量）
   const goldTotal = remainingCostByAmount(goldInvestments);
   const realestateTotal = sumAmount(byType("REALESTATE"));
   const insuranceTotal = sumAmount(byType("INSURANCE"));
-  // 暫計帳（待賺回）：從 USDT 扣除、尚未回補的部分，以扣除當下成本計入資產
-  const suspenseTotal = suspenseOpenCost(suspenseEntries);
   const debtTotal = debts.reduce((s, d) => s + d.amount, 0);
 
-  const positiveAssetsTotal = cashBalance + bankTotal + stockTotal + usstockTwdTotal + fundTwdTotal + forexTwdTotal + cryptoTotal + suspenseTotal + goldTotal + realestateTotal + insuranceTotal;
+  const positiveAssetsTotal = cashBalance + bankTotal + stockTotal + usstockTwdTotal + fundTwdTotal + forexTwdTotal + cryptoTotal + goldTotal + realestateTotal + insuranceTotal;
   // 資產負債總計＝正資產總計 − 負債表總額
   const netWorth = positiveAssetsTotal - debtTotal;
 
@@ -316,8 +315,7 @@ export default function InvestmentOverviewPage() {
     { label: "美股投資（已換算台幣）", amount: usstockTwdTotal },
     { label: "基金投資（依目前淨值，已換算台幣）", amount: fundTwdTotal },
     { label: "外匯投資（已換算台幣）", amount: forexTwdTotal },
-    { label: "虛擬貨幣（配息依即時市值）", amount: cryptoTotal },
-    { label: "暫計帳（待賺回）", amount: suspenseTotal },
+    { label: suspenseTotal > 0 ? `虛擬貨幣（含暫計帳 ${fmt(suspenseTotal)}，配息依即時市值）` : "虛擬貨幣（配息依即時市值）", amount: cryptoTotal },
     { label: "黃金投資", amount: goldTotal },
     { label: "不動產投資", amount: realestateTotal },
     { label: "保險投資", amount: insuranceTotal },
