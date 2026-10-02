@@ -110,7 +110,7 @@ export function computeHoldings(investments: HoldingInput[]): Holding[] {
   return computeStockLedger(investments).holdings;
 }
 
-// 虛擬貨幣配息：買進、沒有單價，且金額為 0（早期只加數量的配息）或備註以「配息」開頭（有換算台幣價值的配息）
+// 虛擬貨幣配息：買進、沒有單價，且金額為 0 或備註以「配息」開頭。配息不計成本，價值依即時市價計算（見 dividendMarketValue）
 export function isCryptoDividend(i: { action?: string | null; price?: number | null; amount: number; quantity?: number | null; note?: string | null }): boolean {
   return i.action === "BUY" && !i.price && !!i.quantity && (!i.amount || !!i.note?.startsWith("配息"));
 }
@@ -122,7 +122,6 @@ export interface AmountHolding {
   quantity: number;
   cost: number;
   dividendQty: number; // 累計配息數量
-  dividendValue: number; // 累計配息的台幣價值（配息時換算計入成本的部分）
 }
 
 type AmountHoldingInput = { note?: string | null; code?: string | null; name?: string | null; quantity?: number | null; price?: number | null; amount: number; action?: "BUY" | "SELL" | null; date?: string | Date | null; createdAt: string | Date };
@@ -137,7 +136,7 @@ export function remainingHoldingsByAmount(list: AmountHoldingInput[]): AmountHol
     || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   for (const inv of sorted) {
     const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
-    if (!groups.has(key)) groups.set(key, { key, name: inv.name?.trim() || key, code: inv.code?.trim() || "—", quantity: 0, cost: 0, dividendQty: 0, dividendValue: 0 });
+    if (!groups.has(key)) groups.set(key, { key, name: inv.name?.trim() || key, code: inv.code?.trim() || "—", quantity: 0, cost: 0, dividendQty: 0 });
     const g = groups.get(key)!;
     if (!inv.quantity) {
       // 沒有數量異動的純成本調整列，直接加減成本
@@ -152,10 +151,7 @@ export function remainingHoldingsByAmount(list: AmountHoldingInput[]): AmountHol
     } else {
       g.quantity += inv.quantity;
       g.cost += inv.amount;
-      if (isCryptoDividend({ ...inv, action: "BUY" })) {
-        g.dividendQty += inv.quantity;
-        g.dividendValue += inv.amount;
-      }
+      if (isCryptoDividend({ ...inv, action: "BUY" })) g.dividendQty += inv.quantity;
     }
   }
   return Array.from(groups.values()).filter((g) => g.quantity > 1e-9);
@@ -172,6 +168,15 @@ export function remainingCostByAmount(list: AmountHoldingInput[]): number {
 
 // 暫計帳（待賺回）資產：尚未回補的暫計帳，以扣除當下的成本計入資產。
 // 扣除時虛擬貨幣持有成本減少、這裡等額增加，回補後兩邊再換回來，總資產不因暫計帳而變動
+// 配息市值：目前仍持有的配息數量 × 即時台幣價格（價格表的 key 為大寫代碼）。
+// 配息以零成本記帳，持有成本不含它的價值，資產總攬再把這部分的市值加上去
+export function dividendMarketValue(holdings: AmountHolding[], twdPrices: Record<string, number>): number {
+  return holdings.reduce((s, h) => {
+    const price = twdPrices[h.code.toUpperCase()];
+    return price ? s + Math.min(h.dividendQty, h.quantity) * price : s;
+  }, 0);
+}
+
 export function suspenseOpenCost(list: { quantity: number; unitCost: number; reversedAt?: string | Date | null }[]): number {
   return list.filter((e) => !e.reversedAt).reduce((s, e) => s + e.quantity * e.unitCost, 0);
 }

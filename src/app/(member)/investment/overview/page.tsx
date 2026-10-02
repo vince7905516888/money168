@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
-import { computeHoldings, remainingCostByAmount, suspenseOpenCost } from "@/lib/stock-holdings";
+import { computeHoldings, remainingCostByAmount, remainingHoldingsByAmount, dividendMarketValue, suspenseOpenCost } from "@/lib/stock-holdings";
 
 type InvestmentType = "STOCK" | "USSTOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD" | "REALESTATE" | "INSURANCE";
 
@@ -72,6 +72,8 @@ export default function InvestmentOverviewPage() {
   const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
   const [rateSavingCurrency, setRateSavingCurrency] = useState<string | null>(null);
   const [fundNavs, setFundNavs] = useState<UserFundNav[]>([]);
+  // 虛擬貨幣配息幣種的即時台幣價格（配息以零成本記帳，資產用即時市值計入）
+  const [cryptoPrices, setCryptoPrices] = useState<Record<string, number>>({});
   const [suspenseEntries, setSuspenseEntries] = useState<{ quantity: number; unitCost: number; reversedAt?: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -90,6 +92,14 @@ export default function InvestmentOverviewPage() {
       invRes.json(), bankRes.json(), debtRes.json(), rateRes.json(), cashRes.json(), navRes.json(), suspenseRes.json(),
     ]);
     setSuspenseEntries(Array.isArray(suspenseData) ? suspenseData : []);
+    const dividendCodes = remainingHoldingsByAmount((Array.isArray(invData) ? invData as Investment[] : []).filter((i) => i.type === "CRYPTO"))
+      .filter((h) => h.dividendQty > 0).map((h) => h.code);
+    if (dividendCodes.length > 0) {
+      fetch(`/api/crypto-prices?codes=${encodeURIComponent(dividendCodes.join(","))}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d?.prices) setCryptoPrices(d.prices); })
+        .catch(() => {});
+    }
     setInvestments(Array.isArray(invData) ? invData : []);
     setBanks(Array.isArray(bankData) ? bankData : []);
     setDebts(Array.isArray(debtData) ? debtData : []);
@@ -284,7 +294,8 @@ export default function InvestmentOverviewPage() {
     .reduce((s, h) => s + h.bookCost, 0);
   // 虛擬貨幣資產＝目前仍持有部位的投入成本；用 remainingCostByAmount 而非 computeHoldings，
   // 理由見該函式註解（虛擬貨幣的單價欄位不一定可靠，不能拿來重算成本）
-  const cryptoTotal = remainingCostByAmount(byType("CRYPTO"));
+  // 加上配息的即時市值（配息不計成本，持有成本裡沒有它的價值）
+  const cryptoTotal = remainingCostByAmount(byType("CRYPTO")) + dividendMarketValue(remainingHoldingsByAmount(byType("CRYPTO")), cryptoPrices);
   // 黃金資產＝目前仍持有部位的投入成本；跟虛擬貨幣一樣用 remainingCostByAmount 而非
   // computeHoldings（黃金頁的單價欄位同樣有「實際金額」可覆蓋輸入，不一定等於 amount÷數量）
   const goldTotal = remainingCostByAmount(goldInvestments);
@@ -305,7 +316,7 @@ export default function InvestmentOverviewPage() {
     { label: "美股投資（已換算台幣）", amount: usstockTwdTotal },
     { label: "基金投資（依目前淨值，已換算台幣）", amount: fundTwdTotal },
     { label: "外匯投資（已換算台幣）", amount: forexTwdTotal },
-    { label: "虛擬貨幣", amount: cryptoTotal },
+    { label: "虛擬貨幣（配息依即時市值）", amount: cryptoTotal },
     { label: "暫計帳（待賺回）", amount: suspenseTotal },
     { label: "黃金投資", amount: goldTotal },
     { label: "不動產投資", amount: realestateTotal },

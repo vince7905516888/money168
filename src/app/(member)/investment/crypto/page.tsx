@@ -55,8 +55,6 @@ const DEFAULT_CODES = [
 // 交易所裡還沒拿去買幣的台幣，記成代碼 TWD、單價 1 的一種「幣」，持有數量＝台幣餘額
 const TWD_CODE = "TWD";
 const USDT_CODE = "USDT";
-// 穩定幣配息以 1 USDT 計價
-const STABLE_COINS = ["USDT", "USDC", "FDUSD", "DAI", "TUSD", "USDP"];
 
 type SortKey = "DATE_DESC" | "DATE_ASC" | "AMOUNT_DESC" | "COIN";
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -93,6 +91,10 @@ export default function CryptoPage() {
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [addSaving, setAddSaving] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("DATE_DESC");
+  // 即時台幣價格（key 為大寫代碼），每次進入頁面重新抓取
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [pricesAt, setPricesAt] = useState<string | null>(null);
+  const [pricesFailed, setPricesFailed] = useState(false);
 
   const [suspenseEntries, setSuspenseEntries] = useState<SuspenseEntry[]>([]);
   const [suspenseModal, setSuspenseModal] = useState<{ editing: SuspenseEntry | null } | null>(null);
@@ -118,6 +120,20 @@ export default function CryptoPage() {
     const [invData, exchangeData, suspenseData] = await Promise.all([invRes.json(), exchangeRes.json(), suspenseRes.json()]);
     setInvestments(Array.isArray(invData) ? invData : []);
     setSuspenseEntries(Array.isArray(suspenseData) ? suspenseData : []);
+    // 抓持有過的幣的即時價格（不擋住頁面載入）
+    const codes = [...new Set((Array.isArray(invData) ? invData as Investment[] : []).map((i) => i.code?.trim().toUpperCase()).filter((c): c is string => !!c && c !== "TWD"))];
+    if (codes.length > 0) {
+      fetch(`/api/crypto-prices?codes=${encodeURIComponent(codes.join(","))}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.prices && d.usdTwd) {
+            setPrices(d.prices);
+            setPricesAt(d.fetchedAt);
+            setPricesFailed(false);
+          } else setPricesFailed(true);
+        })
+        .catch(() => setPricesFailed(true));
+    }
     setUserExchanges(Array.isArray(exchangeData) ? exchangeData : []);
     setLoading(false);
   }, []);
@@ -160,6 +176,14 @@ export default function CryptoPage() {
 
   // 持有狀況：每種幣目前的持有數量與投入成本，跟資產總攬同一套算法（依實際金額的移動平均成本）
   const holdings = remainingHoldingsByAmount(investments).sort((a, b) => b.cost - a.cost);
+  // 即時台幣單價：台幣本身為 1，抓不到報價的幣回傳 null
+  const livePrice = (code: string) => (code === TWD_CODE ? 1 : prices[code.toUpperCase()] ?? null);
+  const marketValueOf = (h: { code: string; quantity: number }) => {
+    const p = livePrice(h.code);
+    return p == null ? null : h.quantity * p;
+  };
+  const marketTotal = holdings.reduce((s, h) => s + (marketValueOf(h) ?? 0), 0);
+  const marketMissing = holdings.filter((h) => marketValueOf(h) == null).length;
   // 持有成本：目前持有部位的投入成本，跟資產總攬的虛擬貨幣同一個數字
   const netInvested = holdings.reduce((s, h) => s + h.cost, 0);
   const buyCount = investments.filter((i) => i.action === "BUY").length;
@@ -222,11 +246,6 @@ export default function CryptoPage() {
   const usdtUnitCost = usdtHolding && usdtHolding.quantity > 0 ? usdtHolding.cost / usdtHolding.quantity : 0;
   const fmtQuote = (n: number) => (quote === "USDT" ? `${fmtQty(Math.round(n * 1e6) / 1e6)} USDT` : fmt(n));
   const quantity = parseFloat(addForm.quantity) || 0;
-  // 配息台幣價值：穩定幣以 1 USDT 計，其他幣用填寫的單價（USDT），再依 USDT 平均成本換算台幣；都沒有就只加顆數
-  const dividendCode = addForm.code.trim().toUpperCase();
-  const dividendIsStable = STABLE_COINS.includes(dividendCode);
-  const dividendPriceUsdt = dividendIsStable ? 1 : parseFloat(addForm.price) || 0;
-  const dividendValue = addForm.mode === "DIVIDEND" ? quantity * dividendPriceUsdt * usdtUnitCost : 0;
   // 單價、總金額都沒填時，用這個幣目前的平均成本當單價（USDT 計價時換算成 USDT），只輸入顆數就能記帳
   const coinHolding = holdings.find((h) => h.code === tradeCode);
   const coinAvgTwd = coinHolding && coinHolding.quantity > 0 ? coinHolding.cost / coinHolding.quantity : 0;
@@ -312,7 +331,7 @@ export default function CryptoPage() {
       }
       setAddSaving(true);
       const code = addForm.code.trim();
-      // 配息的台幣價值計入成本（資產增加）；備註固定以「配息」開頭，用來辨識這筆是配息
+      // 配息不計成本（金額 0），價值依即時市價計算；備註固定以「配息」開頭，用來辨識這筆是配息
       const res = await authFetch("/api/investments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -324,8 +343,8 @@ export default function CryptoPage() {
           action: "BUY",
           broker: addForm.broker,
           quantity: addForm.quantity,
-          amount: Math.round(dividendValue * 100) / 100,
-          note: `配息${dividendPriceUsdt > 0 ? `（@${dividendPriceUsdt} USDT）` : ""}${addForm.note ? `：${addForm.note}` : ""}`,
+          amount: 0,
+          note: `配息${addForm.note ? `：${addForm.note}` : ""}`,
         }),
       });
       setAddSaving(false);
@@ -560,8 +579,11 @@ export default function CryptoPage() {
 
       {/* 持有狀況 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
-        <div className="px-6 py-4 border-b border-slate-50">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50">
           <h2 className="font-semibold text-slate-900">持有狀況</h2>
+          <span className="text-[11px] text-slate-400">
+            {pricesFailed ? "即時價格暫時抓不到" : pricesAt ? `價格更新於 ${new Date(pricesAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}` : "價格更新中…"}
+          </span>
         </div>
         {holdings.length === 0 ? (
           <div className="py-10 text-center text-slate-400 text-sm">目前沒有持有虛擬貨幣</div>
@@ -574,7 +596,9 @@ export default function CryptoPage() {
                   <th className="text-right font-semibold px-4 py-3">持有顆數</th>
                   <th className="text-right font-semibold px-4 py-3">累計配息</th>
                   <th className="text-right font-semibold px-4 py-3">持有成本（台幣）</th>
-                  <th className="text-right font-semibold px-6 py-3">平均成本</th>
+                  <th className="text-right font-semibold px-4 py-3">平均成本</th>
+                  <th className="text-right font-semibold px-4 py-3">現價</th>
+                  <th className="text-right font-semibold px-6 py-3">目前市值</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -589,20 +613,32 @@ export default function CryptoPage() {
                       {h.dividendQty > 0 ? (
                         <span className="text-amber-600">
                           {fmtQty(h.dividendQty)}
-                          {h.dividendValue > 0 && <span className="block text-[11px] text-slate-400 font-sans">≈ {fmt(h.dividendValue)}</span>}
+                          {livePrice(h.code) != null && (
+                            <span className="block text-[11px] text-slate-400 font-sans">≈ {fmt(Math.min(h.dividendQty, h.quantity) * livePrice(h.code)!)}</span>
+                          )}
                         </span>
                       ) : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
-                    <td className="px-6 py-3 text-right text-slate-700">{fmtAvg(h.cost / h.quantity)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{fmtAvg(h.cost / h.quantity)}</td>
+                    <td className="px-4 py-3 text-right text-slate-700">{livePrice(h.code) != null ? fmtAvg(livePrice(h.code)!) : <span className="text-slate-300">—</span>}</td>
+                    <td className="px-6 py-3 text-right font-semibold">
+                      {marketValueOf(h) != null ? (
+                        <span className={marketValueOf(h)! >= h.cost ? "text-red-500" : "text-emerald-600"}>{fmt(marketValueOf(h)!)}</span>
+                      ) : <span className="text-slate-300">—</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t border-slate-100 bg-slate-50">
-                  <td colSpan={3} className="px-6 py-3 font-semibold text-slate-800">合計資產（投入成本）</td>
+                  <td colSpan={3} className="px-6 py-3 font-semibold text-slate-800">合計</td>
                   <td className="px-4 py-3 text-right font-bold text-slate-900">{fmt(netInvested)}</td>
-                  <td />
+                  <td colSpan={2} />
+                  <td className="px-6 py-3 text-right font-bold text-slate-900">
+                    {fmt(marketTotal)}
+                    {marketMissing > 0 && <span className="block text-[11px] font-normal text-slate-400">{marketMissing} 種幣沒有報價未計入</span>}
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -814,7 +850,7 @@ export default function CryptoPage() {
               )}
               {addForm.mode === "DIVIDEND" && (
                 <p className="text-xs text-slate-400 -mt-2">
-                  質押、理財、空投等收到的幣：增加持有數量，並把配息的台幣價值計入資產
+                  質押、理財、空投等收到的幣：只填顆數，台幣價值每次開啟頁面依最新市價計算
                 </p>
               )}
 
@@ -940,23 +976,6 @@ export default function CryptoPage() {
                         onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })} placeholder="例如：1.25"
                         className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                     </div>
-                  </div>
-                  {!dividendIsStable && (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">配息當時單價（選填，USDT）</label>
-                      <input type="number" min="0" step="any" value={addForm.price}
-                        onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder="例如 SOL：150"
-                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                      <p className="text-[11px] text-slate-400 mt-1">填了會換算成台幣價值計入資產；留空則只增加顆數</p>
-                    </div>
-                  )}
-                  <div className="bg-slate-50 rounded-xl px-4 py-3 flex justify-between text-sm">
-                    <span className="text-slate-500">
-                      換算台幣價值{dividendIsStable && dividendCode ? `（${dividendCode} 以 1 USDT 計）` : ""}
-                    </span>
-                    <span className="font-semibold text-slate-900">
-                      {usdtUnitCost <= 0 && dividendPriceUsdt > 0 ? "沒有 USDT 平均成本可換算" : fmt(dividendValue)}
-                    </span>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
