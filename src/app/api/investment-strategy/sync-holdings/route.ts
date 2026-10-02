@@ -28,7 +28,8 @@ export async function POST() {
   const holdingsByType = [
     { assetType: "STOCK", holdings: computeHoldings(stockInvestments).filter((h) => h.code && h.code !== "—") },
     { assetType: "USSTOCK", holdings: computeHoldings(usstockInvestments).filter((h) => h.code && h.code !== "—") },
-    { assetType: "CRYPTO", holdings: computeHoldings(cryptoInvestments).filter((h) => h.code && h.code !== "—") },
+    // 排除 TWD：虛擬貨幣頁「台幣入金」記錄的是交易所裡還沒買幣的台幣，不是要追蹤價格的幣種
+    { assetType: "CRYPTO", holdings: computeHoldings(cryptoInvestments).filter((h) => h.code && h.code !== "—" && h.code !== "TWD") },
   ];
 
   const existingEntries = await prisma.investmentStrategyEntry.findMany({

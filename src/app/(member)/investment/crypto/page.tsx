@@ -35,8 +35,22 @@ const DEFAULT_CODES = [
   "BTC", "ETH", "USDT", "USDC", "BNB", "SOL", "XRP", "ADA", "DOGE", "MATIC", "DOT", "LTC", "AVAX", "LINK", "TRX", "SHIB",
 ];
 
+// 交易所裡還沒拿去買幣的台幣，記成代碼 TWD、單價 1 的一種「幣」，持有數量＝台幣餘額
+const TWD_CODE = "TWD";
+
+type SortKey = "DATE_DESC" | "DATE_ASC" | "AMOUNT_DESC" | "COIN";
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "DATE_DESC", label: "日期（新→舊）" },
+  { value: "DATE_ASC", label: "日期（舊→新）" },
+  { value: "AMOUNT_DESC", label: "金額（大→小）" },
+  { value: "COIN", label: "幣種" },
+];
+
 const EMPTY_ADD_FORM = {
-  mode: "TRADE" as "TRADE" | "DIVIDEND",
+  mode: "TRADE" as "TRADE" | "DIVIDEND" | "DEPOSIT",
+  depositAmount: "",
+  payFromTwd: true,
+  creditToTwd: false,
   name: "",
   code: "",
   date: new Date().toISOString().split("T")[0],
@@ -55,6 +69,7 @@ export default function CryptoPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [addSaving, setAddSaving] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("DATE_DESC");
 
   const [editing, setEditing] = useState<Investment | null>(null);
   const [editForm, setEditForm] = useState({ name: "", code: "", date: "", action: "BUY" as "BUY" | "SELL", broker: "", quantity: "", amount: "", note: "" });
@@ -126,7 +141,34 @@ export default function CryptoPage() {
     const code = i.code?.trim();
     if (code && !knownCoins.has(code)) knownCoins.set(code, i.name?.trim() || code);
   }
-  const coinOptions = [...new Set([...knownCoins.keys(), ...DEFAULT_CODES])];
+  const coinOptions = [...new Set([...knownCoins.keys(), ...DEFAULT_CODES])].filter((c) => c !== TWD_CODE);
+  const isTwd = (i: Investment) => i.code?.trim() === TWD_CODE;
+  // 交易所台幣餘額
+  const twdBalance = holdings.find((h) => h.code === TWD_CODE)?.quantity ?? 0;
+  const recordLabel = (i: Investment) =>
+    isTwd(i) ? (i.action === "BUY" ? { text: "台幣入帳", cls: "bg-sky-100 text-sky-700" } : { text: "台幣扣款", cls: "bg-slate-200 text-slate-600" })
+    : isDividend(i) ? { text: "配息", cls: "bg-amber-100 text-amber-700" }
+    : i.action === "BUY" ? { text: "買進", cls: "bg-emerald-100 text-emerald-700" }
+    : { text: "賣出", cls: "bg-red-100 text-red-700" };
+
+  // 投資記錄排序
+  const time = (i: Investment) => new Date(i.date ?? i.createdAt).getTime();
+  const sortedInvestments = [...investments].sort((a, b) => {
+    const byCreated = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    switch (sortKey) {
+      case "DATE_ASC": return time(a) - time(b) || -byCreated;
+      case "AMOUNT_DESC": return Math.abs(b.amount) - Math.abs(a.amount) || time(b) - time(a);
+      case "COIN": return (a.code?.trim() || a.name?.trim() || "").localeCompare(b.code?.trim() || b.name?.trim() || "") || time(b) - time(a);
+      default: return time(b) - time(a) || byCreated;
+    }
+  });
+
+  const postInvestment = (body: Record<string, unknown>) =>
+    authFetch("/api/investments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "CRYPTO", ...body }),
+    });
 
   // ---- 新增表單：即時試算 ----
   const quantity = parseFloat(addForm.quantity) || 0;
@@ -147,6 +189,28 @@ export default function CryptoPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (addForm.mode === "DEPOSIT") {
+      const amt = parseFloat(addForm.depositAmount) || 0;
+      if (amt <= 0) {
+        alert("請填寫入金金額");
+        return;
+      }
+      setAddSaving(true);
+      const res = await postInvestment({
+        name: "台幣", code: TWD_CODE, date: addForm.date, action: "BUY", broker: addForm.broker,
+        quantity: amt, price: 1, amount: amt, note: addForm.note || "入金（台幣，尚未買幣）",
+      });
+      setAddSaving(false);
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        alert(err?.error || "儲存失敗，請稍後再試");
+        return;
+      }
+      setShowAddModal(false);
+      fetchAll();
+      return;
+    }
 
     if (addForm.mode === "DIVIDEND") {
       if (!addForm.code.trim()) {
@@ -207,12 +271,29 @@ export default function CryptoPage() {
         note: addForm.note,
       }),
     });
-    setAddSaving(false);
     if (!res.ok) {
+      setAddSaving(false);
       const err = await res.json().catch(() => null);
       alert(err?.error || "儲存失敗，請稍後再試");
       return;
     }
+    // 連動交易所台幣餘額：買進從台幣餘額扣款（餘額不足只扣到 0，其餘視為從外部付款），賣出款項存入台幣餘額
+    const coin = addForm.code.trim() || addForm.name.trim() || "虛擬貨幣";
+    if (addForm.action === "BUY" && addForm.payFromTwd && twdBalance > 0) {
+      const pay = Math.min(subtotal, twdBalance);
+      const r = await postInvestment({
+        name: "台幣", code: TWD_CODE, date: addForm.date, action: "SELL", broker: addForm.broker,
+        quantity: pay, price: 1, amount: -pay, note: `買進 ${coin} 扣款`,
+      });
+      if (!r.ok) alert(`${coin} 買進已儲存，但台幣餘額扣款失敗，請手動補一筆台幣扣款 ${pay}`);
+    } else if (addForm.action === "SELL" && addForm.creditToTwd && subtotal > 0) {
+      const r = await postInvestment({
+        name: "台幣", code: TWD_CODE, date: addForm.date, action: "BUY", broker: addForm.broker,
+        quantity: subtotal, price: 1, amount: subtotal, note: `賣出 ${coin} 款項`,
+      });
+      if (!r.ok) alert(`${coin} 賣出已儲存，但存入台幣餘額失敗，請手動補一筆台幣入金 ${subtotal}`);
+    }
+    setAddSaving(false);
     setShowAddModal(false);
     fetchAll();
   };
@@ -335,8 +416,12 @@ export default function CryptoPage() {
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-50">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50">
           <h2 className="font-semibold text-slate-900">投資記錄</h2>
+          <select value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)} aria-label="排序方式"
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 focus:border-indigo-400 transition-colors">
+            {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
         </div>
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
@@ -347,13 +432,11 @@ export default function CryptoPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {investments.map((inv) => (
+            {sortedInvestments.map((inv) => (
               <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
                 <div className="flex items-center gap-3">
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                    isDividend(inv) ? "bg-amber-100 text-amber-700" : inv.action === "BUY" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
-                  }`}>
-                    {isDividend(inv) ? "配息" : inv.action === "BUY" ? "買進" : "賣出"}
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${recordLabel(inv).cls}`}>
+                    {recordLabel(inv).text}
                   </span>
                   <div>
                     <div className="text-sm font-medium text-slate-800">
@@ -363,8 +446,8 @@ export default function CryptoPage() {
                     <div className="text-xs text-slate-400 mt-0.5">
                       {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
                       {inv.broker ? ` · ${inv.broker}` : ""}
-                      {inv.quantity ? ` · ${fmtQty(inv.quantity)} 顆` : ""}
-                      {inv.price ? ` · @${fmt2(inv.price)}` : ""}
+                      {inv.quantity && !isTwd(inv) ? ` · ${fmtQty(inv.quantity)} 顆` : ""}
+                      {inv.price && !isTwd(inv) ? ` · @${fmt2(inv.price)}` : ""}
                       {inv.fee ? ` · 手續費 ${fmt(inv.fee)}` : ""}
                       {inv.note ? ` · ${inv.note}` : ""}
                       {inv.transactionId && <span className="ml-1 text-indigo-400">· 已連結支出</span>}
@@ -410,7 +493,18 @@ export default function CryptoPage() {
                   }`}>
                   配息
                 </button>
+                <button type="button" onClick={() => setAddForm({ ...addForm, mode: "DEPOSIT" })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    addForm.mode === "DEPOSIT" ? "bg-sky-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}>
+                  台幣入金
+                </button>
               </div>
+              {addForm.mode === "DEPOSIT" && (
+                <p className="text-xs text-slate-400 -mt-2">
+                  轉進交易所、還沒拿去買幣的台幣。之後買幣時可以勾選「從交易所台幣餘額扣款」，資產才不會重複計算
+                </p>
+              )}
               {addForm.mode === "DIVIDEND" && (
                 <p className="text-xs text-slate-400 -mt-2">
                   質押、理財、空投等收到的幣：只增加持有數量、不增加投入成本，平均成本會自動下降
@@ -418,7 +512,7 @@ export default function CryptoPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">{addForm.mode === "DIVIDEND" ? "配息日期" : "交易日期"}</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{addForm.mode === "DIVIDEND" ? "配息日期" : addForm.mode === "DEPOSIT" ? "入金日期" : "交易日期"}</label>
                 <input required type="date" value={addForm.date}
                   onChange={(e) => setAddForm({ ...addForm, date: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
@@ -464,6 +558,23 @@ export default function CryptoPage() {
                   </div>
                 )}
               </div>
+
+              {addForm.mode === "DEPOSIT" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">入金金額（台幣）</label>
+                    <input required type="number" min="0" step="any" value={addForm.depositAmount}
+                      onChange={(e) => setAddForm({ ...addForm, depositAmount: e.target.value })} placeholder="例如：10000"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    <p className="text-[11px] text-slate-400 mt-1">目前交易所台幣餘額：{fmt(twdBalance)}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+                    <input value={addForm.note} onChange={(e) => setAddForm({ ...addForm, note: e.target.value })}
+                      placeholder="例如：玉山銀行轉入" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                </>
+              )}
 
               {addForm.mode === "DIVIDEND" && (
                 <>
@@ -563,6 +674,29 @@ export default function CryptoPage() {
                   <span>{fmt(subtotal)}{addForm.override !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調整）</span>}</span>
                 </div>
               </div>
+
+              {addForm.action === "BUY" && twdBalance > 0 && (
+                <label className="flex items-start gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={addForm.payFromTwd} className="mt-0.5"
+                    onChange={(e) => setAddForm({ ...addForm, payFromTwd: e.target.checked })} />
+                  <span>
+                    從交易所台幣餘額扣款
+                    <span className="block text-[11px] text-slate-400">
+                      目前餘額 {fmt(twdBalance)}{subtotal > twdBalance ? `，不足的 ${fmt(subtotal - twdBalance)} 視為從外部付款` : ""}
+                    </span>
+                  </span>
+                </label>
+              )}
+              {addForm.action === "SELL" && (
+                <label className="flex items-start gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={addForm.creditToTwd} className="mt-0.5"
+                    onChange={(e) => setAddForm({ ...addForm, creditToTwd: e.target.checked })} />
+                  <span>
+                    賣出款項存入交易所台幣餘額
+                    <span className="block text-[11px] text-slate-400">款項留在交易所、還沒轉回銀行時勾選</span>
+                  </span>
+                </label>
+              )}
               </>)}
 
               <div className="flex gap-2 pt-2">
