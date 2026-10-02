@@ -2,7 +2,7 @@
 // 完全一樣的公式，抽出來讓後台總覽可以逐一算出每個會員的數字再加總成「站結」全站數字，
 // 兩邊才會對得起來。修改任一邊的公式時記得另一邊也要跟著改。
 import { prisma } from "@/lib/prisma";
-import { computeHoldings, remainingCostByAmount } from "@/lib/stock-holdings";
+import { computeHoldings, remainingCostByAmount, suspenseOpenCost } from "@/lib/stock-holdings";
 
 export interface UserAssetSummary {
   cashBalance: number;
@@ -12,6 +12,7 @@ export interface UserAssetSummary {
   fundTwdTotal: number;
   forexTwdTotal: number;
   cryptoTotal: number;
+  suspenseTotal: number;
   goldTotal: number;
   realestateTotal: number;
   insuranceTotal: number;
@@ -59,7 +60,7 @@ function computeForexSuggestedRates(forexInvestments: InvestmentRow[]): Record<s
 }
 
 export async function computeUserAssetSummary(userId: string): Promise<UserAssetSummary> {
-  const [investments, debts, cashTransactions, savedRates, bankTransactions] = await Promise.all([
+  const [investments, debts, cashTransactions, savedRates, bankTransactions, suspenseEntries] = await Promise.all([
     prisma.investment.findMany({ where: { userId } }),
     prisma.debt.findMany({ where: { userId } }),
     prisma.transaction.findMany({ where: { userId, source: "CASH" } }),
@@ -68,6 +69,7 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
       where: { userId, source: "BANK" },
       include: { category: { select: { name: true } } },
     }),
+    prisma.suspenseEntry.findMany({ where: { userId } }),
   ]);
 
   const savedRateMap = new Map(savedRates.map((r) => [r.currency, r.rate]));
@@ -119,6 +121,8 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
   const stockTotal = computeHoldings(toHoldingInput(byType("STOCK"))).reduce((s, h) => s + h.bookCost, 0);
   const cryptoTotal = remainingCostByAmount(byType("CRYPTO"));
   const goldTotal = remainingCostByAmount(byType("GOLD"));
+  // 暫計帳（待賺回）：跟前台資產總攬一樣，尚未回補的部分以扣除當下成本計入資產
+  const suspenseTotal = suspenseOpenCost(suspenseEntries);
 
   // 美股：各幣別持有成本，非TWD用已儲存匯率換算
   const usstockInvestments = byType("USSTOCK");
@@ -161,7 +165,7 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
   const debtTotal = debts.reduce((s, d) => s + d.amount, 0);
 
   const positiveAssetsTotal =
-    cashBalance + bankTotal + stockTotal + usstockTwdTotal + fundTwdTotal + forexTwdTotal + cryptoTotal + goldTotal + realestateTotal + insuranceTotal;
+    cashBalance + bankTotal + stockTotal + usstockTwdTotal + fundTwdTotal + forexTwdTotal + cryptoTotal + suspenseTotal + goldTotal + realestateTotal + insuranceTotal;
   const netWorth = positiveAssetsTotal - debtTotal;
 
   return {
@@ -172,6 +176,7 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
     fundTwdTotal,
     forexTwdTotal,
     cryptoTotal,
+    suspenseTotal,
     goldTotal,
     realestateTotal,
     insuranceTotal,
@@ -190,6 +195,7 @@ export function emptyAssetSummary(): UserAssetSummary {
     fundTwdTotal: 0,
     forexTwdTotal: 0,
     cryptoTotal: 0,
+    suspenseTotal: 0,
     goldTotal: 0,
     realestateTotal: 0,
     insuranceTotal: 0,
@@ -208,6 +214,7 @@ export function sumAssetSummaries(list: UserAssetSummary[]): UserAssetSummary {
     fundTwdTotal: acc.fundTwdTotal + s.fundTwdTotal,
     forexTwdTotal: acc.forexTwdTotal + s.forexTwdTotal,
     cryptoTotal: acc.cryptoTotal + s.cryptoTotal,
+    suspenseTotal: acc.suspenseTotal + s.suspenseTotal,
     goldTotal: acc.goldTotal + s.goldTotal,
     realestateTotal: acc.realestateTotal + s.realestateTotal,
     insuranceTotal: acc.insuranceTotal + s.insuranceTotal,

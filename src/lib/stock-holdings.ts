@@ -160,3 +160,9 @@ export function remainingHoldingsByAmount(list: AmountHoldingInput[]): AmountHol
 export function remainingCostByAmount(list: AmountHoldingInput[]): number {
   return remainingHoldingsByAmount(list).reduce((s, g) => s + g.cost, 0);
 }
+
+// 暫計帳（待賺回）資產：尚未回補的暫計帳，以扣除當下的成本計入資產。
+// 扣除時虛擬貨幣持有成本減少、這裡等額增加，回補後兩邊再換回來，總資產不因暫計帳而變動
+export function suspenseOpenCost(list: { quantity: number; unitCost: number; reversedAt?: string | Date | null }[]): number {
+  return list.filter((e) => !e.reversedAt).reduce((s, e) => s + e.quantity * e.unitCost, 0);
+}

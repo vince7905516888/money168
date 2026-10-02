@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import Combobox from "@/components/ui/Combobox";
-import { remainingHoldingsByAmount } from "@/lib/stock-holdings";
+import { remainingHoldingsByAmount, suspenseOpenCost } from "@/lib/stock-holdings";
 
 interface Investment {
   id: string;
@@ -538,11 +538,14 @@ export default function CryptoPage() {
         <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50">
           <div>
             <h2 className="font-semibold text-slate-900">暫計帳</h2>
-            <p className="text-xs text-slate-400 mt-0.5">用 USDT 支付的項目（例如自動交易軟體），新增時從持有扣除，賺回後可回補</p>
+            <p className="text-xs text-slate-400 mt-0.5">用 USDT 支付的項目（例如自動交易軟體）：新增時從持有扣除、轉列暫計帳資產，賺回後可回補</p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {suspenseOpenQty > 0 && (
-              <span className="text-sm font-bold text-violet-700" title="尚未回補">待賺回 {fmtQty(suspenseOpenQty)} {SUSPENSE_CODE}</span>
+              <span className="text-sm font-bold text-violet-700 text-right" title="尚未回補，以扣除當下成本計入資產總攬">
+                待賺回 {fmtQty(suspenseOpenQty)} {SUSPENSE_CODE}
+                <span className="block text-[11px] font-normal text-slate-400">計入資產 {fmt(suspenseOpenCost(suspenseEntries))}</span>
+              </span>
             )}
             <button type="button" onClick={() => openSuspense(null)}
               className="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1.5 hover:bg-indigo-50 transition-colors">

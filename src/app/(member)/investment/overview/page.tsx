@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
-import { computeHoldings, remainingCostByAmount } from "@/lib/stock-holdings";
+import { computeHoldings, remainingCostByAmount, suspenseOpenCost } from "@/lib/stock-holdings";
 
 type InvestmentType = "STOCK" | "USSTOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD" | "REALESTATE" | "INSURANCE";
 
@@ -72,21 +72,24 @@ export default function InvestmentOverviewPage() {
   const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
   const [rateSavingCurrency, setRateSavingCurrency] = useState<string | null>(null);
   const [fundNavs, setFundNavs] = useState<UserFundNav[]>([]);
+  const [suspenseEntries, setSuspenseEntries] = useState<{ quantity: number; unitCost: number; reversedAt?: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, bankRes, debtRes, rateRes, cashRes, navRes] = await Promise.all([
+    const [invRes, bankRes, debtRes, rateRes, cashRes, navRes, suspenseRes] = await Promise.all([
       fetch("/api/investments"),
       fetch("/api/banks/summary"),
       fetch("/api/debts"),
       fetch("/api/user-exchange-rates"),
       fetch("/api/transactions?source=CASH"),
       fetch("/api/user-fund-nav"),
+      fetch("/api/suspense-entries"),
     ]);
-    const [invData, bankData, debtData, rateData, cashData, navData] = await Promise.all([
-      invRes.json(), bankRes.json(), debtRes.json(), rateRes.json(), cashRes.json(), navRes.json(),
+    const [invData, bankData, debtData, rateData, cashData, navData, suspenseData] = await Promise.all([
+      invRes.json(), bankRes.json(), debtRes.json(), rateRes.json(), cashRes.json(), navRes.json(), suspenseRes.json(),
     ]);
+    setSuspenseEntries(Array.isArray(suspenseData) ? suspenseData : []);
     setInvestments(Array.isArray(invData) ? invData : []);
     setBanks(Array.isArray(bankData) ? bankData : []);
     setDebts(Array.isArray(debtData) ? debtData : []);
@@ -287,9 +290,11 @@ export default function InvestmentOverviewPage() {
   const goldTotal = remainingCostByAmount(goldInvestments);
   const realestateTotal = sumAmount(byType("REALESTATE"));
   const insuranceTotal = sumAmount(byType("INSURANCE"));
+  // 暫計帳（待賺回）：從 USDT 扣除、尚未回補的部分，以扣除當下成本計入資產
+  const suspenseTotal = suspenseOpenCost(suspenseEntries);
   const debtTotal = debts.reduce((s, d) => s + d.amount, 0);
 
-  const positiveAssetsTotal = cashBalance + bankTotal + stockTotal + usstockTwdTotal + fundTwdTotal + forexTwdTotal + cryptoTotal + goldTotal + realestateTotal + insuranceTotal;
+  const positiveAssetsTotal = cashBalance + bankTotal + stockTotal + usstockTwdTotal + fundTwdTotal + forexTwdTotal + cryptoTotal + suspenseTotal + goldTotal + realestateTotal + insuranceTotal;
   // 資產負債總計＝正資產總計 − 負債表總額
   const netWorth = positiveAssetsTotal - debtTotal;
 
@@ -301,6 +306,7 @@ export default function InvestmentOverviewPage() {
     { label: "基金投資（依目前淨值，已換算台幣）", amount: fundTwdTotal },
     { label: "外匯投資（已換算台幣）", amount: forexTwdTotal },
     { label: "虛擬貨幣", amount: cryptoTotal },
+    { label: "暫計帳（待賺回）", amount: suspenseTotal },
     { label: "黃金投資", amount: goldTotal },
     { label: "不動產投資", amount: realestateTotal },
     { label: "保險投資", amount: insuranceTotal },
