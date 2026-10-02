@@ -35,6 +35,7 @@ const DEFAULT_CODES = [
 ];
 
 const EMPTY_ADD_FORM = {
+  mode: "TRADE" as "TRADE" | "DIVIDEND",
   name: "",
   code: "",
   date: new Date().toISOString().split("T")[0],
@@ -112,6 +113,16 @@ export default function CryptoPage() {
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
 
+  // 配息（質押／理財收益等）：只增加數量、不增加成本（金額 0、沒有單價），平均成本會自動下降
+  const isDividend = (i: Investment) => i.action === "BUY" && !i.price && !i.amount && !!i.quantity;
+  // 配息可選的幣種：曾經有紀錄的幣種，加上常見幣種
+  const knownCoins = new Map<string, string>();
+  for (const i of investments) {
+    const code = i.code?.trim();
+    if (code && !knownCoins.has(code)) knownCoins.set(code, i.name?.trim() || code);
+  }
+  const coinOptions = [...new Set([...knownCoins.keys(), ...DEFAULT_CODES])];
+
   // ---- 新增表單：即時試算 ----
   const quantity = parseFloat(addForm.quantity) || 0;
   const price = parseFloat(addForm.price) || 0;
@@ -131,6 +142,44 @@ export default function CryptoPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (addForm.mode === "DIVIDEND") {
+      if (!addForm.code.trim()) {
+        alert("請選擇配息的幣種");
+        return;
+      }
+      if (quantity <= 0) {
+        alert("請填寫配息數量");
+        return;
+      }
+      setAddSaving(true);
+      const code = addForm.code.trim();
+      const res = await authFetch("/api/investments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "CRYPTO",
+          name: addForm.name || knownCoins.get(code) || code,
+          code,
+          date: addForm.date,
+          action: "BUY",
+          broker: addForm.broker,
+          quantity: addForm.quantity,
+          amount: 0,
+          note: addForm.note || "配息（數量增加，不增加成本）",
+        }),
+      });
+      setAddSaving(false);
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        alert(err?.error || "儲存失敗，請稍後再試");
+        return;
+      }
+      setShowAddModal(false);
+      fetchAll();
+      return;
+    }
+
     if (quantity <= 0 || price <= 0) {
       alert("請填寫數量與單價");
       return;
@@ -250,9 +299,9 @@ export default function CryptoPage() {
               <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
                 <div className="flex items-center gap-3">
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                    inv.action === "BUY" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                    isDividend(inv) ? "bg-amber-100 text-amber-700" : inv.action === "BUY" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
                   }`}>
-                    {inv.action === "BUY" ? "買進" : "賣出"}
+                    {isDividend(inv) ? "配息" : inv.action === "BUY" ? "買進" : "賣出"}
                   </span>
                   <div>
                     <div className="text-sm font-medium text-slate-800">
@@ -291,22 +340,33 @@ export default function CryptoPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-slate-900 mb-5">新增虛擬貨幣記錄</h2>
             <form onSubmit={handleAdd} className="space-y-4">
-              {/* 買進/賣出 */}
+              {/* 買進/賣出/配息 */}
               <div className="flex gap-2">
                 {(["BUY", "SELL"] as const).map((a) => (
-                  <button key={a} type="button" onClick={() => setAddForm({ ...addForm, action: a })}
+                  <button key={a} type="button" onClick={() => setAddForm({ ...addForm, mode: "TRADE", action: a })}
                     className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                      addForm.action === a
+                      addForm.mode === "TRADE" && addForm.action === a
                         ? a === "BUY" ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
                         : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                     }`}>
                     {a === "BUY" ? "買進" : "賣出"}
                   </button>
                 ))}
+                <button type="button" onClick={() => setAddForm({ ...addForm, mode: "DIVIDEND" })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    addForm.mode === "DIVIDEND" ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}>
+                  配息
+                </button>
               </div>
+              {addForm.mode === "DIVIDEND" && (
+                <p className="text-xs text-slate-400 -mt-2">
+                  質押、理財、空投等收到的幣：只增加持有數量、不增加投入成本，平均成本會自動下降
+                </p>
+              )}
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">交易日期</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{addForm.mode === "DIVIDEND" ? "配息日期" : "交易日期"}</label>
                 <input required type="date" value={addForm.date}
                   onChange={(e) => setAddForm({ ...addForm, date: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
@@ -353,6 +413,34 @@ export default function CryptoPage() {
                 )}
               </div>
 
+              {addForm.mode === "DIVIDEND" && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">幣種</label>
+                      <Combobox
+                        value={addForm.code}
+                        onChange={(v) => setAddForm({ ...addForm, code: v, name: knownCoins.get(v.trim()) ?? addForm.name })}
+                        options={coinOptions}
+                        placeholder="例如：USDT"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">配息數量</label>
+                      <input required type="number" min="0" step="any" value={addForm.quantity}
+                        onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })} placeholder="例如：1.25"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+                    <input value={addForm.note} onChange={(e) => setAddForm({ ...addForm, note: e.target.value })}
+                      placeholder="例如：幣安活期理財利息" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                </>
+              )}
+
+              {addForm.mode === "TRADE" && (<>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">幣種名稱（選填）</label>
@@ -423,6 +511,7 @@ export default function CryptoPage() {
                   <span>{fmt(subtotal)}{addForm.override !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調整）</span>}</span>
                 </div>
               </div>
+              </>)}
 
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowAddModal(false)}
