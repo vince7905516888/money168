@@ -69,16 +69,21 @@ export default function ReceiptPage() {
   const [cardBank, setCardBank] = useState<Record<string, string>>({});
   const [banks, setBanks] = useState<string[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  // 外幣刷卡：已儲存的匯率、可修改的匯率與國外交易手續費、可直接輸入的台幣金額（帳單或 App 通知）
+  const [savedRates, setSavedRates] = useState<Record<string, number>>({});
+  const [fx, setFx] = useState({ rate: "", feePct: "1.5", twd: "" });
   const [dups, setDups] = useState<{ transactions: DupTx[]; debts: DupDebt[] }>({ transactions: [], debts: [] });
 
   const loadOptions = useCallback(async () => {
-    const [debtCatRes, debtRes, bankRes, catRes] = await Promise.all([
+    const [debtCatRes, debtRes, bankRes, catRes, rateRes] = await Promise.all([
       fetch("/api/user-debt-categories"),
       fetch("/api/debts"),
       fetch("/api/banks/summary"),
       fetch("/api/categories"),
+      fetch("/api/user-exchange-rates"),
     ]);
-    const [debtCats, debts, bankList, cats] = await Promise.all([debtCatRes.json(), debtRes.json(), bankRes.json(), catRes.json()]);
+    const [debtCats, debts, bankList, cats, rates] = await Promise.all([debtCatRes.json(), debtRes.json(), bankRes.json(), catRes.json(), rateRes.json()]);
+    setSavedRates(Object.fromEntries((Array.isArray(rates) ? rates : []).map((r: { currency: string; rate: number }) => [r.currency, r.rate])));
     const names: string[] = Array.isArray(debtCats) ? debtCats.map((c: { name: string }) => c.name) : [];
     // 信用卡排前面；各卡的發卡銀行沿用最近一筆同分類負債記錄的銀行
     setCards([...names.filter((n) => n.includes("信用卡")), ...names.filter((n) => !n.includes("信用卡"))]);
@@ -139,7 +144,7 @@ export default function ReceiptPage() {
   };
 
   const reset = () => {
-    setImage(null); setParsed(false); setPayType(null); setAccount(""); setError(null); setDone(null);
+    setImage(null); setParsed(false); setFx({ rate: "", feePct: "1.5", twd: "" }); setPayType(null); setAccount(""); setError(null); setDone(null);
     setForm({ date: "", title: "", amount: "", currency: "TWD", note: "", category: "其他支出" });
   };
 
@@ -185,12 +190,19 @@ export default function ReceiptPage() {
 
   const accounts = payType === "CARD" ? cards : payType === "BANK" ? banks : [];
   const amount = parseFloat(form.amount) || 0;
-  const canSave = parsed && amount > 0 && !!form.date && !!form.title.trim() && !!payType && (payType === "CASH" || !!account);
+  // 外幣刷卡：負債表只記台幣。估算台幣＝外幣 × 匯率 ×（1＋國外交易手續費）；有填台幣金額（帳單／App 通知）就以填的為準
+  const foreignCard = payType === "CARD" && form.currency !== "TWD";
+  const fxRate = parseFloat(fx.rate) || savedRates[form.currency] || 0;
+  const fxFee = parseFloat(fx.feePct) || 0;
+  const twdEstimate = Math.round(amount * fxRate * (1 + fxFee / 100));
+  const twdActual = parseFloat(fx.twd) || 0;
+  const cardTwd = twdActual > 0 ? twdActual : twdEstimate;
+  const canSave = parsed && amount > 0 && !!form.date && !!form.title.trim() && !!payType && (payType === "CASH" || !!account) && (!foreignCard || cardTwd > 0);
 
   const save = async () => {
     if (!canSave || !payType) return;
     if (dupCount > 0 && !confirm(`同一天已經有 ${dupCount} 筆同金額的記錄，可能是同一張發票。\n確定還是要新增一筆嗎？（建議改用上面的「更正這筆」）`)) return;
-    if (!confirm(`確認記帳？\n\n${form.date}　${form.title}\n${form.currency} ${amount.toLocaleString()}\n付款：${PAY_LABEL[payType].label}${account ? `（${account}）` : ""}\n記到：${PAY_LABEL[payType].dest}`)) return;
+    if (!confirm(`確認記帳？\n\n${form.date}　${form.title}\n${form.currency} ${amount.toLocaleString()}${foreignCard ? `（記台幣 ${cardTwd.toLocaleString()}${twdActual > 0 ? "" : "，估算"}）` : ""}\n付款：${PAY_LABEL[payType].label}${account ? `（${account}）` : ""}\n記到：${PAY_LABEL[payType].dest}`)) return;
     setSaving(true);
     const categoryId = categories.find((c) => c.name === form.category)?.id ?? "";
     const note = form.note.trim();
@@ -199,7 +211,12 @@ export default function ReceiptPage() {
       res = await authFetch("/api/debts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category: account, amount, bankName: cardBank[account] ?? "", date: form.date, note: note ? `${form.title}・${note}` : form.title }),
+        body: JSON.stringify({
+          category: account, amount: foreignCard ? cardTwd : amount, bankName: cardBank[account] ?? "", date: form.date,
+          note: [form.title, note, foreignCard ? (twdActual > 0
+            ? `原幣 ${amount} ${form.currency}，實際台幣（帳單／通知）`
+            : `原幣 ${amount} ${form.currency}，估算台幣（匯率 ${fxRate}、手續費 ${fxFee}%，請以帳單更正）`) : ""].filter(Boolean).join("・"),
+        }),
       });
     } else {
       res = await authFetch("/api/transactions", {
@@ -344,15 +361,38 @@ export default function ReceiptPage() {
                     </div>
                   </div>
                 )}
-                {payType === "CARD" && form.currency !== "TWD" && (
-                  <p className="text-xs text-amber-600">負債表只記台幣金額，請把金額改成信用卡帳單上的台幣金額，並把幣別改成 TWD</p>
+                {foreignCard && (
+                  <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-3">
+                    <p className="text-xs text-slate-500">外幣刷卡：負債表記台幣。可以先用匯率估算，或直接輸入帳單／App 通知上的台幣金額</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">匯率（1 {form.currency} = ? 台幣）</label>
+                        <input type="number" min="0" step="any" value={fx.rate} onChange={(e) => setFx({ ...fx, rate: e.target.value })}
+                          placeholder={savedRates[form.currency] ? `已儲存 ${savedRates[form.currency]}` : "請輸入匯率"} className={input} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">國外交易手續費（%）</label>
+                        <input type="number" min="0" step="any" value={fx.feePct} onChange={(e) => setFx({ ...fx, feePct: e.target.value })} className={input} />
+                      </div>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">估算台幣</span>
+                      <span className="font-semibold text-slate-800">{fxRate > 0 ? `NT${twdEstimate.toLocaleString()}` : "（請先輸入匯率）"}</span>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">實際台幣金額（帳單或 App 通知，有的話直接填）</label>
+                      <input type="number" min="0" step="any" value={fx.twd} onChange={(e) => setFx({ ...fx, twd: e.target.value })}
+                        placeholder={fxRate > 0 ? `留空就用估算 ${twdEstimate.toLocaleString()}` : "例如：258"} className={input} />
+                    </div>
+                    <p className="text-xs font-semibold text-indigo-600">會記到負債表：NT${cardTwd > 0 ? cardTwd.toLocaleString() : "—"}（{twdActual > 0 ? "實際金額" : "估算，帳單出來後可到負債表更正"}）</p>
+                  </div>
                 )}
                 {payType && <p className="text-xs text-slate-400">會記到「{PAY_LABEL[payType].dest}」</p>}
               </div>
 
               <div className="flex gap-2">
                 <button type="button" onClick={reset} className="flex-1 py-3 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50">重新拍</button>
-                <button type="button" onClick={save} disabled={!canSave || saving || (payType === "CARD" && form.currency !== "TWD")}
+                <button type="button" onClick={save} disabled={!canSave || saving}
                   className="flex-[2] py-3 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
                   {saving ? "記帳中…" : "確認記帳"}
                 </button>
