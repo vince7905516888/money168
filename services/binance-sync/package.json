@@ -1,0 +1,16 @@
+{
+  "name": "binance-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "幣安帳戶同步排程工作：Railway 新加坡區每 12 小時執行，讀取幣安唯讀 API 寫入 BinanceSnapshot",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
+  },
+  "type": "module"
+}

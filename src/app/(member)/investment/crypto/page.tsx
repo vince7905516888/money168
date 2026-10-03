@@ -111,6 +111,10 @@ export default function CryptoPage() {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [pricesAt, setPricesAt] = useState<string | null>(null);
   const [pricesFailed, setPricesFailed] = useState(false);
+  // 幣安帳戶最新同步快照（排程工作每 12 小時寫入），用來核對帳上數量
+  const [binanceSnap, setBinanceSnap] = useState<{ fetchedAt: string; balances: Record<string, { spot: number; funding: number; earn: number; total: number }>; error: string | null } | null>(null);
+  const [binanceOpen, setBinanceOpen] = useState(false);
+  const [adjustingCode, setAdjustingCode] = useState<string | null>(null);
 
   const [suspenseEntries, setSuspenseEntries] = useState<SuspenseEntry[]>([]);
   const [suspenseModal, setSuspenseModal] = useState<{ editing: SuspenseEntry | null } | null>(null);
@@ -128,12 +132,14 @@ export default function CryptoPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, exchangeRes, suspenseRes] = await Promise.all([
+    const [invRes, exchangeRes, suspenseRes, snapRes] = await Promise.all([
       fetch("/api/investments?type=CRYPTO"),
       fetch("/api/user-exchanges"),
       fetch("/api/suspense-entries"),
+      fetch("/api/binance/snapshot"),
     ]);
-    const [invData, exchangeData, suspenseData] = await Promise.all([invRes.json(), exchangeRes.json(), suspenseRes.json()]);
+    const [invData, exchangeData, suspenseData, snapData] = await Promise.all([invRes.json(), exchangeRes.json(), suspenseRes.json(), snapRes.json().catch(() => null)]);
+    setBinanceSnap(snapData && snapData.balances ? snapData : null);
     setInvestments(Array.isArray(invData) ? invData : []);
     setSuspenseEntries(Array.isArray(suspenseData) ? suspenseData : []);
     // 抓持有過的幣的即時價格（不擋住頁面載入）
@@ -707,6 +713,42 @@ export default function CryptoPage() {
     fetchAll();
   };
 
+  // 幣安核對：幣安實際數量 vs 帳上數量（台幣不在幣安，不比對）
+  const BINANCE_EXCHANGE = "幣安 Binance";
+  const binanceRows = binanceSnap
+    ? [...new Set([...Object.keys(binanceSnap.balances), ...holdings.map((h) => h.code)])]
+        .filter((code) => code !== TWD_CODE && code !== "—")
+        .map((code) => {
+          const actual = binanceSnap.balances[code]?.total ?? 0;
+          const holding = holdings.find((h) => h.code === code);
+          const book = holding?.quantity ?? 0;
+          return { code, actual, book, diff: Math.round((actual - book) * 1e8) / 1e8, holding };
+        })
+        .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+    : [];
+  const binanceMismatch = binanceRows.filter((r) => r.diff !== 0).length;
+
+  // 一鍵調帳：補一筆差額讓帳上數量等於幣安實際數量（以目前平均成本計價，跟「調帳」模式相同）
+  const quickAdjust = async (row: (typeof binanceRows)[number]) => {
+    if (!row.holding) return;
+    if (!confirm(`把 ${row.code} 帳上數量 ${fmtQty(row.book)} 調成幣安實際 ${fmtQty(row.actual)}？（差額 ${row.diff > 0 ? "+" : ""}${fmtQty(row.diff)}）`)) return;
+    const avg = row.holding.quantity > 0 ? row.holding.cost / row.holding.quantity : 0;
+    setAdjustingCode(row.code);
+    const res = await postInvestment({
+      name: row.holding.name, code: row.code, date: new Date().toLocaleDateString("sv-SE"),
+      action: row.diff > 0 ? "BUY" : "SELL", broker: BINANCE_EXCHANGE,
+      quantity: Math.abs(row.diff), price: avg || undefined, amount: row.diff * avg,
+      note: `${ADJUST_NOTE}：${fmtQty(row.book)} → ${fmtQty(row.actual)}（幣安核對）`,
+    });
+    setAdjustingCode(null);
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "調帳失敗，請稍後再試");
+      return;
+    }
+    fetchAll();
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆投資記錄？")) return;
     await authFetch(`/api/investments/${id}`, { method: "DELETE" });
@@ -835,6 +877,78 @@ export default function CryptoPage() {
               </tfoot>
             </table>
           </div>
+        )}
+      </div>
+
+      {/* 幣安帳戶核對 */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
+        <button type="button" onClick={() => setBinanceOpen((o) => !o)} aria-expanded={binanceOpen}
+          className={`w-full flex items-center justify-between gap-3 px-6 py-4 text-left hover:bg-slate-50 transition-colors ${binanceOpen ? "border-b border-slate-50" : ""}`}>
+          <div>
+            <h2 className="font-semibold text-slate-900">幣安帳戶核對</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {binanceSnap ? `最後同步 ${new Date(binanceSnap.fetchedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}・每 12 小時自動同步` : "尚未同步：請先在 Railway 的 binance-proxy 服務設定幣安 API 金鑰"}
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {binanceSnap && !binanceSnap.error && (
+              binanceMismatch > 0
+                ? <span className="text-sm font-bold text-amber-600">{binanceMismatch} 種幣對不上</span>
+                : <span className="text-sm font-bold text-emerald-600">全部一致 ✓</span>
+            )}
+            <span className="text-xs text-indigo-600 font-medium">{binanceOpen ? "收合 ▲" : "展開 ▼"}</span>
+          </div>
+        </button>
+        {binanceOpen && (
+          !binanceSnap ? (
+            <div className="px-6 py-6 text-sm text-slate-500">還沒有同步資料。設定好幣安 API 金鑰後，排程工作會每 12 小時自動同步一次。</div>
+          ) : binanceSnap.error ? (
+            <div className="px-6 py-6 text-sm text-red-500">同步失敗：{binanceSnap.error}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm whitespace-nowrap">
+                <thead>
+                  <tr className="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-50">
+                    <th className="text-left font-semibold px-6 py-3">幣種</th>
+                    <th className="text-right font-semibold px-4 py-3">幣安實際</th>
+                    <th className="text-right font-semibold px-4 py-3">帳上</th>
+                    <th className="text-right font-semibold px-4 py-3">差額</th>
+                    <th className="text-right font-semibold px-6 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {binanceRows.map((r) => (
+                    <tr key={r.code} className={r.diff !== 0 ? "bg-amber-50/40" : ""}>
+                      <td className="px-6 py-3 font-medium text-slate-800">
+                        {r.code}
+                        {binanceSnap.balances[r.code] && (
+                          <span className="block text-[11px] font-normal text-slate-400">
+                            {[["現貨", binanceSnap.balances[r.code].spot], ["資金", binanceSnap.balances[r.code].funding], ["理財", binanceSnap.balances[r.code].earn]]
+                              .filter(([, v]) => (v as number) > 0).map(([k, v]) => `${k} ${fmtQty(v as number)}`).join(" · ")}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-700">{fmtQty(r.actual)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-700">{fmtQty(r.book)}</td>
+                      <td className={`px-4 py-3 text-right font-mono font-semibold ${r.diff === 0 ? "text-slate-300" : "text-amber-600"}`}>
+                        {r.diff === 0 ? "—" : `${r.diff > 0 ? "+" : ""}${fmtQty(r.diff)}`}
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        {r.diff !== 0 && (r.holding ? (
+                          <button type="button" disabled={adjustingCode === r.code} onClick={() => quickAdjust(r)}
+                            className="text-xs font-semibold text-violet-600 border border-violet-200 rounded-lg px-2.5 py-1 hover:bg-violet-50 disabled:opacity-50">
+                            {adjustingCode === r.code ? "調帳中…" : "調帳"}
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">帳上沒有（美股代幣請記在美股頁）</span>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
       </div>
 

@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# 獨立部署的小服務（services/*）各自的套件
+/services/*/node_modules

@@ -33,6 +33,7 @@ model User {
   investments        Investment[]
   debts              Debt[]
   suspenseEntries    SuspenseEntry[]
+  binanceSnapshots   BinanceSnapshot[]
   userCurrencies     UserCurrency[]
   userFundNavs       UserFundNav[]
   userWatchStocks    UserWatchStock[]
@@ -132,6 +133,21 @@ model SuspenseEntry {
   user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
+}
+
+// 幣安帳戶同步快照：由 Railway 新加坡區的排程工作（services/binance-sync）每 12 小時寫入一筆，
+// 存各帳戶餘額彙總（balances）與這次抓到的原始資料（raw：成交、閃兌、理財利息、充提等），
+// 網站只讀取最新一筆做核對；排程工作沒有對外端點，幣安金鑰只存在該服務的環境變數
+model BinanceSnapshot {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fetchedAt DateTime @default(now())
+  balances  Json // { "USDT": { "spot": 1, "funding": 0, "earn": 0, "total": 1 }, ... }
+  raw       Json?
+  error     String?
+
+  @@index([userId, fetchedAt])
 }
 
 model Debt {
