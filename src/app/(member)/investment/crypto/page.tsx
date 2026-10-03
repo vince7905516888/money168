@@ -57,6 +57,8 @@ const TWD_CODE = "TWD";
 const PAGE_SIZE = 20;
 // 交易所之間轉移的記錄（一對：轉出／轉入），備註以這個字串開頭
 const TRANSFER_NOTE = "轉移";
+// 幣與幣之間兌換的記錄（一對：換出／換入），備註以這個字串開頭
+const SWAP_NOTE = "兌換";
 const USDT_CODE = "USDT";
 
 type SortKey = "DATE_DESC" | "DATE_ASC" | "AMOUNT_DESC" | "COIN";
@@ -68,7 +70,11 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 ];
 
 const EMPTY_ADD_FORM = {
-  mode: "TRADE" as "TRADE" | "DIVIDEND" | "DEPOSIT" | "ADJUST" | "TRANSFER",
+  mode: "TRADE" as "TRADE" | "DIVIDEND" | "DEPOSIT" | "ADJUST" | "TRANSFER" | "SWAP",
+  swapFrom: "",
+  swapFromQty: "",
+  swapTo: "",
+  swapToQty: "",
   transferCode: "",
   transferFrom: "",
   transferTo: "",
@@ -215,7 +221,8 @@ export default function CryptoPage() {
   const suspenseQty = suspenseEntries.filter((e) => !e.reversedAt).reduce((s, e) => s + e.quantity, 0);
   const suspenseMarket = livePrice(SUSPENSE_CODE) != null ? suspenseQty * livePrice(SUSPENSE_CODE)! : null;
   const netInvested = holdings.reduce((s, h) => s + h.cost, 0) + suspenseCost;
-  const isTransferRecord = (i: Investment) => !!i.note?.startsWith(TRANSFER_NOTE + "：");
+  const isTransferRecord = (i: Investment) => !!i.note?.startsWith(TRANSFER_NOTE + "：") || !!i.note?.startsWith(SWAP_NOTE + "：");
+  const isSwapRecord = (i: Investment) => !!i.note?.startsWith(SWAP_NOTE + "：");
   const buyCount = investments.filter((i) => i.action === "BUY" && !isTransferRecord(i)).length;
   const sellCount = investments.filter((i) => i.action === "SELL" && !isTransferRecord(i)).length;
 
@@ -242,6 +249,7 @@ export default function CryptoPage() {
     suspenseDeductIds.has(i.id) ? { text: "暫計帳扣除", cls: "bg-violet-100 text-violet-700" }
     : suspenseReverseIds.has(i.id) ? { text: "暫計帳回補", cls: "bg-violet-100 text-violet-700" }
     : isAdjustRecord(i) ? { text: "調帳", cls: "bg-violet-100 text-violet-700" }
+    : isSwapRecord(i) ? { text: i.action === "SELL" ? "兌換換出" : "兌換換入", cls: "bg-orange-100 text-orange-700" }
     : isTransferRecord(i) ? { text: i.action === "SELL" ? "轉出" : "轉入", cls: "bg-cyan-100 text-cyan-700" }
     : isTwd(i) ? (i.action === "BUY" ? { text: "台幣入帳", cls: "bg-sky-100 text-sky-700" } : { text: "台幣扣款", cls: "bg-slate-200 text-slate-600" })
     : isDividend(i) ? { text: "配息", cls: "bg-amber-100 text-amber-700" }
@@ -282,6 +290,12 @@ export default function CryptoPage() {
   const usdtUnitCost = usdtHolding && usdtHolding.quantity > 0 ? usdtHolding.cost / usdtHolding.quantity : 0;
   const fmtQuote = (n: number) => (quote === "USDT" ? `${fmtQty(Math.round(n * 1e6) / 1e6)} USDT` : fmt(n));
   const quantity = parseFloat(addForm.quantity) || 0;
+  // 兌換試算：換出的幣以平均成本帶走成本，換到的幣承接同一筆成本（兌換本身不影響總資產）
+  const swapFromHolding = holdings.find((h) => h.code === addForm.swapFrom);
+  const swapFromQty = parseFloat(addForm.swapFromQty) || 0;
+  const swapToQty = parseFloat(addForm.swapToQty) || 0;
+  const swapToCode = addForm.swapTo.trim().toUpperCase();
+  const swapCost = swapFromHolding && swapFromHolding.quantity > 0 ? (swapFromHolding.cost / swapFromHolding.quantity) * swapFromQty : 0;
   // 轉移試算：轉出交易所的持有數量、手續費（以幣計）、轉入數量、搬過去的成本（以全體平均成本計）
   const transferHolding = holdings.find((h) => h.code === addForm.transferCode);
   const transferSources = exchangesByCode.get(addForm.transferCode) ?? [];
@@ -316,6 +330,48 @@ export default function CryptoPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (addForm.mode === "SWAP") {
+      if (!swapFromHolding || !swapToCode) {
+        alert("請選擇換出與換到的幣種");
+        return;
+      }
+      if (swapToCode === swapFromHolding.code) {
+        alert("換出與換到的幣種不能相同");
+        return;
+      }
+      if (swapFromQty <= 0 || swapFromQty > swapFromHolding.quantity + 1e-9) {
+        alert(`換出數量要大於 0，且不能超過持有 ${fmtQty(swapFromHolding.quantity)}`);
+        return;
+      }
+      if (swapToQty <= 0) {
+        alert("請填寫實際換到的數量");
+        return;
+      }
+      const note = `${SWAP_NOTE}：${fmtQty(swapFromQty)} ${swapFromHolding.code} → ${fmtQty(swapToQty)} ${swapToCode}${addForm.note ? `（${addForm.note}）` : ""}`;
+      setAddSaving(true);
+      const out = await postInvestment({
+        name: swapFromHolding.code === TWD_CODE ? "台幣" : swapFromHolding.name, code: swapFromHolding.code,
+        date: addForm.date, action: "SELL", broker: addForm.broker,
+        quantity: swapFromQty, price: swapFromQty > 0 && swapCost > 0 ? swapCost / swapFromQty : undefined, amount: -swapCost, note,
+      });
+      if (!out.ok) {
+        setAddSaving(false);
+        const err = await out.json().catch(() => null);
+        alert(err?.error || "儲存失敗，請稍後再試");
+        return;
+      }
+      const inn = await postInvestment({
+        name: knownCoins.get(swapToCode) ?? swapToCode, code: swapToCode,
+        date: addForm.date, action: "BUY", broker: addForm.broker,
+        quantity: swapToQty, price: swapCost > 0 ? swapCost / swapToQty : undefined, amount: swapCost, note,
+      });
+      if (!inn.ok) alert(`換出已儲存，但 ${swapToCode} 的換入記錄儲存失敗，請手動補一筆買進 ${fmtQty(swapToQty)} ${swapToCode}`);
+      setAddSaving(false);
+      setShowAddModal(false);
+      fetchAll();
+      return;
+    }
 
     if (addForm.mode === "TRANSFER") {
       // 交易所之間轉移：轉出交易所記一筆轉出、轉入交易所記一筆轉入，總成本不變；
@@ -960,7 +1016,7 @@ export default function CryptoPage() {
             <h2 className="text-lg font-bold text-slate-900 mb-5">新增虛擬貨幣記錄</h2>
             <form onSubmit={handleAdd} className="space-y-4">
               {/* 買進/賣出/配息/台幣入金/調帳 */}
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 [&>button]:text-xs sm:[&>button]:text-sm [&>button]:px-1">
+              <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5 [&>button]:text-xs sm:[&>button]:text-sm [&>button]:px-1">
                 {(["BUY", "SELL"] as const).map((a) => (
                   <button key={a} type="button" onClick={() => setAddForm({ ...addForm, mode: "TRADE", action: a })}
                     className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
@@ -995,7 +1051,18 @@ export default function CryptoPage() {
                   }`}>
                   轉移
                 </button>
+                <button type="button" onClick={() => setAddForm({ ...addForm, mode: "SWAP" })}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    addForm.mode === "SWAP" ? "bg-orange-500 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}>
+                  兌換
+                </button>
               </div>
+              {addForm.mode === "SWAP" && (
+                <p className="text-xs text-slate-400 -mt-2">
+                  用一種幣換另一種幣（例如 SOL 換 ADA）：換到的幣承接換出幣的成本，兌換本身不影響總資產
+                </p>
+              )}
               {addForm.mode === "TRANSFER" && (
                 <p className="text-xs text-slate-400 -mt-2">
                   把幣從一個交易所轉到另一個交易所：總成本不變，手續費（以幣計）會讓轉入數量變少
@@ -1018,7 +1085,7 @@ export default function CryptoPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">{addForm.mode === "DIVIDEND" ? "配息日期" : addForm.mode === "DEPOSIT" ? "入金日期" : addForm.mode === "ADJUST" ? "調帳日期" : addForm.mode === "TRANSFER" ? "轉移日期" : "交易日期"}</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">{addForm.mode === "DIVIDEND" ? "配息日期" : addForm.mode === "DEPOSIT" ? "入金日期" : addForm.mode === "ADJUST" ? "調帳日期" : addForm.mode === "TRANSFER" ? "轉移日期" : addForm.mode === "SWAP" ? "兌換日期" : "交易日期"}</label>
                 <input required type="date" value={addForm.date}
                   onChange={(e) => setAddForm({ ...addForm, date: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
@@ -1078,6 +1145,68 @@ export default function CryptoPage() {
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
                     <input value={addForm.note} onChange={(e) => setAddForm({ ...addForm, note: e.target.value })}
                       placeholder="例如：玉山銀行轉入" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                </>
+              )}
+
+              {addForm.mode === "SWAP" && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">換出幣種</label>
+                      <select required value={addForm.swapFrom}
+                        onChange={(e) => setAddForm({ ...addForm, swapFrom: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                        <option value="">請選擇</option>
+                        {holdings.map((h) => (
+                          <option key={h.key} value={h.code}>{h.code === TWD_CODE ? "台幣" : h.code}（{fmtQty(h.quantity)}）</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">換出數量</label>
+                      <input required type="number" min="0" step="any" value={addForm.swapFromQty}
+                        onChange={(e) => setAddForm({ ...addForm, swapFromQty: e.target.value })}
+                        placeholder={swapFromHolding ? `最多 ${fmtQty(swapFromHolding.quantity)}` : "例如：1"}
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">換到幣種</label>
+                      <Combobox
+                        value={addForm.swapTo}
+                        onChange={(v) => setAddForm({ ...addForm, swapTo: v })}
+                        options={coinOptions}
+                        placeholder="例如：ADA"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">實際換到數量</label>
+                      <input required type="number" min="0" step="any" value={addForm.swapToQty}
+                        onChange={(e) => setAddForm({ ...addForm, swapToQty: e.target.value })} placeholder="扣掉手續費後"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                  </div>
+                  {swapFromHolding && swapFromQty > 0 && (
+                    <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
+                      <div className="flex justify-between text-xs text-slate-500">
+                        <span>轉移成本</span><span>{fmt(swapCost)}</span>
+                      </div>
+                      {swapToQty > 0 && swapToCode && (
+                        <div className="flex justify-between text-xs text-slate-500">
+                          <span>{swapToCode} 換入成本單價</span><span>{fmtAvg(swapCost / swapToQty)}</span>
+                        </div>
+                      )}
+                      {swapFromQty > swapFromHolding.quantity + 1e-9 && (
+                        <p className="text-xs text-red-500">超過持有（{fmtQty(swapFromHolding.quantity)}）</p>
+                      )}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+                    <input value={addForm.note} onChange={(e) => setAddForm({ ...addForm, note: e.target.value })}
+                      placeholder="例如：幣安閃兌" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                   </div>
                 </>
               )}
