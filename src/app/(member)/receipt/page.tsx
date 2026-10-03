@@ -22,6 +22,10 @@ interface Parsed {
 
 interface Category { id: string; name: string; type: string }
 
+// 同一天、同金額的既有記錄（可能是同一張發票已經記過）
+interface DupTx { id: string; title: string; amount: number; type: string; source: string; note: string | null; date: string; currency: string | null; categoryId: string | null; category: { name: string } | null }
+interface DupDebt { id: string; category: string; amount: number; bankName: string | null; note: string | null; date: string }
+
 const PAY_LABEL: Record<PayType, { label: string; dest: string; href: string }> = {
   CARD: { label: "💳 信用卡", dest: "負債表", href: "/debts" },
   BANK: { label: "🏦 銀行", dest: "銀行資金管理", href: "/banks" },
@@ -65,6 +69,7 @@ export default function ReceiptPage() {
   const [cardBank, setCardBank] = useState<Record<string, string>>({});
   const [banks, setBanks] = useState<string[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [dups, setDups] = useState<{ transactions: DupTx[]; debts: DupDebt[] }>({ transactions: [], debts: [] });
 
   const loadOptions = useCallback(async () => {
     const [debtCatRes, debtRes, bankRes, catRes] = await Promise.all([
@@ -85,6 +90,53 @@ export default function ReceiptPage() {
   }, []);
 
   useEffect(() => { loadOptions(); }, [loadOptions]);
+
+  // 日期或金額變動時，查有沒有同一天、同金額的記錄
+  const dupCheckable = parsed && !!form.date && parseFloat(form.amount) > 0;
+  useEffect(() => {
+    if (!dupCheckable) return;
+    const timer = setTimeout(async () => {
+      const res = await fetch(`/api/receipts/duplicates?date=${form.date}&amount=${parseFloat(form.amount)}`);
+      const data = await res.json().catch(() => null);
+      setDups({ transactions: data?.transactions ?? [], debts: data?.debts ?? [] });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [dupCheckable, form.date, form.amount]);
+  // 條件不符（還沒辨識、沒填金額）時不顯示提醒，不必清空查詢結果
+  const dupCount = dupCheckable ? dups.transactions.length + dups.debts.length : 0;
+
+  // 更正原本的記錄：只改名稱／品項，不動付款方式、金額、日期與分類（備註裡可能存著付款方式或銀行名稱）
+  const correctedTitle = () => {
+    const items = form.note.trim();
+    return items ? `${form.title.trim()}（${items}）`.slice(0, 80) : form.title.trim();
+  };
+  const correctTx = async (t: DupTx) => {
+    const title = correctedTitle();
+    if (!confirm(`更正原本的記錄？\n\n名稱：${t.title} → ${title}\n（付款方式、金額、日期不變）`)) return;
+    setSaving(true);
+    const res = await authFetch(`/api/transactions/${t.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, amount: t.amount, type: t.type, date: t.date, note: t.note, categoryId: t.categoryId, currency: t.currency ?? "TWD" }),
+    });
+    setSaving(false);
+    if (!res.ok) { alert("更正失敗，請稍後再試"); return; }
+    setDone(t.source === "BANK" ? { dest: "銀行資金管理（已更正原本的記錄）", href: "/banks" } : { dest: "收支記錄（已更正原本的記錄）", href: "/transactions" });
+  };
+  const correctDebt = async (d: DupDebt) => {
+    const items = form.note.trim();
+    const note = items ? `${form.title.trim()}・${items}` : form.title.trim();
+    if (!confirm(`更正原本的記錄？\n\n${d.category} 的備註：${d.note ?? "（空白）"} → ${note}\n（金額、日期不變）`)) return;
+    setSaving(true);
+    const res = await authFetch(`/api/debts/${d.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
+    });
+    setSaving(false);
+    if (!res.ok) { alert("更正失敗，請稍後再試"); return; }
+    setDone({ dest: "負債表（已更正原本的記錄）", href: "/debts" });
+  };
 
   const reset = () => {
     setImage(null); setParsed(false); setPayType(null); setAccount(""); setError(null); setDone(null);
@@ -137,6 +189,7 @@ export default function ReceiptPage() {
 
   const save = async () => {
     if (!canSave || !payType) return;
+    if (dupCount > 0 && !confirm(`同一天已經有 ${dupCount} 筆同金額的記錄，可能是同一張發票。\n確定還是要新增一筆嗎？（建議改用上面的「更正這筆」）`)) return;
     if (!confirm(`確認記帳？\n\n${form.date}　${form.title}\n${form.currency} ${amount.toLocaleString()}\n付款：${PAY_LABEL[payType].label}${account ? `（${account}）` : ""}\n記到：${PAY_LABEL[payType].dest}`)) return;
     setSaving(true);
     const categoryId = categories.find((c) => c.name === form.category)?.id ?? "";
@@ -243,6 +296,29 @@ export default function ReceiptPage() {
                   <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className={input} />
                 </div>
               </div>
+
+              {dupCount > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-3">
+                  <h2 className="font-semibold text-amber-800">⚠️ 這張發票可能已經記過了</h2>
+                  <p className="text-xs text-amber-700">同一天、同金額已經有下面的記錄。如果是同一筆，請按「更正這筆」，用發票內容更正名稱與品項，不會重複記帳。</p>
+                  <div className="space-y-2">
+                    {dups.debts.map((d) => (
+                      <div key={d.id} className="flex items-center justify-between gap-3 bg-white rounded-lg px-3.5 py-2.5 text-sm">
+                        <span className="text-slate-700">負債表・{d.category}・{d.amount.toLocaleString()}・備註「{d.note || "空白"}」</span>
+                        <button type="button" disabled={saving} onClick={() => correctDebt(d)}
+                          className="shrink-0 text-xs font-semibold text-amber-700 border border-amber-300 rounded-lg px-2.5 py-1 hover:bg-amber-100 disabled:opacity-50">更正這筆</button>
+                      </div>
+                    ))}
+                    {dups.transactions.map((t) => (
+                      <div key={t.id} className="flex items-center justify-between gap-3 bg-white rounded-lg px-3.5 py-2.5 text-sm">
+                        <span className="text-slate-700">{t.source === "BANK" ? "銀行資金管理" : "收支記錄"}・{t.title}・{t.amount.toLocaleString()}{t.currency && t.currency !== "TWD" ? ` ${t.currency}` : ""}</span>
+                        <button type="button" disabled={saving} onClick={() => correctTx(t)}
+                          className="shrink-0 text-xs font-semibold text-amber-700 border border-amber-300 rounded-lg px-2.5 py-1 hover:bg-amber-100 disabled:opacity-50">更正這筆</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* 付款方式 */}
               <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
