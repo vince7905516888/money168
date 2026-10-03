@@ -115,8 +115,8 @@ export default function CryptoPage() {
   const [binanceSnap, setBinanceSnap] = useState<{ fetchedAt: string; balances: Record<string, { spot: number; funding: number; earn: number; total: number }>; error: string | null } | null>(null);
   const [binanceOpen, setBinanceOpen] = useState(false);
   // 會員自行設定的幣安 API 金鑰（選填）：有設定就自動同步核對，沒設定就維持手動記帳
-  const [binanceCred, setBinanceCred] = useState<{ connected: boolean; apiKeyHint?: string; updatedAt?: string } | null>(null);
-  const [credForm, setCredForm] = useState({ apiKey: "", apiSecret: "" });
+  const [binanceCred, setBinanceCred] = useState<{ connected: boolean; apiKeyHint?: string; keyChangedAt?: string; syncHour?: number | null } | null>(null);
+  const [credForm, setCredForm] = useState({ apiKey: "", apiSecret: "", syncHour: "" });
   const [credEditing, setCredEditing] = useState(false);
   const [credSaving, setCredSaving] = useState(false);
   const [adjustingCode, setAdjustingCode] = useState<string | null>(null);
@@ -738,7 +738,26 @@ export default function CryptoPage() {
   // 一鍵調帳：補一筆差額讓帳上數量等於幣安實際數量（以目前平均成本計價，跟「調帳」模式相同）
   // 只採用設定金鑰之後的同步結果（換了金鑰，舊的快照就不算）
   const binanceConnected = !!binanceCred?.connected;
-  const snapValid = binanceConnected && !!binanceSnap && !!binanceCred?.updatedAt && new Date(binanceSnap.fetchedAt) >= new Date(binanceCred.updatedAt);
+  const snapValid = binanceConnected && !!binanceSnap && !!binanceCred?.keyChangedAt && new Date(binanceSnap.fetchedAt) >= new Date(binanceCred.keyChangedAt);
+  // 同步時間：設定了第一次檢查時間就是每天該整點與 12 小時後各一次
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const syncScheduleText = (h: number | null | undefined) =>
+    h === null || h === undefined ? "設定後立即同步，之後每 12 小時" : `每天 ${pad2(h)}:00 與 ${pad2((h + 12) % 24)}:00`;
+  const HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => h);
+
+  const changeSyncHour = async (value: string) => {
+    const res = await authFetch("/api/binance/credentials", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ syncHour: value === "" ? null : Number(value) }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "儲存失敗，請稍後再試");
+      return;
+    }
+    fetchAll();
+  };
 
   const saveBinanceCred = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -746,7 +765,7 @@ export default function CryptoPage() {
     const res = await authFetch("/api/binance/credentials", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(credForm),
+      body: JSON.stringify({ ...credForm, syncHour: credForm.syncHour === "" ? null : Number(credForm.syncHour) }),
     });
     setCredSaving(false);
     const data = await res.json().catch(() => null);
@@ -754,7 +773,7 @@ export default function CryptoPage() {
       alert(data?.error || "儲存失敗，請稍後再試");
       return;
     }
-    setCredForm({ apiKey: "", apiSecret: "" });
+    setCredForm({ apiKey: "", apiSecret: "", syncHour: "" });
     setCredEditing(false);
     fetchAll();
   };
@@ -926,8 +945,10 @@ export default function CryptoPage() {
               {!binanceConnected
                 ? "未連結（選填）：連結幣安 API 後自動同步核對；不連結就維持手動記帳"
                 : snapValid
-                  ? `最後同步 ${new Date(binanceSnap!.fetchedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}・每 12 小時自動同步`
-                  : "已連結，等待第一次同步（約一小時內）"}
+                  ? `最後同步 ${new Date(binanceSnap!.fetchedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}・${syncScheduleText(binanceCred?.syncHour)}`
+                  : binanceCred?.syncHour === null || binanceCred?.syncHour === undefined
+                    ? "已連結，10 分鐘內會完成第一次同步"
+                    : `已連結，將於 ${pad2(binanceCred.syncHour)}:00 或 ${pad2((binanceCred.syncHour + 12) % 24)}:00 第一次同步`}
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -944,8 +965,16 @@ export default function CryptoPage() {
             {binanceConnected && !credEditing ? (
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span className="text-slate-600">✅ 已連結幣安 API（API Key 末 4 碼 <span className="font-mono">{binanceCred?.apiKeyHint}</span>）</span>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setCredEditing(true)}
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                    第一次檢查時間
+                    <select value={binanceCred?.syncHour ?? ""} onChange={(e) => changeSyncHour(e.target.value)}
+                      className="border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700">
+                      <option value="">不指定（立即）</option>
+                      {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{pad2(h)}:00</option>)}
+                    </select>
+                  </label>
+                  <button type="button" onClick={() => { setCredForm({ apiKey: "", apiSecret: "", syncHour: binanceCred?.syncHour == null ? "" : String(binanceCred.syncHour) }); setCredEditing(true); }}
                     className="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1 hover:bg-indigo-50">更新金鑰</button>
                   <button type="button" onClick={removeBinanceCred}
                     className="text-xs font-semibold text-red-500 border border-red-200 rounded-lg px-2.5 py-1 hover:bg-red-50">移除連結</button>
@@ -965,9 +994,18 @@ export default function CryptoPage() {
                     placeholder="Secret Key" autoComplete="new-password" spellCheck={false}
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm font-mono focus:border-indigo-400 transition-colors" />
                 </div>
+                <label className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                  第一次檢查時間（台灣時間）
+                  <select value={credForm.syncHour} onChange={(e) => setCredForm({ ...credForm, syncHour: e.target.value })}
+                    className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700">
+                    <option value="">不指定（連結後立即同步）</option>
+                    {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{pad2(h)}:00</option>)}
+                  </select>
+                  <span className="text-[11px] text-slate-400">之後每 12 小時同步一次，例如選 08:00 就是每天 08:00 與 20:00</span>
+                </label>
                 <div className="flex gap-2 justify-end">
                   {credEditing && (
-                    <button type="button" onClick={() => { setCredEditing(false); setCredForm({ apiKey: "", apiSecret: "" }); }}
+                    <button type="button" onClick={() => { setCredEditing(false); setCredForm({ apiKey: "", apiSecret: "", syncHour: "" }); }}
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50">取消</button>
                   )}
                   <button type="submit" disabled={credSaving}
@@ -981,7 +1019,7 @@ export default function CryptoPage() {
         )}
         {binanceOpen && binanceConnected && (
           !snapValid ? (
-            <div className="px-6 py-6 text-sm text-slate-500">已連結，同步工作每小時檢查一次，約一小時內會完成第一次同步。</div>
+            <div className="px-6 py-6 text-sm text-slate-500">已連結，同步時間：{syncScheduleText(binanceCred?.syncHour)}。第一次同步完成後，這裡會顯示幣安實際數量與帳上數量的比對。</div>
           ) : binanceSnap!.error ? (
             <div className="px-6 py-6 text-sm text-red-500">同步失敗：{binanceSnap!.error}</div>
           ) : (

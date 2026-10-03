@@ -1,11 +1,12 @@
-// 幣安帳戶同步排程工作（Railway 新加坡區，railway.json 設定每小時執行一次，跑完即結束）
+// 幣安帳戶同步工作（Railway 新加坡區，常駐執行，每 10 分鐘檢查一次是否有會員該同步）
 //
 // 主站在 Railway 美國區，連幣安會被 451 擋下，所以由這個排程工作在新加坡區讀取幣安帳戶，
 // 把餘額與原始記錄寫進資料庫的 BinanceSnapshot，網站只讀資料庫做核對／作帳。
 // - 沒有任何對外端點（不開 HTTP 伺服器），只主動呼叫幣安的唯讀 API
 // - 會員在網站上自行填寫幣安金鑰（選填），網站以公鑰加密存進 BinanceCredential，
 //   這裡用私鑰（BINANCE_CRED_PRIVATE_KEY，base64 的 PEM）解開；沒有填金鑰的會員不會被同步
-// - 每小時執行，但每個會員最多每 12 小時同步一次（新填金鑰的會員一小時內就會第一次同步）
+// - 同步時間：會員可設定「第一次檢查時間」（台灣時間整點），之後每 12 小時一次（例如 08:00 與 20:00）；
+//   沒設定的話，設定金鑰後 10 分鐘內第一次同步，之後每 12 小時一次
 // - DATABASE_URL：同一個 Railway 專案的 Postgres
 import crypto from "node:crypto";
 import pg from "pg";
@@ -15,6 +16,30 @@ const { Client } = pg;
 const API = "https://api.binance.com";
 const DAY = 24 * 60 * 60 * 1000;
 const SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000 - 10 * 60 * 1000; // 12 小時（留 10 分鐘緩衝，避免剛好差幾秒被跳過）
+const CHECK_EVERY_MS = 10 * 60 * 1000;
+
+// 台灣時間的整點小時，與本小時開始的時間
+function taipeiHour(date = new Date()) {
+  return Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", hour: "numeric", hourCycle: "h23" }).format(date));
+}
+function startOfCurrentHour() {
+  const d = new Date();
+  d.setUTCMinutes(0, 0, 0);
+  return d.getTime();
+}
+
+// 這個會員現在該不該同步
+function isDue(syncHour, lastSync) {
+  const last = lastSync ? new Date(lastSync).getTime() : 0;
+  if (syncHour === null || syncHour === undefined) {
+    // 沒指定時間：設定金鑰後第一次立即同步，之後每 12 小時
+    return !last || Date.now() - last >= SYNC_INTERVAL_MS;
+  }
+  // 指定時間：只在指定整點與 12 小時後的整點同步，同一個小時內只同步一次
+  const slots = [syncHour, (syncHour + 12) % 24];
+  if (!slots.includes(taipeiHour())) return false;
+  return !last || last < startOfCurrentHour();
+}
 const PRIVATE_KEY = Buffer.from(process.env.BINANCE_CRED_PRIVATE_KEY ?? "", "base64").toString("utf8");
 
 function decrypt(b64) {
@@ -115,22 +140,18 @@ async function syncUser(db, userId) {
   return { assets: Object.keys(balances).length, error };
 }
 
-async function main() {
-  if (!PRIVATE_KEY.includes("PRIVATE KEY")) throw new Error("尚未設定 BINANCE_CRED_PRIVATE_KEY");
+async function cycle() {
   const db = new Client({ connectionString: process.env.DATABASE_URL });
   await db.connect();
   try {
+    // lastSync 只算「設定金鑰之後」的同步，換了金鑰就重新開始計
     const { rows } = await db.query(`
-      select c."userId", c."apiKeyEnc", c."apiSecretEnc",
-        (select max(s."fetchedAt") from "BinanceSnapshot" s where s."userId" = c."userId") as "lastSync",
-        c."updatedAt"
+      select c."userId", c."apiKeyEnc", c."apiSecretEnc", c."syncHour",
+        (select max(s."fetchedAt") from "BinanceSnapshot" s where s."userId" = c."userId" and s."fetchedAt" >= c."keyChangedAt") as "lastSync"
       from "BinanceCredential" c`);
     let synced = 0;
     for (const r of rows) {
-      // 金鑰更新過（重新設定）就立刻同步；否則距離上次同步超過 12 小時才同步
-      const last = r.lastSync ? new Date(r.lastSync).getTime() : 0;
-      const keyChanged = new Date(r.updatedAt).getTime() > last;
-      if (!keyChanged && Date.now() - last < SYNC_INTERVAL_MS) continue;
+      if (!isDue(r.syncHour, r.lastSync)) continue;
       try {
         KEY = decrypt(r.apiKeyEnc);
         SECRET = decrypt(r.apiSecretEnc);
@@ -146,10 +167,18 @@ async function main() {
       synced++;
       console.log(`[binance-sync] user=${r.userId.slice(0, 8)} assets=${result.assets} error=${result.error ? "yes" : "none"}`);
     }
-    console.log(`[binance-sync] ${new Date().toISOString()} members=${rows.length} synced=${synced}`);
+    if (synced > 0) console.log(`[binance-sync] ${new Date().toISOString()} members=${rows.length} synced=${synced}`);
   } finally {
     await db.end();
   }
+}
+
+async function main() {
+  if (!PRIVATE_KEY.includes("PRIVATE KEY")) throw new Error("尚未設定 BINANCE_CRED_PRIVATE_KEY");
+  console.log(`[binance-sync] started, checking every ${CHECK_EVERY_MS / 60000} minutes`);
+  const run = () => cycle().catch((e) => console.error("[binance-sync] cycle failed:", e.message));
+  await run();
+  setInterval(run, CHECK_EVERY_MS);
 }
 
 main().catch((e) => {
