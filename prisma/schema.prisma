@@ -34,6 +34,7 @@ model User {
   debts              Debt[]
   suspenseEntries    SuspenseEntry[]
   binanceSnapshots   BinanceSnapshot[]
+  binanceCredential  BinanceCredential?
   userCurrencies     UserCurrency[]
   userFundNavs       UserFundNav[]
   userWatchStocks    UserWatchStock[]
@@ -138,6 +139,19 @@ model SuspenseEntry {
 // 幣安帳戶同步快照：由 Railway 新加坡區的排程工作（services/binance-sync）每 12 小時寫入一筆，
 // 存各帳戶餘額彙總（balances）與這次抓到的原始資料（raw：成交、閃兌、理財利息、充提等），
 // 網站只讀取最新一筆做核對；排程工作沒有對外端點，幣安金鑰只存在該服務的環境變數
+// 會員自行填寫的幣安 API 金鑰（選填）：網站用公鑰（BINANCE_CRED_PUBLIC_KEY）加密後存放，
+// 網站本身無法解密；只有新加坡的同步排程工作持有私鑰（BINANCE_CRED_PRIVATE_KEY）能解開去讀幣安
+model BinanceCredential {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKeyEnc    String
+  apiSecretEnc String
+  apiKeyHint   String // API Key 末 4 碼，畫面顯示用
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model BinanceSnapshot {
   id        String   @id @default(cuid())
   userId    String

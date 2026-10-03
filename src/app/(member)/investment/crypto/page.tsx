@@ -114,6 +114,11 @@ export default function CryptoPage() {
   // 幣安帳戶最新同步快照（排程工作每 12 小時寫入），用來核對帳上數量
   const [binanceSnap, setBinanceSnap] = useState<{ fetchedAt: string; balances: Record<string, { spot: number; funding: number; earn: number; total: number }>; error: string | null } | null>(null);
   const [binanceOpen, setBinanceOpen] = useState(false);
+  // 會員自行設定的幣安 API 金鑰（選填）：有設定就自動同步核對，沒設定就維持手動記帳
+  const [binanceCred, setBinanceCred] = useState<{ connected: boolean; apiKeyHint?: string; updatedAt?: string } | null>(null);
+  const [credForm, setCredForm] = useState({ apiKey: "", apiSecret: "" });
+  const [credEditing, setCredEditing] = useState(false);
+  const [credSaving, setCredSaving] = useState(false);
   const [adjustingCode, setAdjustingCode] = useState<string | null>(null);
 
   const [suspenseEntries, setSuspenseEntries] = useState<SuspenseEntry[]>([]);
@@ -132,13 +137,15 @@ export default function CryptoPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, exchangeRes, suspenseRes, snapRes] = await Promise.all([
+    const [invRes, exchangeRes, suspenseRes, snapRes, credRes] = await Promise.all([
       fetch("/api/investments?type=CRYPTO"),
       fetch("/api/user-exchanges"),
       fetch("/api/suspense-entries"),
       fetch("/api/binance/snapshot"),
+      fetch("/api/binance/credentials"),
     ]);
-    const [invData, exchangeData, suspenseData, snapData] = await Promise.all([invRes.json(), exchangeRes.json(), suspenseRes.json(), snapRes.json().catch(() => null)]);
+    const [invData, exchangeData, suspenseData, snapData, credData] = await Promise.all([invRes.json(), exchangeRes.json(), suspenseRes.json(), snapRes.json().catch(() => null), credRes.json().catch(() => null)]);
+    setBinanceCred(credData && typeof credData.connected === "boolean" ? credData : null);
     setBinanceSnap(snapData && snapData.balances ? snapData : null);
     setInvestments(Array.isArray(invData) ? invData : []);
     setSuspenseEntries(Array.isArray(suspenseData) ? suspenseData : []);
@@ -729,6 +736,35 @@ export default function CryptoPage() {
   const binanceMismatch = binanceRows.filter((r) => r.diff !== 0).length;
 
   // 一鍵調帳：補一筆差額讓帳上數量等於幣安實際數量（以目前平均成本計價，跟「調帳」模式相同）
+  // 只採用設定金鑰之後的同步結果（換了金鑰，舊的快照就不算）
+  const binanceConnected = !!binanceCred?.connected;
+  const snapValid = binanceConnected && !!binanceSnap && !!binanceCred?.updatedAt && new Date(binanceSnap.fetchedAt) >= new Date(binanceCred.updatedAt);
+
+  const saveBinanceCred = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCredSaving(true);
+    const res = await authFetch("/api/binance/credentials", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(credForm),
+    });
+    setCredSaving(false);
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      alert(data?.error || "儲存失敗，請稍後再試");
+      return;
+    }
+    setCredForm({ apiKey: "", apiSecret: "" });
+    setCredEditing(false);
+    fetchAll();
+  };
+
+  const removeBinanceCred = async () => {
+    if (!confirm("確定要移除幣安 API 連結？移除後不再自動同步，已同步的資料會保留")) return;
+    await authFetch("/api/binance/credentials", { method: "DELETE" });
+    fetchAll();
+  };
+
   const quickAdjust = async (row: (typeof binanceRows)[number]) => {
     if (!row.holding) return;
     if (!confirm(`把 ${row.code} 帳上數量 ${fmtQty(row.book)} 調成幣安實際 ${fmtQty(row.actual)}？（差額 ${row.diff > 0 ? "+" : ""}${fmtQty(row.diff)}）`)) return;
@@ -887,11 +923,15 @@ export default function CryptoPage() {
           <div>
             <h2 className="font-semibold text-slate-900">幣安帳戶核對</h2>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              {binanceSnap ? `最後同步 ${new Date(binanceSnap.fetchedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}・每 12 小時自動同步` : "尚未同步：請先在 Railway 的 binance-proxy 服務設定幣安 API 金鑰"}
+              {!binanceConnected
+                ? "未連結（選填）：連結幣安 API 後自動同步核對；不連結就維持手動記帳"
+                : snapValid
+                  ? `最後同步 ${new Date(binanceSnap!.fetchedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}・每 12 小時自動同步`
+                  : "已連結，等待第一次同步（約一小時內）"}
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {binanceSnap && !binanceSnap.error && (
+            {snapValid && !binanceSnap!.error && (
               binanceMismatch > 0
                 ? <span className="text-sm font-bold text-amber-600">{binanceMismatch} 種幣對不上</span>
                 : <span className="text-sm font-bold text-emerald-600">全部一致 ✓</span>
@@ -900,10 +940,50 @@ export default function CryptoPage() {
           </div>
         </button>
         {binanceOpen && (
-          !binanceSnap ? (
-            <div className="px-6 py-6 text-sm text-slate-500">還沒有同步資料。設定好幣安 API 金鑰後，排程工作會每 12 小時自動同步一次。</div>
-          ) : binanceSnap.error ? (
-            <div className="px-6 py-6 text-sm text-red-500">同步失敗：{binanceSnap.error}</div>
+          <div className="px-6 py-4 border-b border-slate-50">
+            {binanceConnected && !credEditing ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="text-slate-600">✅ 已連結幣安 API（API Key 末 4 碼 <span className="font-mono">{binanceCred?.apiKeyHint}</span>）</span>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setCredEditing(true)}
+                    className="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1 hover:bg-indigo-50">更新金鑰</button>
+                  <button type="button" onClick={removeBinanceCred}
+                    className="text-xs font-semibold text-red-500 border border-red-200 rounded-lg px-2.5 py-1 hover:bg-red-50">移除連結</button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={saveBinanceCred} className="space-y-3">
+                <div className="text-xs text-slate-500 space-y-1 bg-slate-50 rounded-lg px-3.5 py-2.5">
+                  <p>到幣安「API 管理」建立金鑰：<strong>只勾「讀取」權限</strong>，不要開交易或提領；IP 存取選「不限制」。</p>
+                  <p>金鑰會加密保存，網站本身無法解開，只有同步工作能使用；不會再顯示在畫面上。</p>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <input required value={credForm.apiKey} onChange={(e) => setCredForm({ ...credForm, apiKey: e.target.value })}
+                    placeholder="API Key" autoComplete="off" spellCheck={false}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm font-mono focus:border-indigo-400 transition-colors" />
+                  <input required type="password" value={credForm.apiSecret} onChange={(e) => setCredForm({ ...credForm, apiSecret: e.target.value })}
+                    placeholder="Secret Key" autoComplete="new-password" spellCheck={false}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm font-mono focus:border-indigo-400 transition-colors" />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  {credEditing && (
+                    <button type="button" onClick={() => { setCredEditing(false); setCredForm({ apiKey: "", apiSecret: "" }); }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50">取消</button>
+                  )}
+                  <button type="submit" disabled={credSaving}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60">
+                    {credSaving ? "儲存中..." : "連結幣安"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+        {binanceOpen && binanceConnected && (
+          !snapValid ? (
+            <div className="px-6 py-6 text-sm text-slate-500">已連結，同步工作每小時檢查一次，約一小時內會完成第一次同步。</div>
+          ) : binanceSnap!.error ? (
+            <div className="px-6 py-6 text-sm text-red-500">同步失敗：{binanceSnap!.error}</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm whitespace-nowrap">

@@ -1,10 +1,11 @@
-// 幣安帳戶同步排程工作（Railway 新加坡區，railway.json 設定每 12 小時執行一次，跑完即結束）
+// 幣安帳戶同步排程工作（Railway 新加坡區，railway.json 設定每小時執行一次，跑完即結束）
 //
 // 主站在 Railway 美國區，連幣安會被 451 擋下，所以由這個排程工作在新加坡區讀取幣安帳戶，
 // 把餘額與原始記錄寫進資料庫的 BinanceSnapshot，網站只讀資料庫做核對／作帳。
 // - 沒有任何對外端點（不開 HTTP 伺服器），只主動呼叫幣安的唯讀 API
-// - 幣安金鑰只存在這個服務的環境變數（BINANCE_API_KEY / BINANCE_API_SECRET），請只開「讀取」權限
-// - BINANCE_USER_EMAIL：資料要歸屬到網站上的哪個會員
+// - 會員在網站上自行填寫幣安金鑰（選填），網站以公鑰加密存進 BinanceCredential，
+//   這裡用私鑰（BINANCE_CRED_PRIVATE_KEY，base64 的 PEM）解開；沒有填金鑰的會員不會被同步
+// - 每小時執行，但每個會員最多每 12 小時同步一次（新填金鑰的會員一小時內就會第一次同步）
 // - DATABASE_URL：同一個 Railway 專案的 Postgres
 import crypto from "node:crypto";
 import pg from "pg";
@@ -12,9 +13,20 @@ import pg from "pg";
 const { Client } = pg;
 
 const API = "https://api.binance.com";
-const KEY = process.env.BINANCE_API_KEY;
-const SECRET = process.env.BINANCE_API_SECRET;
 const DAY = 24 * 60 * 60 * 1000;
+const SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000 - 10 * 60 * 1000; // 12 小時（留 10 分鐘緩衝，避免剛好差幾秒被跳過）
+const PRIVATE_KEY = Buffer.from(process.env.BINANCE_CRED_PRIVATE_KEY ?? "", "base64").toString("utf8");
+
+function decrypt(b64) {
+  return crypto.privateDecrypt(
+    { key: PRIVATE_KEY, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
+    Buffer.from(b64, "base64")
+  ).toString("utf8");
+}
+
+// 目前同步中的會員金鑰（每個會員各自設定）
+let KEY = "";
+let SECRET = "";
 
 async function signed(method, path, params = {}) {
   const query = new URLSearchParams({ ...params, recvWindow: "10000", timestamp: String(Date.now()) }).toString();
@@ -82,32 +94,59 @@ function summarize(raw) {
   return balances;
 }
 
+async function syncUser(db, userId) {
+  let balances = {}, raw = null, error = null;
+  try {
+    raw = await collect();
+    balances = summarize(raw);
+    if (raw.errors.spot) error = raw.errors.spot;
+  } catch (e) {
+    error = String(e.message || e);
+  }
+  await db.query(
+    `insert into "BinanceSnapshot" (id, "userId", "fetchedAt", balances, raw, error) values ($1, $2, now(), $3, $4, $5)`,
+    [crypto.randomUUID(), userId, JSON.stringify(balances), raw ? JSON.stringify(raw) : null, error]
+  );
+  // 只保留最近 60 筆快照（約 30 天）
+  await db.query(
+    `delete from "BinanceSnapshot" where "userId" = $1 and id not in (select id from "BinanceSnapshot" where "userId" = $1 order by "fetchedAt" desc limit 60)`,
+    [userId]
+  );
+  return { assets: Object.keys(balances).length, error };
+}
+
 async function main() {
+  if (!PRIVATE_KEY.includes("PRIVATE KEY")) throw new Error("尚未設定 BINANCE_CRED_PRIVATE_KEY");
   const db = new Client({ connectionString: process.env.DATABASE_URL });
   await db.connect();
   try {
-    const user = await db.query(`select id from "User" where email = $1`, [process.env.BINANCE_USER_EMAIL]);
-    if (!user.rows[0]) throw new Error("找不到 BINANCE_USER_EMAIL 對應的會員");
-    const userId = user.rows[0].id;
-
-    let balances = {}, raw = null, error = null;
-    if (!KEY || !SECRET) {
-      error = "尚未設定 BINANCE_API_KEY / BINANCE_API_SECRET";
-    } else {
-      raw = await collect();
-      balances = summarize(raw);
-      if (raw.errors.spot) error = raw.errors.spot;
+    const { rows } = await db.query(`
+      select c."userId", c."apiKeyEnc", c."apiSecretEnc",
+        (select max(s."fetchedAt") from "BinanceSnapshot" s where s."userId" = c."userId") as "lastSync",
+        c."updatedAt"
+      from "BinanceCredential" c`);
+    let synced = 0;
+    for (const r of rows) {
+      // 金鑰更新過（重新設定）就立刻同步；否則距離上次同步超過 12 小時才同步
+      const last = r.lastSync ? new Date(r.lastSync).getTime() : 0;
+      const keyChanged = new Date(r.updatedAt).getTime() > last;
+      if (!keyChanged && Date.now() - last < SYNC_INTERVAL_MS) continue;
+      try {
+        KEY = decrypt(r.apiKeyEnc);
+        SECRET = decrypt(r.apiSecretEnc);
+      } catch {
+        await db.query(
+          `insert into "BinanceSnapshot" (id, "userId", "fetchedAt", balances, error) values ($1, $2, now(), '{}', $3)`,
+          [crypto.randomUUID(), r.userId, "金鑰無法解密，請重新設定幣安 API 金鑰"]
+        );
+        continue;
+      }
+      const result = await syncUser(db, r.userId);
+      KEY = SECRET = "";
+      synced++;
+      console.log(`[binance-sync] user=${r.userId.slice(0, 8)} assets=${result.assets} error=${result.error ? "yes" : "none"}`);
     }
-    await db.query(
-      `insert into "BinanceSnapshot" (id, "userId", "fetchedAt", balances, raw, error) values ($1, $2, now(), $3, $4, $5)`,
-      [crypto.randomUUID(), userId, JSON.stringify(balances), raw ? JSON.stringify(raw) : null, error]
-    );
-    // 只保留最近 60 筆快照（約 30 天）
-    await db.query(
-      `delete from "BinanceSnapshot" where "userId" = $1 and id not in (select id from "BinanceSnapshot" where "userId" = $1 order by "fetchedAt" desc limit 60)`,
-      [userId]
-    );
-    console.log(`[binance-sync] ${new Date().toISOString()} assets=${Object.keys(balances).length} error=${error ?? "none"}`);
+    console.log(`[binance-sync] ${new Date().toISOString()} members=${rows.length} synced=${synced}`);
   } finally {
     await db.end();
   }
