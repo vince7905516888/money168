@@ -1220,7 +1220,7 @@ export default function CryptoPage() {
                       {inv.externalRef
                         ? new Date(inv.date ?? inv.createdAt).toLocaleString("zh-TW", { hour12: false, year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })
                         : new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
-                      {inv.externalRef && <span className="ml-1 text-amber-500">· 幣安自動</span>}
+                      {inv.externalRef && <span className="ml-1.5 inline-block text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">幣安自動入帳</span>}
                       {inv.broker ? ` · ${inv.broker}` : ""}
                       {inv.quantity && !isTwd(inv) ? ` · ${fmtQty(inv.quantity)} 顆` : ""}
                       {inv.price && !isTwd(inv) ? ` · @${fmt2(inv.price)}` : ""}

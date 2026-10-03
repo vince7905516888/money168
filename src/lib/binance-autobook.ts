@@ -90,10 +90,11 @@ export async function runBinanceAutoBook(
       if (c.orderStatus === "SUCCESS") push({ ref: `bn:convert:${c.orderId}`, time: c.createTime, kind: "convert", data: c });
     }
     for (const r of raw.earnRewards ?? []) {
-      push({ ref: `bn:earn:${r.type}:${r.asset}:${r.time}`, time: r.time, kind: "reward", data: { asset: r.asset, amount: r.rewards, label: "活期理財利息" } });
+      const kind = r.type === "BONUS" ? "加碼利息" : r.type === "REWARDS" ? "其他獎勵" : "即時利息";
+      push({ ref: `bn:earn:${r.type}:${r.asset}:${r.time}`, time: r.time, kind: "reward", data: { asset: r.asset, amount: r.rewards, label: `理財「活期」${r.asset} ${kind}` } });
     }
     for (const d of raw.dividends?.rows ?? []) {
-      push({ ref: `bn:div:${d.tranId ?? d.id}`, time: d.divTime, kind: "reward", data: { asset: d.asset, amount: d.amount, label: d.enInfo || "分紅／空投" } });
+      push({ ref: `bn:div:${d.tranId ?? d.id}`, time: d.divTime, kind: "reward", data: { asset: d.asset, amount: d.amount, label: `資產分紅「${d.enInfo || "分紅／空投"}」編號 ${d.tranId ?? d.id}` } });
     }
   }
   // 股票代幣：相鄰兩次同步的 EQ_ 股數變化
@@ -157,14 +158,14 @@ export async function runBinanceAutoBook(
         const qtyIn = qty - (feeAsset === base ? fee : 0);
         const usdtOut = quote + (feeAsset === "USDT" ? fee : 0);
         const cost = usdtOut * usdtAvg + feeOtherCost;
-        const note = `兌換：${fmtQ(usdtOut)} USDT → ${fmtQ(qtyIn)} ${base}（幣安成交 @${num(t.price)}${feeText}）`;
+        const note = `兌換：${fmtQ(usdtOut)} USDT → ${fmtQ(qtyIn)} ${base}（幣安現貨 ${base}/USDT 買進 @${num(t.price)}${feeText}，成交編號 ${t.id}）`;
         cryptoRec(e.ref, 1, "USDT", "SELL", usdtOut, usdtOut * usdtAvg, date, note);
         cryptoRec(e.ref, 2, base, "BUY", qtyIn, cost, date, note);
         if (feeOther) cryptoRec(e.ref, 3, feeAsset, "SELL", feeOther, feeOtherCost, date, `${note}（手續費）`);
       } else {
         const qtyOut = qty + (feeAsset === base ? fee : 0);
         const usdtIn = quote - (feeAsset === "USDT" ? fee : 0);
-        const note = `兌換：${fmtQ(qtyOut)} ${base} → ${fmtQ(usdtIn)} USDT（幣安成交 @${num(t.price)}${feeText}）`;
+        const note = `兌換：${fmtQ(qtyOut)} ${base} → ${fmtQ(usdtIn)} USDT（幣安現貨 ${base}/USDT 賣出 @${num(t.price)}${feeText}，成交編號 ${t.id}）`;
         cryptoRec(e.ref, 1, base, "SELL", qtyOut, qtyOut * avg(base), date, note);
         cryptoRec(e.ref, 2, "USDT", "BUY", usdtIn, usdtIn * usdtAvg, date, note);
         if (feeOther) cryptoRec(e.ref, 3, feeAsset, "SELL", feeOther, feeOtherCost, date, `${note}（手續費）`);
@@ -175,12 +176,12 @@ export async function runBinanceAutoBook(
       const usdtAvg = avg("USDT");
       const outCost = A === "USDT" ? a * usdtAvg : a * avg(A);
       const inCost = B === "USDT" ? b * usdtAvg : outCost;
-      const note = `兌換：${fmtQ(a)} ${A} → ${fmtQ(b)} ${B}（幣安閃兌）`;
+      const note = `兌換：${fmtQ(a)} ${A} → ${fmtQ(b)} ${B}（幣安閃兌，訂單編號 ${c.orderId}）`;
       cryptoRec(e.ref, 1, A, "SELL", a, outCost, date, note);
       cryptoRec(e.ref, 2, B, "BUY", b, inCost, date, note);
     } else if (e.kind === "reward") {
       const q = num(e.data.amount);
-      if (q > 0) add({ type: "CRYPTO", name: e.data.asset, code: e.data.asset, action: "BUY", quantity: q, price: null, amount: 0, date, note: `配息：幣安${e.data.label}`, externalRef: `${e.ref}#1` });
+      if (q > 0) add({ type: "CRYPTO", name: e.data.asset, code: e.data.asset, action: "BUY", quantity: q, price: null, amount: 0, date, note: `配息：幣安${e.data.label}（+${fmtQ(q)} ${e.data.asset}）`, externalRef: `${e.ref}#1` });
     } else if (e.kind === "eq") {
       const { deltas, usdcSpent } = e.data as { deltas: Record<string, number>; usdcSpent: number };
       const usHold = computeHoldings(usstock.map((r) => ({ ...r, code: r.code, name: r.name })));
