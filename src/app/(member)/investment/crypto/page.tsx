@@ -722,15 +722,22 @@ export default function CryptoPage() {
 
   // 幣安核對：幣安實際數量 vs 帳上數量（台幣不在幣安，不比對）
   const BINANCE_EXCHANGE = "幣安 Binance";
+  // 帳上的幣安數量＝帳上總數量 − 記在其他交易所（例如 BitoPro）的數量；沒填交易所的視為幣安。
+  // EQ_ 開頭是幣安的美股代幣，記在美股頁，不在這裡核對
+  const otherExchangeQty = (code: string) =>
+    (exchangesByCode.get(code) ?? [])
+      .filter((e) => e.exchange !== BINANCE_EXCHANGE && e.exchange !== UNSPECIFIED_EXCHANGE)
+      .reduce((sum, e) => sum + e.quantity, 0);
   const binanceRows = binanceSnap
     ? [...new Set([...Object.keys(binanceSnap.balances), ...holdings.map((h) => h.code)])]
-        .filter((code) => code !== TWD_CODE && code !== "—")
+        .filter((code) => code !== TWD_CODE && code !== "—" && !code.startsWith("EQ_"))
         .map((code) => {
           const actual = binanceSnap.balances[code]?.total ?? 0;
           const holding = holdings.find((h) => h.code === code);
-          const book = holding?.quantity ?? 0;
+          const book = Math.max(0, (holding?.quantity ?? 0) - otherExchangeQty(code));
           return { code, actual, book, diff: Math.round((actual - book) * 1e8) / 1e8, holding };
         })
+        .filter((r) => r.actual !== 0 || r.book !== 0)
         .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
     : [];
   const binanceMismatch = binanceRows.filter((r) => r.diff !== 0).length;
