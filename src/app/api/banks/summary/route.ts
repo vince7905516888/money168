@@ -1,12 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { computeBankSummaries } from "@/lib/bank-balances";
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
-  const [transactions, userBanks] = await Promise.all([
+  const [transactions, userBanks, savedRates] = await Promise.all([
     prisma.transaction.findMany({
       where: { userId: session.user.id, source: "BANK" },
       include: { category: { select: { name: true } } },
@@ -15,51 +16,17 @@ export async function GET(req: NextRequest) {
       where: { userId: session.user.id },
       select: { name: true },
     }),
+    prisma.userExchangeRate.findMany({ where: { userId: session.user.id } }),
   ]);
 
-  const bankMap: Record<string, { income: number; expense: number; transfer_in: number; transfer_out: number }> = {};
-
-  const ensure = (name: string) => {
-    if (!bankMap[name]) bankMap[name] = { income: 0, expense: 0, transfer_in: 0, transfer_out: 0 };
-  };
-
-  for (const t of transactions) {
-    if (t.type === "EXPENSE" && t.note?.startsWith("支付:銀行:")) {
-      const name = t.note.split(":")[2];
-      if (name) { ensure(name); bankMap[name].expense += t.amount; }
-    } else if (t.type === "EXPENSE" && t.category?.name === "銀行" && t.note) {
-      const name = t.note.split(" · ")[0];
-      if (name) { ensure(name); bankMap[name].expense += t.amount; }
-    } else if (t.type === "INCOME" && t.category?.name === "銀行" && t.note) {
-      const name = t.note.split(" · ")[0];
-      if (name) { ensure(name); bankMap[name].income += t.amount; }
-    } else if (t.type === "TRANSFER" && t.note) {
-      const match = t.note.match(/FROM:([^:]+):?([^|]*)\|TO:([^:]+):?(.*)/);
-      if (match) {
-        const [, fromType, fromDetail, toType, toDetail] = match;
-        if (fromType === "銀行" && fromDetail) {
-          ensure(fromDetail); bankMap[fromDetail].transfer_out += t.amount;
-        }
-        if (toType === "銀行" && toDetail) {
-          ensure(toDetail); bankMap[toDetail].transfer_in += t.amount;
-        }
-      }
-    }
-  }
-
-  const result = Object.entries(bankMap).map(([name, d]) => ({
-    name,
-    income: d.income,
-    expense: d.expense,
-    transferIn: d.transfer_in,
-    transferOut: d.transfer_out,
-    balance: d.income + d.transfer_in - d.expense - d.transfer_out,
-  }));
+  // 非台幣帳戶（例如支付寶的人民幣）依使用者在資產總攬儲存的匯率換算成台幣，balance 等金額皆為台幣
+  const rates = new Map(savedRates.map((r) => [r.currency, r.rate]));
+  const result = computeBankSummaries(transactions, rates);
 
   // 加入尚未有交易紀錄的自訂銀行
   for (const ub of userBanks) {
     if (!result.find((r) => r.name === ub.name)) {
-      result.push({ name: ub.name, income: 0, expense: 0, transferIn: 0, transferOut: 0, balance: 0 });
+      result.push({ name: ub.name, income: 0, expense: 0, transferIn: 0, transferOut: 0, balance: 0, currencies: {}, unratedCurrencies: [] });
     }
   }
 

@@ -12,7 +12,9 @@ interface BankSummary {
   expense: number;
   transferIn: number;
   transferOut: number;
-  balance: number;
+  balance: number; // 已換算台幣
+  currencies?: Record<string, number>; // 各幣別原幣餘額，例如 { CNY: 1483 }
+  unratedCurrencies?: string[];
 }
 
 interface BankRecord {
@@ -24,8 +26,12 @@ interface BankRecord {
   note?: string;
   categoryId?: string;
   category?: { name: string; icon?: string; color?: string };
-  bankBalances?: { bankName: string; balance: number }[];
+  currency?: string | null;
+  bankBalances?: { bankName: string; balance: number; currency?: string }[];
 }
+
+// 銀行記錄可選的幣別：支付寶等非台幣帳戶的金額用原幣記，餘額依資產總攬儲存的匯率換算台幣
+const CURRENCIES = ["TWD", "CNY", "USD", "JPY", "HKD", "EUR", "KRW", "THB", "PHP"];
 
 interface Category {
   id: string;
@@ -74,6 +80,7 @@ const EMPTY_FORM = {
   date: new Date().toLocaleDateString("sv-SE"),
   note: "",
   categoryId: "",
+  currency: "TWD",
 };
 
 const EMPTY_TRANSFER = {
@@ -225,14 +232,14 @@ export default function BanksPage() {
     setShowModal(true);
     await loadFormData();
     if (r.type === "TRANSFER") {
-      setForm({ title: r.title, amount: String(r.amount), type: "TRANSFER", date: r.date.split("T")[0], note: "", categoryId: "" });
+      setForm({ title: r.title, amount: String(r.amount), type: "TRANSFER", date: r.date.split("T")[0], note: "", categoryId: "", currency: r.currency || "TWD" });
       setTransfer(parseTransferNote(r.note ?? ""));
     } else {
       const isBankCat = r.category?.name === "銀行";
       const isTPCat = r.category?.name === "第三方";
       const { pm, detail, rest } = parsePaymentNote(r.note ?? "");
       const [bankNamePart, ...bankNoteParts] = (r.note ?? "").split(" · ");
-      setForm({ title: r.title, amount: String(r.amount), type: r.type, date: r.date.split("T")[0], note: isBankCat ? bankNoteParts.join(" · ") : isTPCat ? "" : rest, categoryId: r.categoryId ?? "" });
+      setForm({ title: r.title, amount: String(r.amount), type: r.type, date: r.date.split("T")[0], note: isBankCat ? bankNoteParts.join(" · ") : isTPCat ? "" : rest, categoryId: r.categoryId ?? "", currency: r.currency || "TWD" });
       if (isBankCat) setBankName(bankNamePart ?? "");
       else if (isTPCat) setThirdPartyName(r.note ?? "");
       else { setPaymentMethod(pm); setPaymentDetail(detail); }
@@ -332,6 +339,9 @@ export default function BanksPage() {
     return false;
   };
 
+  // 原幣金額：台幣用 fmt，其他幣別顯示「1,483 CNY」
+  const fmtCur = (n: number, currency?: string | null) =>
+    !currency || currency === "TWD" ? fmt(n) : `${new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(n)} ${currency}`;
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
 
@@ -461,8 +471,13 @@ export default function BanksPage() {
                           <div className="w-9 h-9 rounded-xl bg-sky-50 flex items-center justify-center text-base">🏦</div>
                           <span className="text-sm font-semibold text-slate-800">{bank.name}</span>
                         </div>
-                        <span className={`text-sm font-bold ${bank.balance >= 0 ? "text-slate-800" : "text-red-500"}`}>
+                        <span className={`text-right text-sm font-bold ${bank.balance >= 0 ? "text-slate-800" : "text-red-500"}`}>
                           {fmt(bank.balance)}
+                          {Object.entries(bank.currencies ?? {}).filter(([c, v]) => c !== "TWD" && Math.abs(v) > 0.0001).map(([c, v]) => (
+                            <span key={c} className="block text-[11px] font-normal text-slate-400">
+                              {fmtCur(v, c)}{bank.unratedCurrencies?.includes(c) ? "（未設定匯率）" : ""}
+                            </span>
+                          ))}
                         </span>
                       </button>
                       {expanded && (
@@ -557,13 +572,13 @@ export default function BanksPage() {
                           r.type === "INCOME" ? "text-emerald-600" :
                           r.type === "TRANSFER" ? "text-indigo-500" : "text-red-500"
                         }`}>
-                          {r.type === "INCOME" ? "+" : r.type === "TRANSFER" ? "" : "-"}{fmt(r.amount)}
+                          {r.type === "INCOME" ? "+" : r.type === "TRANSFER" ? "" : "-"}{fmtCur(r.amount, r.currency)}
                         </div>
                         {(r.bankBalances ?? [])
                           .filter((b) => !recordBankFilter || b.bankName === recordBankFilter)
                           .map((b) => (
                             <div key={b.bankName} className="text-[11px] text-slate-400 whitespace-nowrap">
-                              {recordBankFilter ? "餘額" : `${b.bankName} 餘額`} {fmt(b.balance)}
+                              {recordBankFilter ? "餘額" : `${b.bankName} 餘額`} {fmtCur(b.balance, b.currency)}
                             </div>
                           ))}
                       </div>
@@ -663,11 +678,20 @@ export default function BanksPage() {
                     <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
                       placeholder="例如：提款" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">金額</label>
-                    <input required type="number" min="0" step="1" value={form.amount}
-                      onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0"
-                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">金額</label>
+                      <input required type="number" min="0" step="any" value={form.amount}
+                        onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">幣別</label>
+                      <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-2.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                        {(CURRENCIES.includes(form.currency) ? CURRENCIES : [...CURRENCIES, form.currency]).map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">日期</label>
@@ -682,11 +706,20 @@ export default function BanksPage() {
                     <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
                       placeholder="例如：薪資入帳" className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">金額</label>
-                    <input required type="number" min="0" step="1" value={form.amount}
-                      onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0"
-                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">金額</label>
+                      <input required type="number" min="0" step="any" value={form.amount}
+                        onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0"
+                        className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">幣別</label>
+                      <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-2.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                        {(CURRENCIES.includes(form.currency) ? CURRENCIES : [...CURRENCIES, form.currency]).map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">日期</label>

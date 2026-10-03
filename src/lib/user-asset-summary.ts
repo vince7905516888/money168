@@ -4,6 +4,7 @@
 import { prisma } from "@/lib/prisma";
 import { computeHoldings, remainingCostByAmount, remainingHoldingsByAmount, dividendMarketValue, suspenseOpenCost } from "@/lib/stock-holdings";
 import { fetchCryptoTwdPrices } from "@/lib/crypto-prices";
+import { computeBankSummaries } from "@/lib/bank-balances";
 
 export interface UserAssetSummary {
   cashBalance: number;
@@ -90,31 +91,8 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
     cashBalance += bal * (savedRateMap.get(cur) ?? 0);
   }
 
-  // 銀行資產：跟 /api/banks/summary 完全一樣的 note 字串解析邏輯
-  const bankMap: Record<string, { income: number; expense: number; transferIn: number; transferOut: number }> = {};
-  const ensureBank = (name: string) => {
-    if (!bankMap[name]) bankMap[name] = { income: 0, expense: 0, transferIn: 0, transferOut: 0 };
-  };
-  for (const t of bankTransactions) {
-    if (t.type === "EXPENSE" && t.note?.startsWith("支付:銀行:")) {
-      const name = t.note.split(":")[2];
-      if (name) { ensureBank(name); bankMap[name].expense += t.amount; }
-    } else if (t.type === "EXPENSE" && t.category?.name === "銀行" && t.note) {
-      const name = t.note.split(" · ")[0];
-      if (name) { ensureBank(name); bankMap[name].expense += t.amount; }
-    } else if (t.type === "INCOME" && t.category?.name === "銀行" && t.note) {
-      const name = t.note.split(" · ")[0];
-      if (name) { ensureBank(name); bankMap[name].income += t.amount; }
-    } else if (t.type === "TRANSFER" && t.note) {
-      const match = t.note.match(/FROM:([^:]+):?([^|]*)\|TO:([^:]+):?(.*)/);
-      if (match) {
-        const [, fromType, fromDetail, toType, toDetail] = match;
-        if (fromType === "銀行" && fromDetail) { ensureBank(fromDetail); bankMap[fromDetail].transferOut += t.amount; }
-        if (toType === "銀行" && toDetail) { ensureBank(toDetail); bankMap[toDetail].transferIn += t.amount; }
-      }
-    }
-  }
-  const bankTotal = Object.values(bankMap).reduce((s, d) => s + d.income + d.transferIn - d.expense - d.transferOut, 0);
+  // 銀行資產：跟 /api/banks/summary 同一套計算（src/lib/bank-balances.ts），非台幣帳戶依已儲存匯率換算
+  const bankTotal = computeBankSummaries(bankTransactions, savedRateMap).reduce((s, b) => s + b.balance, 0);
 
   // 股票、美股、虛擬貨幣、黃金：目前仍持有部位的投入成本，跟前台資產總攬同一套算法
   // （不用買賣金額直接加總，否則賣出獲利/虧損會讓已出清的標的留下殘值，成本調整也會被算進去）

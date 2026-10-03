@@ -29,7 +29,7 @@ export async function PUT(
       type,
       date: new Date(date),
       note,
-      currency: currency || "TWD",
+      ...(currency !== undefined ? { currency: currency || "TWD" } : {}),
       categoryId: categoryId || null,
     },
     include: { category: true },

@@ -2,45 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logMemberActivity } from "@/lib/activity-log";
+import { deriveBankDeltas } from "@/lib/bank-balances";
 
 const TYPE_LABEL: Record<string, string> = { INCOME: "收入", EXPENSE: "支出", TRANSFER: "調帳" };
-
-interface BankDelta {
-  bankName: string;
-  delta: number;
-}
 
 interface BankBalanceAfter {
   bankName: string;
   balance: number;
-}
-
-// 判斷一筆交易影響哪個銀行、金額增減多少，跟 /api/banks/summary 同一套判斷邏輯（見該檔案註解）：
-// 一筆交易可能同時影響兩個銀行（銀行對銀行的調帳），也可能完全不影響任何銀行（現金/第三方支付）。
-function deriveBankDeltas(t: { type: string; amount: number; note: string | null; category: { name: string } | null }): BankDelta[] {
-  if (t.type === "EXPENSE" && t.note?.startsWith("支付:銀行:")) {
-    const name = t.note.split(":")[2];
-    return name ? [{ bankName: name, delta: -t.amount }] : [];
-  }
-  if (t.type === "EXPENSE" && t.category?.name === "銀行" && t.note) {
-    const name = t.note.split(" · ")[0];
-    return name ? [{ bankName: name, delta: -t.amount }] : [];
-  }
-  if (t.type === "INCOME" && t.category?.name === "銀行" && t.note) {
-    const name = t.note.split(" · ")[0];
-    return name ? [{ bankName: name, delta: t.amount }] : [];
-  }
-  if (t.type === "TRANSFER" && t.note) {
-    const match = t.note.match(/FROM:([^:]+):?([^|]*)\|TO:([^:]+):?(.*)/);
-    if (match) {
-      const [, fromType, fromDetail, toType, toDetail] = match;
-      const deltas: BankDelta[] = [];
-      if (fromType === "銀行" && fromDetail) deltas.push({ bankName: fromDetail, delta: -t.amount });
-      if (toType === "銀行" && toDetail) deltas.push({ bankName: toDetail, delta: t.amount });
-      return deltas;
-    }
-  }
-  return [];
+  currency: string;
 }
 
 // 銀行記錄要能依銀行篩選、每筆顯示扣款後餘額，餘額必須照「扣款日期」由舊到新累加才會正確
@@ -62,8 +31,10 @@ async function getBankRecords(
     const deltas = deriveBankDeltas(t);
     const afterBalances: BankBalanceAfter[] = [];
     for (const d of deltas) {
-      runningBalance[d.bankName] = (runningBalance[d.bankName] ?? 0) + d.delta;
-      afterBalances.push({ bankName: d.bankName, balance: runningBalance[d.bankName] });
+      // 依「銀行＋幣別」分開累加，人民幣帳戶的餘額不會跟台幣混在一起
+      const key = `${d.bankName}|${d.currency}`;
+      runningBalance[key] = (runningBalance[key] ?? 0) + d.delta;
+      afterBalances.push({ bankName: d.bankName, balance: runningBalance[key], currency: d.currency });
     }
     balancesByTxId.set(t.id, afterBalances);
   }
