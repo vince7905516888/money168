@@ -35,6 +35,17 @@ const RESPONSE_SCHEMA = {
   required: ["date", "store", "amount", "currency", "items", "category", "cardHint"],
 };
 
+// 日期統一成西元 YYYY-MM-DD；AI 偶爾沒換算民國年（例如 115/10/04），這裡補換（年 < 1911 視為民國年 + 1911）
+function normalizeDate(raw: string): string {
+  const m = raw.trim().match(/^(\d{2,4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+  if (!m) return "";
+  let y = Number(m[1]);
+  if (y < 1911) y += 1911;
+  const mo = Number(m[2]), d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return "";
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
@@ -88,7 +99,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      date: /^\d{4}-\d{2}-\d{2}$/.test(parsed.date ?? "") ? parsed.date : "",
+      date: normalizeDate(String(parsed.date ?? "")),
       store: String(parsed.store ?? "").slice(0, 60),
       amount: Number(parsed.amount) > 0 ? Number(parsed.amount) : 0,
       currency: /^[A-Z]{3}$/.test(parsed.currency ?? "") ? parsed.currency : "TWD",
