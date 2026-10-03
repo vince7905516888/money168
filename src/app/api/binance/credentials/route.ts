@@ -58,7 +58,8 @@ export async function PUT(req: NextRequest) {
   const apiKeyHint = key.slice(-4);
   await prisma.binanceCredential.upsert({
     where: { userId: session.user.id },
-    create: { userId: session.user.id, apiKeyEnc, apiSecretEnc, apiKeyHint, syncHour },
+    // 第一次連結時以當下為自動作帳切點，之前的幣安記錄不追溯
+    create: { userId: session.user.id, apiKeyEnc, apiSecretEnc, apiKeyHint, syncHour, autoBookFrom: new Date() },
     update: { apiKeyEnc, apiSecretEnc, apiKeyHint, syncHour, keyChangedAt: new Date() },
   });
   await logMemberActivity(session.user.id, "SET_BINANCE_API", "binance", `設定幣安 API 金鑰（末 4 碼 ${apiKeyHint}）`);

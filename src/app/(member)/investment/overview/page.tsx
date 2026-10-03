@@ -79,6 +79,8 @@ export default function InvestmentOverviewPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    // 先把幣安切點之後的新記錄自動入帳（沒連結幣安的會員不會有任何動作）
+    await fetch("/api/binance/autobook", { method: "POST" }).catch(() => null);
     const [invRes, bankRes, debtRes, rateRes, cashRes, navRes, suspenseRes] = await Promise.all([
       fetch("/api/investments"),
       fetch("/api/banks/summary"),

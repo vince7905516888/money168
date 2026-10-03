@@ -19,6 +19,7 @@ interface Investment {
   fee?: number;
   note?: string;
   transactionId?: string;
+  externalRef?: string | null; // 幣安自動作帳的記錄才有
   createdAt: string;
 }
 
@@ -137,6 +138,8 @@ export default function CryptoPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    // 先把幣安切點之後的新記錄自動入帳（沒連結幣安的會員不會有任何動作）
+    await fetch("/api/binance/autobook", { method: "POST" }).catch(() => null);
     const [invRes, exchangeRes, suspenseRes, snapRes, credRes] = await Promise.all([
       fetch("/api/investments?type=CRYPTO"),
       fetch("/api/user-exchanges"),
@@ -1214,7 +1217,10 @@ export default function CryptoPage() {
                       {inv.code && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{inv.code}</span>}
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5">
-                      {new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
+                      {inv.externalRef
+                        ? new Date(inv.date ?? inv.createdAt).toLocaleString("zh-TW", { hour12: false, year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                        : new Date(inv.date ?? inv.createdAt).toLocaleDateString("zh-TW")}
+                      {inv.externalRef && <span className="ml-1 text-amber-500">· 幣安自動</span>}
                       {inv.broker ? ` · ${inv.broker}` : ""}
                       {inv.quantity && !isTwd(inv) ? ` · ${fmtQty(inv.quantity)} 顆` : ""}
                       {inv.price && !isTwd(inv) ? ` · @${fmt2(inv.price)}` : ""}

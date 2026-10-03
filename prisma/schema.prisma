@@ -150,6 +150,7 @@ model BinanceCredential {
   apiKeyHint   String // API Key 末 4 碼，畫面顯示用
   syncHour     Int? // 會員自訂的第一次檢查時間（台灣時間的整點 0–23），之後每 12 小時一次；沒設定則設定金鑰後立即同步、之後每 12 小時
   keyChangedAt DateTime @default(now()) // 最近一次設定／更新金鑰的時間（只改檢查時間不會變動）
+  autoBookFrom DateTime? // 自動作帳切點：這個時間之後的幣安成交、閃兌、利息、股票代幣變動才自動入帳
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -314,9 +315,12 @@ model Investment {
   note          String?
   userId        String
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  externalRef   String? // 外部來源編號（例如幣安成交編號），自動作帳用來避免重複入帳
   transactionId String?        @unique
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+
+  @@unique([userId, externalRef])
 }
 
 enum InvestmentType {

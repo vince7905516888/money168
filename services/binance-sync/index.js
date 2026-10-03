@@ -66,13 +66,20 @@ async function signed(method, path, params = {}) {
   return body;
 }
 
-async function collect() {
+// windowStart：上次同步的時間（抓這段期間的成交、閃兌、利息等，供網站自動作帳）；
+// prevAssets：上次同步時持有的幣種（幣賣光之後也還要抓得到它的成交）
+async function collect(windowStart, prevAssets) {
   const raw = { errors: {} };
   const tryGet = async (name, fn) => {
     try { raw[name] = await fn(); } catch (e) { raw.errors[name] = String(e.message || e); }
   };
   const now = Date.now();
   const since30 = String(now - 30 * DAY);
+  // 最多回補 7 天（同步工作停擺太久時），成交查詢每次最多 24 小時，所以切成 24 小時一段
+  const start = Math.max(windowStart ?? now - DAY, now - 7 * DAY);
+  raw.window = { start, end: now };
+  const chunks = [];
+  for (let t = start; t < now; t += DAY) chunks.push([t, Math.min(t + DAY - 1, now)]);
 
   await tryGet("spot", () => signed("GET", "/api/v3/account", { omitZeroBalances: "true" }));
   await tryGet("funding", () => signed("POST", "/sapi/v1/asset/get-funding-asset"));
@@ -82,17 +89,28 @@ async function collect() {
   await tryGet("withdrawals", () => signed("GET", "/sapi/v1/capital/withdraw/history", { startTime: since30 }));
   await tryGet("convert", () => signed("GET", "/sapi/v1/convert/tradeFlow", { startTime: since30, endTime: String(now) }));
   await tryGet("dividends", () => signed("GET", "/sapi/v1/asset/assetDividend", { startTime: since30, endTime: String(now), limit: "500" }));
+  // 活期理財利息（即時年利率、加碼、其他獎勵）
+  raw.earnRewards = [];
+  for (const type of ["REALTIME", "BONUS", "REWARDS"]) {
+    try {
+      const r = await signed("GET", "/sapi/v1/simple-earn/flexible/history/rewardsRecord", { type, startTime: String(start), endTime: String(now), size: "100" });
+      for (const row of r?.rows ?? []) raw.earnRewards.push({ ...row, type });
+    } catch (e) { raw.errors[`earnRewards:${type}`] = String(e.message || e); }
+  }
 
-  // 各幣種對 USDT 的現貨成交（每個交易對最近 100 筆）；交易對不存在的會記在 errors
-  const assets = new Set();
+  // 各幣種對 USDT 的現貨成交（這次同步區間內的全部成交）；EQ_ 股票代幣與 LD 理財映射資產沒有現貨交易對
+  const assets = new Set(prevAssets ?? []);
   for (const b of raw.spot?.balances ?? []) assets.add(b.asset);
   for (const b of raw.funding ?? []) assets.add(b.asset);
   raw.trades = {};
   for (const asset of assets) {
-    if (asset === "USDT" || asset.startsWith("LD")) continue;
+    if (asset === "USDT" || asset.startsWith("LD") || asset.startsWith("EQ_")) continue;
     const symbol = `${asset}USDT`;
-    try { raw.trades[symbol] = await signed("GET", "/api/v3/myTrades", { symbol, limit: "100" }); }
-    catch (e) { raw.errors[`trades:${symbol}`] = String(e.message || e); }
+    try {
+      const list = [];
+      for (const [a, b] of chunks) list.push(...(await signed("GET", "/api/v3/myTrades", { symbol, startTime: String(a), endTime: String(b), limit: "1000" })));
+      raw.trades[symbol] = list;
+    } catch (e) { raw.errors[`trades:${symbol}`] = String(e.message || e); }
   }
   return raw;
 }
@@ -122,7 +140,11 @@ function summarize(raw) {
 async function syncUser(db, userId) {
   let balances = {}, raw = null, error = null;
   try {
-    raw = await collect();
+    const prev = (await db.query(
+      `select "fetchedAt", balances from "BinanceSnapshot" where "userId" = $1 and error is null order by "fetchedAt" desc limit 1`,
+      [userId]
+    )).rows[0];
+    raw = await collect(prev ? new Date(prev.fetchedAt).getTime() : null, prev ? Object.keys(prev.balances ?? {}) : []);
     balances = summarize(raw);
     if (raw.errors.spot) error = raw.errors.spot;
   } catch (e) {
