@@ -81,7 +81,7 @@ async function collect() {
   await tryGet("deposits", () => signed("GET", "/sapi/v1/capital/deposit/hisrec", { startTime: since30 }));
   await tryGet("withdrawals", () => signed("GET", "/sapi/v1/capital/withdraw/history", { startTime: since30 }));
   await tryGet("convert", () => signed("GET", "/sapi/v1/convert/tradeFlow", { startTime: since30, endTime: String(now) }));
-  await tryGet("dividends", () => signed("GET", "/sapi/v1/asset/assetDividend", { startTime: since30, limit: "500" }));
+  await tryGet("dividends", () => signed("GET", "/sapi/v1/asset/assetDividend", { startTime: since30, endTime: String(now), limit: "500" }));
 
   // 各幣種對 USDT 的現貨成交（每個交易對最近 100 筆）；交易對不存在的會記在 errors
   const assets = new Set();
