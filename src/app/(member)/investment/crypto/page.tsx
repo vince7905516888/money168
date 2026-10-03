@@ -297,10 +297,13 @@ export default function CryptoPage() {
   const swapToQty = parseFloat(addForm.swapToQty) || 0;
   const swapToCode = addForm.swapTo.trim().toUpperCase();
   const swapCost = swapFromHolding && swapFromHolding.quantity > 0 ? (swapFromHolding.cost / swapFromHolding.quantity) * swapFromQty : 0;
-  // 兌換手續費：以換出的幣計，已包含在換出數量內（持有只扣換出數量），實際拿去兌換的是換出數量 − 手續費；
-  // 換出數量的成本（含手續費部分）全部轉給換到的幣，總資產不變
+  // 兌換手續費：以換到的幣計，從輸入的換到數量中扣除，實際入帳 = 換到數量 − 手續費
   const swapFee = parseFloat(addForm.swapFee) || 0;
-  const swapNet = swapFromQty - swapFee;
+  const swapNet = swapToQty - swapFee;
+  // 換到的成本：換成 USDT 時跟「USDT 計價賣出」一樣，以 USDT 目前平均成本計價（賺賠直接反映在資產上，
+  // 也不會把 USDT 平均成本拉歪）；換成其他幣時，換出幣的成本直接轉給換到的幣
+  const swapToUsdt = swapToCode === USDT_CODE && usdtUnitCost > 0;
+  const swapInCost = swapToUsdt ? Math.max(0, swapNet) * usdtUnitCost : swapCost;
   // 轉移試算：轉出交易所的持有數量、手續費（以幣計）、轉入數量、搬過去的成本（以全體平均成本計）
   const transferHolding = holdings.find((h) => h.code === addForm.transferCode);
   const transferSources = exchangesByCode.get(addForm.transferCode) ?? [];
@@ -354,10 +357,10 @@ export default function CryptoPage() {
         return;
       }
       if (swapFee < 0 || swapNet <= 0) {
-        alert("手續費要小於換出數量");
+        alert("手續費要小於換到數量");
         return;
       }
-      const note = `${SWAP_NOTE}：${fmtQty(swapFromQty)} ${swapFromHolding.code} → ${fmtQty(swapToQty)} ${swapToCode}${swapFee ? `（含手續費 ${fmtQty(swapFee)} ${swapFromHolding.code}）` : ""}${addForm.note ? `（${addForm.note}）` : ""}`;
+      const note = `${SWAP_NOTE}：${fmtQty(swapFromQty)} ${swapFromHolding.code} → ${fmtQty(swapToQty)} ${swapToCode}${swapFee ? `（含手續費 ${fmtQty(swapFee)} ${swapToCode}）` : ""}${addForm.note ? `（${addForm.note}）` : ""}`;
       setAddSaving(true);
       const out = await postInvestment({
         name: swapFromHolding.code === TWD_CODE ? "台幣" : swapFromHolding.name, code: swapFromHolding.code,
@@ -373,9 +376,9 @@ export default function CryptoPage() {
       const inn = await postInvestment({
         name: knownCoins.get(swapToCode) ?? swapToCode, code: swapToCode,
         date: addForm.date, action: "BUY", broker: addForm.broker,
-        quantity: swapToQty, price: swapCost > 0 ? swapCost / swapToQty : undefined, amount: swapCost, note,
+        quantity: swapNet, price: swapInCost > 0 ? swapInCost / swapNet : undefined, amount: swapInCost, note,
       });
-      if (!inn.ok) alert(`換出已儲存，但 ${swapToCode} 的換入記錄儲存失敗，請手動補一筆買進 ${fmtQty(swapToQty)} ${swapToCode}`);
+      if (!inn.ok) alert(`換出已儲存，但 ${swapToCode} 的換入記錄儲存失敗，請手動補一筆買進 ${fmtQty(swapNet)} ${swapToCode}`);
       setAddSaving(false);
       setShowAddModal(false);
       fetchAll();
@@ -1069,7 +1072,7 @@ export default function CryptoPage() {
               </div>
               {addForm.mode === "SWAP" && (
                 <p className="text-xs text-slate-400 -mt-2">
-                  用一種幣換另一種幣（例如 SOL 換 ADA）：換到的幣承接換出幣的成本，兌換本身不影響總資產
+                  用一種幣換另一種幣：換成 USDT 時以 USDT 平均成本計價（賺賠反映在資產）；換成其他幣時承接換出幣的成本
                 </p>
               )}
               {addForm.mode === "TRANSFER" && (
@@ -1198,29 +1201,35 @@ export default function CryptoPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費（選填，{swapFromHolding ? swapFromHolding.code : "換出的幣"}）</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費（選填，{swapToCode || "換到的幣"}）</label>
                     <input type="number" min="0" step="any" value={addForm.swapFee}
                       onChange={(e) => setAddForm({ ...addForm, swapFee: e.target.value })} placeholder="例如：0.1"
                       className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                    <p className="text-[11px] text-slate-400 mt-1">手續費包含在換出數量內，從你輸入的換出數量扣除，不會另外再扣</p>
+                    <p className="text-[11px] text-slate-400 mt-1">從你輸入的換到數量扣除，實際入帳 = 換到數量 − 手續費</p>
                   </div>
                   {swapFromHolding && swapFromQty > 0 && (
                     <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
                       <div className="flex justify-between text-xs text-slate-500">
-                        <span>轉移成本</span><span>{fmt(swapCost)}</span>
+                        <span>換出成本</span><span>{fmt(swapCost)}</span>
                       </div>
-                      {swapFee > 0 && (
-                        <div className="flex justify-between text-xs text-slate-500">
-                          <span>實際兌換數量（換出 − 手續費）</span><span className="font-mono">{fmtQty(Math.max(0, Math.round(swapNet * 1e8) / 1e8))} {swapFromHolding.code}</span>
-                        </div>
-                      )}
                       {swapToQty > 0 && swapToCode && (
-                        <div className="flex justify-between text-xs text-slate-500">
-                          <span>{swapToCode} 換入成本單價</span><span>{fmtAvg(swapCost / swapToQty)}</span>
-                        </div>
+                        <>
+                          <div className="flex justify-between text-xs text-slate-500">
+                            <span>實際入帳（換到 − 手續費）</span><span className="font-mono">{fmtQty(Math.max(0, Math.round(swapNet * 1e8) / 1e8))} {swapToCode}</span>
+                          </div>
+                          <div className="flex justify-between text-xs text-slate-500">
+                            <span>換入成本{swapToUsdt ? `（USDT 以平均成本 ${fmt2(usdtUnitCost)} 計）` : "（承接換出成本）"}</span><span>{fmt(swapInCost)}</span>
+                          </div>
+                          {swapToUsdt && (
+                            <div className="flex justify-between text-xs font-semibold pt-1.5 border-t border-slate-200">
+                              <span className="text-slate-700">這次兌換損益</span>
+                              <span className={swapInCost - swapCost >= 0 ? "text-red-500" : "text-emerald-600"}>{swapInCost - swapCost >= 0 ? "+" : ""}{fmt(swapInCost - swapCost)}</span>
+                            </div>
+                          )}
+                        </>
                       )}
                       {swapFee > 0 && swapNet <= 0 && (
-                        <p className="text-xs text-red-500">手續費要小於換出數量</p>
+                        <p className="text-xs text-red-500">手續費要小於換到數量</p>
                       )}
                       {swapFromQty > swapFromHolding.quantity + 1e-9 && (
                         <p className="text-xs text-red-500">超過持有（{fmtQty(swapFromHolding.quantity)}）</p>
