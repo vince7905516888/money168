@@ -9,6 +9,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { key: "transactions", label: "收支記錄", href: "/transactions", section: "現金系統" },
   { key: "banks", label: "銀行資金管理", href: "/banks", section: "現金系統" },
+  { key: "receipt", label: "拍照記帳", href: "/receipt", section: "現金系統" },
   { key: "reports", label: "報表分析", href: "/reports", section: null },
   { key: "debts", label: "負債表", href: "/debts", section: null },
   { key: "investment.overview", label: "資產總攬", href: "/investment/overview", section: null },
