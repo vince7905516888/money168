@@ -78,6 +78,15 @@ export async function DELETE(
   }
 
   await prisma.investment.delete({ where: { id } });
+  // 自動入帳的記錄被刪除後，記下外部編號，自動作帳就不會再把它記回來
+  if (existing.externalRef) {
+    const ref = existing.externalRef.split("#")[0];
+    await prisma.dismissedExternalRef.upsert({
+      where: { userId_ref: { userId: session.user.id, ref } },
+      create: { userId: session.user.id, ref },
+      update: {},
+    });
+  }
 
   await logMemberActivity(
     session.user.id,

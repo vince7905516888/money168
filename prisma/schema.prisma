@@ -35,6 +35,7 @@ model User {
   suspenseEntries    SuspenseEntry[]
   binanceSnapshots   BinanceSnapshot[]
   binanceCredential  BinanceCredential?
+  dismissedRefs      DismissedExternalRef[]
   userCurrencies     UserCurrency[]
   userFundNavs       UserFundNav[]
   userWatchStocks    UserWatchStock[]
@@ -153,6 +154,17 @@ model BinanceCredential {
   autoBookFrom DateTime? // 自動作帳切點：這個時間之後的幣安成交、閃兌、利息、股票代幣變動才自動入帳
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+// 會員手動刪除的自動入帳記錄（例如幣安自動作帳）：記下外部編號，自動作帳之後就不會再把它記回來
+model DismissedExternalRef {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ref       String // 外部編號（不含 #序號），例如 bn:div:417591748550
+  createdAt DateTime @default(now())
+
+  @@unique([userId, ref])
 }
 
 model BinanceSnapshot {

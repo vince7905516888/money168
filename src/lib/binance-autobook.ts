@@ -70,10 +70,12 @@ export async function runBinanceAutoBook(
   });
   if (snaps.length === 0) return { created: 0 };
 
-  const booked = new Set(
-    (await prisma.investment.findMany({ where: { userId, externalRef: { not: null } }, select: { externalRef: true } }))
-      .map((r) => r.externalRef!.split("#")[0])
-  );
+  // 已入帳的，以及會員手動刪除過的（不再記回來）
+  const [bookedRows, dismissed] = await Promise.all([
+    prisma.investment.findMany({ where: { userId, externalRef: { not: null } }, select: { externalRef: true } }),
+    prisma.dismissedExternalRef.findMany({ where: { userId }, select: { ref: true } }),
+  ]);
+  const booked = new Set([...bookedRows.map((r) => r.externalRef!.split("#")[0]), ...dismissed.map((d) => d.ref)]);
 
   // ---- 收集事件（同一筆會出現在多次同步裡，以 ref 去重）----
   const events = new Map<string, Event>();
@@ -94,6 +96,8 @@ export async function runBinanceAutoBook(
       push({ ref: `bn:earn:${r.type}:${r.asset}:${r.time}`, time: r.time, kind: "reward", data: { asset: r.asset, amount: r.rewards, label: `理財「活期」${r.asset} ${kind}` } });
     }
     for (const d of raw.dividends?.rows ?? []) {
+      // 活期／定期理財的利息在 earnRewards 已經記過，資產分紅裡又會以 Flexible、Simple Earn 等名稱再出現一次，略過避免重複
+      if (/flexible|locked|simple earn|savings|staking/i.test(String(d.enInfo ?? ""))) continue;
       push({ ref: `bn:div:${d.tranId ?? d.id}`, time: d.divTime, kind: "reward", data: { asset: d.asset, amount: d.amount, label: `資產分紅「${d.enInfo || "分紅／空投"}」編號 ${d.tranId ?? d.id}` } });
     }
   }
