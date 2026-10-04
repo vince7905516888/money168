@@ -5,8 +5,8 @@
 // - 沒有任何對外端點（不開 HTTP 伺服器），只主動呼叫幣安的唯讀 API
 // - 會員在網站上自行填寫幣安金鑰（選填），網站以公鑰加密存進 BinanceCredential，
 //   這裡用私鑰（BINANCE_CRED_PRIVATE_KEY，base64 的 PEM）解開；沒有填金鑰的會員不會被同步
-// - 同步時間：會員可設定「第一次檢查時間」（台灣時間整點），之後每 12 小時一次（例如 08:00 與 20:00）；
-//   沒設定的話，設定金鑰後 10 分鐘內第一次同步，之後每 12 小時一次
+// - 同步時間：會員可設定「第一次檢查時間」（台灣時間整點），之後每 6 小時一次（例如 08:00、14:00、20:00、02:00）；
+//   沒設定的話，設定金鑰後 10 分鐘內第一次同步，之後每 6 小時一次
 // - DATABASE_URL：同一個 Railway 專案的 Postgres
 import crypto from "node:crypto";
 import pg from "pg";
@@ -15,7 +15,8 @@ const { Client } = pg;
 
 const API = "https://api.binance.com";
 const DAY = 24 * 60 * 60 * 1000;
-const SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000 - 10 * 60 * 1000; // 12 小時（留 10 分鐘緩衝，避免剛好差幾秒被跳過）
+const SYNC_EVERY_HOURS = 6;
+const SYNC_INTERVAL_MS = SYNC_EVERY_HOURS * 60 * 60 * 1000 - 10 * 60 * 1000; // 6 小時（留 10 分鐘緩衝，避免剛好差幾秒被跳過）
 const CHECK_EVERY_MS = 10 * 60 * 1000;
 
 // 台灣時間的整點小時，與本小時開始的時間
@@ -32,11 +33,11 @@ function startOfCurrentHour() {
 function isDue(syncHour, lastSync) {
   const last = lastSync ? new Date(lastSync).getTime() : 0;
   if (syncHour === null || syncHour === undefined) {
-    // 沒指定時間：設定金鑰後第一次立即同步，之後每 12 小時
+    // 沒指定時間：設定金鑰後第一次立即同步，之後每 6 小時
     return !last || Date.now() - last >= SYNC_INTERVAL_MS;
   }
-  // 指定時間：只在指定整點與 12 小時後的整點同步，同一個小時內只同步一次
-  const slots = [syncHour, (syncHour + 12) % 24];
+  // 指定時間：只在指定整點及之後每 6 小時的整點同步，同一個小時內只同步一次
+  const slots = Array.from({ length: 24 / SYNC_EVERY_HOURS }, (_, i) => (syncHour + i * SYNC_EVERY_HOURS) % 24);
   if (!slots.includes(taipeiHour())) return false;
   return !last || last < startOfCurrentHour();
 }
@@ -154,9 +155,9 @@ async function syncUser(db, userId) {
     `insert into "BinanceSnapshot" (id, "userId", "fetchedAt", balances, raw, error) values ($1, $2, now(), $3, $4, $5)`,
     [crypto.randomUUID(), userId, JSON.stringify(balances), raw ? JSON.stringify(raw) : null, error]
   );
-  // 只保留最近 60 筆快照（約 30 天）
+  // 只保留最近 120 筆快照（每 6 小時一筆，約 30 天）
   await db.query(
-    `delete from "BinanceSnapshot" where "userId" = $1 and id not in (select id from "BinanceSnapshot" where "userId" = $1 order by "fetchedAt" desc limit 60)`,
+    `delete from "BinanceSnapshot" where "userId" = $1 and id not in (select id from "BinanceSnapshot" where "userId" = $1 order by "fetchedAt" desc limit 120)`,
     [userId]
   );
   return { assets: Object.keys(balances).length, error };

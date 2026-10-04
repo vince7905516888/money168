@@ -112,7 +112,7 @@ export default function CryptoPage() {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [pricesAt, setPricesAt] = useState<string | null>(null);
   const [pricesFailed, setPricesFailed] = useState(false);
-  // 幣安帳戶最新同步快照（排程工作每 12 小時寫入），用來核對帳上數量
+  // 幣安帳戶最新同步快照（同步工作每 6 小時寫入），用來核對帳上數量
   const [binanceSnap, setBinanceSnap] = useState<{ fetchedAt: string; balances: Record<string, { spot: number; funding: number; earn: number; total: number }>; error: string | null } | null>(null);
   const [binanceOpen, setBinanceOpen] = useState(false);
   // 會員自行設定的幣安 API 金鑰（選填）：有設定就自動同步核對，沒設定就維持手動記帳
@@ -749,10 +749,10 @@ export default function CryptoPage() {
   // 只採用設定金鑰之後的同步結果（換了金鑰，舊的快照就不算）
   const binanceConnected = !!binanceCred?.connected;
   const snapValid = binanceConnected && !!binanceSnap && !!binanceCred?.keyChangedAt && new Date(binanceSnap.fetchedAt) >= new Date(binanceCred.keyChangedAt);
-  // 同步時間：設定了第一次檢查時間就是每天該整點與 12 小時後各一次
+  // 同步時間：設定了第一次檢查時間就是每天該整點起每 6 小時一次
   const pad2 = (n: number) => String(n).padStart(2, "0");
   const syncScheduleText = (h: number | null | undefined) =>
-    h === null || h === undefined ? "設定後立即同步，之後每 12 小時" : `每天 ${pad2(h)}:00 與 ${pad2((h + 12) % 24)}:00`;
+    h === null || h === undefined ? "設定後立即同步，之後每 6 小時" : `每天 ${[0, 6, 12, 18].map((d) => `${pad2((h + d) % 24)}:00`).join("、")}`;
   const HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => h);
 
   const changeSyncHour = async (value: string) => {
@@ -958,7 +958,7 @@ export default function CryptoPage() {
                   ? `最後同步 ${new Date(binanceSnap!.fetchedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}・${syncScheduleText(binanceCred?.syncHour)}`
                   : binanceCred?.syncHour === null || binanceCred?.syncHour === undefined
                     ? "已連結，10 分鐘內會完成第一次同步"
-                    : `已連結，將於 ${pad2(binanceCred.syncHour)}:00 或 ${pad2((binanceCred.syncHour + 12) % 24)}:00 第一次同步`}
+                    : `已連結，將於 ${[0, 6, 12, 18].map((d) => `${pad2((binanceCred.syncHour! + d) % 24)}:00`).join("、")} 其中最近的一個時間第一次同步`}
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -1011,7 +1011,7 @@ export default function CryptoPage() {
                     <option value="">不指定（連結後立即同步）</option>
                     {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{pad2(h)}:00</option>)}
                   </select>
-                  <span className="text-[11px] text-slate-400">之後每 12 小時同步一次，例如選 08:00 就是每天 08:00 與 20:00</span>
+                  <span className="text-[11px] text-slate-400">之後每 6 小時同步一次，例如選 08:00 就是每天 08:00、14:00、20:00、02:00</span>
                 </label>
                 <div className="flex gap-2 justify-end">
                   {credEditing && (
