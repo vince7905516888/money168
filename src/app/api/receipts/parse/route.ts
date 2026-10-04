@@ -11,17 +11,21 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const CATEGORIES = ["餐飲", "購物", "交通", "醫療", "娛樂", "其他支出"];
 
-const PROMPT = `你是記帳助理，請讀取這張發票、收據或付款截圖，只輸出 JSON：
-- date：消費日期，格式 YYYY-MM-DD；台灣發票的民國年要換算成西元（例如 115 年 = 2026 年）；看不出來就回傳空字串
-- store：店家或商品名稱，簡短即可
-- amount：實際付款總金額（數字，含稅、扣掉折扣後的總計，不是單一品項）
-- currency：幣別代碼（TWD、CNY、USD、JPY…），台灣發票為 TWD
-- items：主要品項名稱（最多 5 項）
-- category：從 ${CATEGORIES.join("、")} 選一個最接近的
-- cardHint：如果看得出付款的信用卡或銀行名稱（例如「國泰」「台新」），寫出來；否則空字串
+const PROMPT = `你是記帳助理，請讀取這張發票、收據、付款截圖或購物／團購 App 的訂單截圖，只輸出 JSON：
+- isGroupBuy：是否為團購 App 的訂單／取貨截圖（true／false）
+- orders：截圖裡每一筆獨立的訂單或發票各一筆（一般發票、收據只有一筆）；每筆包含：
+  - date：消費日期，格式 YYYY-MM-DD；台灣發票的民國年要換算成西元（例如 115 年 = 2026 年）；看不出來就回傳空字串
+  - store：店家或平台名稱，簡短即可（例如「全聯」「有購省團購」）
+  - amount：這筆實際付款總金額（數字，含稅、扣掉折扣後的總計；團購訂單用「應付總額」）
+  - currency：幣別代碼（TWD、CNY、USD、JPY…），台灣的單據為 TWD
+  - items：品項名稱（最多 5 項）；團購訂單沒有文字品名時，從商品圖片上的文字判斷
+  - orderNo：訂單或出貨單編號、發票號碼，沒有就空字串
+  - category：從 ${CATEGORIES.join("、")} 選一個最接近的
+  - cardHint：如果看得出付款的信用卡或銀行名稱（例如「國泰」「台新」），寫出來；否則空字串
+  - uncertain：這筆被截斷、金額或內容看不完整時為 true
 看不清楚的欄位不要猜測，回傳空字串或 0。`;
 
-const RESPONSE_SCHEMA = {
+const ORDER_SCHEMA = {
   type: "OBJECT",
   properties: {
     date: { type: "STRING" },
@@ -29,10 +33,17 @@ const RESPONSE_SCHEMA = {
     amount: { type: "NUMBER" },
     currency: { type: "STRING" },
     items: { type: "ARRAY", items: { type: "STRING" } },
+    orderNo: { type: "STRING" },
     category: { type: "STRING", enum: CATEGORIES },
     cardHint: { type: "STRING" },
+    uncertain: { type: "BOOLEAN" },
   },
-  required: ["date", "store", "amount", "currency", "items", "category", "cardHint"],
+  required: ["date", "store", "amount", "currency", "items", "orderNo", "category", "cardHint", "uncertain"],
+};
+const RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: { isGroupBuy: { type: "BOOLEAN" }, orders: { type: "ARRAY", items: ORDER_SCHEMA } },
+  required: ["isGroupBuy", "orders"],
 };
 
 // 日期統一成西元 YYYY-MM-DD；AI 偶爾沒換算民國年（例如 115/10/04），這裡補換（年 < 1911 視為民國年 + 1911）
@@ -98,15 +109,19 @@ export async function POST(req: NextRequest) {
         .catch((e) => console.error("token usage log failed:", e));
     }
 
-    return NextResponse.json({
-      date: normalizeDate(String(parsed.date ?? "")),
-      store: String(parsed.store ?? "").slice(0, 60),
-      amount: Number(parsed.amount) > 0 ? Number(parsed.amount) : 0,
-      currency: /^[A-Z]{3}$/.test(parsed.currency ?? "") ? parsed.currency : "TWD",
-      items: Array.isArray(parsed.items) ? parsed.items.map((x: unknown) => String(x).slice(0, 40)).slice(0, 5) : [],
-      category: CATEGORIES.includes(parsed.category) ? parsed.category : "其他支出",
-      cardHint: String(parsed.cardHint ?? "").slice(0, 30),
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orders = (Array.isArray(parsed.orders) ? parsed.orders : []).slice(0, 20).map((o: any) => ({
+      date: normalizeDate(String(o.date ?? "")),
+      store: String(o.store ?? "").slice(0, 60),
+      amount: Number(o.amount) > 0 ? Number(o.amount) : 0,
+      currency: /^[A-Z]{3}$/.test(o.currency ?? "") ? o.currency : "TWD",
+      items: Array.isArray(o.items) ? o.items.map((x: unknown) => String(x).slice(0, 40)).slice(0, 5) : [],
+      orderNo: String(o.orderNo ?? "").replace(/^#/, "").slice(0, 40),
+      category: CATEGORIES.includes(o.category) ? o.category : "其他支出",
+      cardHint: String(o.cardHint ?? "").slice(0, 30),
+      uncertain: !!o.uncertain || !(Number(o.amount) > 0),
+    }));
+    return NextResponse.json({ isGroupBuy: !!parsed.isGroupBuy, orders });
   } catch (e) {
     console.error("receipt parse failed:", e);
     return NextResponse.json({ error: "辨識失敗，請再試一次或手動輸入" }, { status: 502 });
