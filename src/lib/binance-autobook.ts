@@ -93,7 +93,11 @@ export async function runBinanceAutoBook(
     }
     for (const r of raw.earnRewards ?? []) {
       const kind = r.type === "BONUS" ? "加碼利息" : r.type === "REWARDS" ? "其他獎勵" : "即時利息";
-      push({ ref: `bn:earn:${r.type}:${r.asset}:${r.time}`, time: r.time, kind: "reward", data: { asset: r.asset, amount: r.rewards, label: `理財「活期」${r.asset} ${kind}` } });
+      // 即時利息是整天持續累積進理財餘額、每天結束時（UTC 23:59:59）才出一筆整天的總數；
+      // 切點當天只有切點之後累積的部分是新的（之前的已經包含在切點時的餘額裡），依時間比例計算
+      let amount = parseFloat(r.rewards) || 0;
+      if (r.type === "REALTIME" && r.time - 86_400_000 < from) amount *= Math.max(0, r.time - from) / 86_400_000;
+      push({ ref: `bn:earn:${r.type}:${r.asset}:${r.time}`, time: r.time, kind: "reward", data: { asset: r.asset, amount, label: `理財「活期」${r.asset} ${kind}${amount !== (parseFloat(r.rewards) || 0) ? `（切點當天只計切點後部分，全天 ${r.rewards}）` : ""}` } });
     }
     for (const d of raw.dividends?.rows ?? []) {
       // 活期／定期理財的利息在 earnRewards 已經記過，資產分紅裡又會以 Flexible、Simple Earn 等名稱再出現一次，略過避免重複
