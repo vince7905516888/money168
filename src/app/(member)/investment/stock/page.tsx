@@ -69,6 +69,10 @@ export default function StockPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [realizedOpen, setRealizedOpen] = useState(false);
+  // 持股校正：把某一檔的股數與總成本調成券商庫存上的實際數字
+  const [calibrating, setCalibrating] = useState<{ code: string; name: string; quantity: number; cost: number } | null>(null);
+  const [calibForm, setCalibForm] = useState({ quantity: "", cost: "", note: "" });
+  const [calibSaving, setCalibSaving] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [addSaving, setAddSaving] = useState(false);
@@ -304,6 +308,43 @@ export default function StockPage() {
     fetchAll();
   };
 
+  const openCalibrate = (h: { code: string; name: string; quantity: number; cost: number }) => {
+    setCalibrating(h);
+    setCalibForm({ quantity: String(h.quantity), cost: String(Math.round(h.cost)), note: "" });
+  };
+
+  // 校正：先補股數差額（股數多記零成本、少了依先進先出扣掉），再補成本差額，讓股數與總成本等於輸入的實際數字
+  const saveCalibrate = async () => {
+    if (!calibrating) return;
+    const targetQty = parseFloat(calibForm.quantity);
+    const targetCost = parseFloat(calibForm.cost);
+    if (!(targetQty >= 0) || !(targetCost >= 0)) { alert("請填寫實際股數與總成本"); return; }
+    const qtyDiff = Math.round((targetQty - calibrating.quantity) * 1e6) / 1e6;
+    // 先模擬補完股數差額後的成本（股數減少時依先進先出扣掉對應批次的成本），再算要補的成本差額，確保最後剛好等於目標
+    const now = new Date().toISOString();
+    const qtyRec = qtyDiff !== 0
+      ? [{ code: calibrating.code, name: calibrating.name, action: (qtyDiff > 0 ? "BUY" : "SELL") as "BUY" | "SELL", quantity: Math.abs(qtyDiff), price: null, amount: 0, date: now, createdAt: now }]
+      : [];
+    const after = computeStockLedger([...investments, ...qtyRec]).holdings.find((x) => x.code === calibrating.code);
+    const costDiff = Math.round(targetCost - (after?.cost ?? 0));
+    if (qtyDiff === 0 && Math.abs(targetCost - calibrating.cost) < 1) { alert("股數與成本都跟系統一樣，不需要校正"); return; }
+    if (!confirm(`校正「${calibrating.name}」？\n\n股數：${calibrating.quantity.toLocaleString()} → ${targetQty.toLocaleString()}\n總成本：${Math.round(calibrating.cost).toLocaleString()} → ${Math.round(targetCost).toLocaleString()}`)) return;
+    setCalibSaving(true);
+    const date = new Date().toLocaleDateString("sv-SE");
+    const base = `持股校正：股數 ${calibrating.quantity} → ${targetQty}、成本 ${Math.round(calibrating.cost)} → ${Math.round(targetCost)}${calibForm.note ? `（${calibForm.note}）` : ""}`;
+    const post = (body: Record<string, unknown>) => authFetch("/api/investments", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "STOCK", name: calibrating.name, code: calibrating.code, date, broker: "", ...body }),
+    });
+    let ok = true;
+    if (qtyDiff !== 0) ok = (await post({ action: qtyDiff > 0 ? "BUY" : "SELL", quantity: Math.abs(qtyDiff), amount: 0, note: `${base}・股數` })).ok && ok;
+    if (costDiff !== 0) ok = (await post({ action: costDiff > 0 ? "BUY" : "SELL", amount: costDiff, note: `${base}・成本` })).ok && ok;
+    setCalibSaving(false);
+    if (!ok) alert("校正記錄有部分儲存失敗，請檢查投資記錄");
+    setCalibrating(null);
+    fetchAll();
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm("確定要刪除這筆投資記錄？")) return;
     await authFetch(`/api/investments/${id}`, { method: "DELETE" });
@@ -362,6 +403,7 @@ export default function StockPage() {
                   <th className="text-right font-semibold px-6 py-3">合計股數</th>
                   <th className="text-right font-semibold px-6 py-3">投資總額</th>
                   <th className="text-right font-semibold px-6 py-3">平均每股價格</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -372,6 +414,10 @@ export default function StockPage() {
                     <td className="px-6 py-3 text-right text-slate-700">{h.quantity.toLocaleString("zh-TW")}</td>
                     <td className="px-6 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
                     <td className="px-6 py-3 text-right text-slate-700">{h.avgPrice.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button type="button" onClick={() => openCalibrate(h)}
+                        className="text-xs font-semibold text-violet-600 border border-violet-200 rounded-lg px-2.5 py-1 hover:bg-violet-50">校正</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -531,6 +577,49 @@ export default function StockPage() {
           </div>
         )}
       </div>
+
+      {/* 持股校正 Modal */}
+      {calibrating && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">持股校正：{calibrating.name}（{calibrating.code}）</h2>
+              <p className="text-xs text-slate-400 mt-1">填入券商庫存上的實際股數與總成本，系統會補記差額讓這檔等於實際數字</p>
+            </div>
+            <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-slate-500">系統目前股數</span><span>{calibrating.quantity.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">系統目前總成本</span><span>{fmt(calibrating.cost)}</span></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">實際股數</label>
+                <input type="number" min="0" step="any" value={calibForm.quantity} onChange={(e) => setCalibForm({ ...calibForm, quantity: e.target.value })}
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">實際總成本</label>
+                <input type="number" min="0" step="any" value={calibForm.cost} onChange={(e) => setCalibForm({ ...calibForm, cost: e.target.value })}
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              </div>
+            </div>
+            {parseFloat(calibForm.quantity) > 0 && parseFloat(calibForm.cost) >= 0 && (
+              <p className="text-xs text-slate-500">校正後平均每股價格：{(parseFloat(calibForm.cost) / parseFloat(calibForm.quantity)).toFixed(2)}</p>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
+              <input value={calibForm.note} onChange={(e) => setCalibForm({ ...calibForm, note: e.target.value })} placeholder="例如：對照國泰證券庫存"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+            </div>
+            <p className="text-xs text-amber-600">校正後的差額會直接反映在總資產上</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setCalibrating(null)} className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50">取消</button>
+              <button type="button" onClick={saveCalibrate} disabled={calibSaving} className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60">
+                {calibSaving ? "校正中..." : "確認校正"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 新增記錄 Modal */}
       {showAddModal && (

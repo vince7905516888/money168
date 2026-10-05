@@ -1,4 +1,5 @@
 export interface HoldingInput {
+  note?: string | null;
   id?: string;
   code?: string | null;
   name?: string | null;
@@ -45,8 +46,9 @@ export function computeStockLedger(investments: HoldingInput[]): { holdings: Hol
 
   for (const inv of sorted) {
     const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
-    // 獲利沖銷列（舊版成本調整在來源股票補的沖銷）：已不影響任何計算，直接略過
-    if (!inv.price && !inv.quantity && inv.action === "BUY" && (inv.amount ?? 0) > 0) continue;
+    // 舊版成本調整在獲利來源股票補的「沖銷」記錄：不參與計算，直接略過
+    // （只看備註，因為「持股校正」調高成本也是沒有股數、金額為正的記錄）
+    if (!inv.price && !inv.quantity && inv.note?.startsWith("沖銷：")) continue;
     if (!groups.has(key)) groups.set(key, { name: inv.name || "(未命名)", code: inv.code || "—", lots: [], pendingAdj: 0 });
     const g = groups.get(key)!;
 
