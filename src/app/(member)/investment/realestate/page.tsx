@@ -178,7 +178,7 @@ export default function RealEstatePage() {
   };
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-7xl">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">不動產投資</h1>

@@ -837,7 +837,7 @@ export default function CryptoPage() {
   };
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-7xl">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">虛擬貨幣</h1>

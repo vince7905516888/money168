@@ -173,11 +173,11 @@ export default function ProfilePage() {
   };
 
   if (loading) {
-    return <div className="max-w-2xl py-16 text-center text-slate-400 text-sm">載入中...</div>;
+    return <div className="w-full max-w-7xl py-16 text-center text-slate-400 text-sm">載入中...</div>;
   }
 
   return (
-    <div className="max-w-2xl">
+    <div className="w-full max-w-7xl">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">會員資料管理</h1>
         <p className="text-slate-500 text-sm mt-1">管理你的暱稱與密碼</p>

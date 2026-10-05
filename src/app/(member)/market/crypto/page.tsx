@@ -97,7 +97,7 @@ export default function CryptoMarketPage() {
   );
 
   return (
-    <div className="max-w-5xl">
+    <div className="w-full max-w-7xl">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">市場行情 · 虛擬貨幣</h1>
         <p className="text-slate-500 text-sm mt-1">K線、均線、布林通道與技術指標，資料來源：Kraken</p>

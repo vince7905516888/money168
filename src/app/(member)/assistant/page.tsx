@@ -55,7 +55,7 @@ export default function AssistantPage() {
   };
 
   return (
-    <div className="max-w-3xl flex flex-col h-[75vh]">
+    <div className="w-full max-w-7xl flex flex-col h-[75vh]">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">智能助理</h1>
         <p className="text-slate-500 text-sm mt-1">投資相關知識問答，AI 回覆僅供參考，不構成個人化投資建議</p>

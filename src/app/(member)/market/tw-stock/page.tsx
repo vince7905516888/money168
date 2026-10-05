@@ -1337,7 +1337,7 @@ export default function TwStockPage() {
   }, [flowData, selectedFlowMetric]);
 
   return (
-    <div className="max-w-6xl">
+    <div className="w-full max-w-7xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">台灣股市</h1>
         <p className="text-slate-500 text-sm mt-1">K線、均線、布林通道與成交量（資料源：Yahoo Finance，可能延遲，僅供參考）</p>

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSidebar } from "./SidebarContext";
 import { useVisibleNavItems } from "./NavPermissionContext";
 import type { NavItem } from "@/lib/nav-items";
@@ -29,6 +29,11 @@ type Block =
 export default function MemberSidebar({ userName }: { userName: string | null }) {
   const pathname = usePathname();
   const { collapsed, toggle, expand } = useSidebar();
+  // 手機上點了選單換頁後自動收合，不要一直蓋在內容上面
+  useEffect(() => {
+    if (window.innerWidth < 768 && !collapsed) toggle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
   const visibleItems = useVisibleNavItems();
 
   const blocks = useMemo<Block[]>(() => {
@@ -73,6 +78,9 @@ export default function MemberSidebar({ userName }: { userName: string | null })
   };
 
   return (
+    <>
+    {/* 手機上展開側邊欄時蓋在內容上面，點旁邊的遮罩收合 */}
+    {!collapsed && <div className="md:hidden fixed inset-0 bg-black/30 z-10" onClick={toggle} aria-hidden="true" />}
     <aside
       className={`h-screen bg-white border-r border-slate-100 flex flex-col py-6 fixed left-0 top-0 z-20 transition-all duration-200 ${
         collapsed ? "w-16 px-2" : "w-60 px-4"
@@ -211,5 +219,6 @@ export default function MemberSidebar({ userName }: { userName: string | null })
         )}
       </div>
     </aside>
+    </>
   );
 }

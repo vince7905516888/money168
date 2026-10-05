@@ -18,7 +18,8 @@ export function SidebarProvider({ children, storageKey }: { children: ReactNode;
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem(storageKey) === "1") setCollapsed(true);
+    // 手機螢幕預設收合，避免側邊欄佔掉大半畫面；電腦照上次的收合狀態
+    if (window.innerWidth < 768 || localStorage.getItem(storageKey) === "1") setCollapsed(true);
   }, [storageKey]);
 
   const toggle = () => {

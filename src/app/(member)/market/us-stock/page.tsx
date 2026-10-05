@@ -130,7 +130,7 @@ export default function UsStockPage() {
   const changePct = change != null && data?.quote.previousClose ? change / data.quote.previousClose : null;
 
   return (
-    <div className="max-w-5xl">
+    <div className="w-full max-w-7xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">美國股市</h1>
         <p className="text-slate-500 text-sm mt-1">

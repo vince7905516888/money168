@@ -102,7 +102,7 @@ export default function ForexMarketPage() {
   );
 
   return (
-    <div className="max-w-5xl">
+    <div className="w-full max-w-7xl">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">市場行情 · 外匯</h1>
         <p className="text-slate-500 text-sm mt-1">K線、均線、布林通道與技術指標（兌台幣），資料來源：Twelve Data</p>

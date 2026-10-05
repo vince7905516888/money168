@@ -335,7 +335,7 @@ export default function InvestmentOverviewPage() {
     + Object.values(holdingTotals).reduce((s, n) => s + n, 0);
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-7xl">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">資產總攬</h1>
         <p className="text-slate-500 text-sm mt-1">銀行、投資與負債一覽</p>

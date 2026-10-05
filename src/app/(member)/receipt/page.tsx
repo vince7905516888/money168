@@ -310,7 +310,7 @@ export default function ReceiptPage() {
     [...new Set([current, ...categories.map((c) => c.name).filter((n) => !["銀行", "第三方", "投資"].includes(n))])];
 
   return (
-    <div className="max-w-2xl">
+    <div className="w-full max-w-7xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">拍照記帳</h1>
         <p className="text-slate-500 text-sm mt-1">拍發票、收據或訂單截圖，AI 自動讀出金額，選好付款方式就記好帳</p>

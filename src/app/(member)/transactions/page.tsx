@@ -305,7 +305,7 @@ export default function TransactionsPage() {
   const totalPages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-7xl">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">收支記錄</h1>

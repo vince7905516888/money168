@@ -352,7 +352,7 @@ export default function StockPage() {
   };
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-7xl">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">股票投資</h1>

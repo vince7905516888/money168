@@ -94,7 +94,7 @@ export default function ReportsPage() {
   const logsTotalPages = Math.max(Math.ceil(logsTotal / LOG_PAGE_SIZE), 1);
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-7xl">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">報表分析</h1>
