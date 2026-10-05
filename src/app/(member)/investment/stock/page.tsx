@@ -232,24 +232,8 @@ export default function StockPage() {
           note: addForm.note || (source ? `${defaultNote}，獲利來源：${source.name}` : defaultNote),
         }),
       });
-      // 獲利來自其他股票時，該股票賣出後的獲利還留在它的總投入金額裡（賣出以整筆成交金額入帳），
-      // 只扣這檔的成本會讓同一筆獲利被扣兩次，所以要在來源股票補一筆同金額的沖銷
-      if (adjustRes.ok && source) {
-        const offsetRes = await authFetch("/api/investments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "STOCK",
-            name: source.name,
-            code: source.code,
-            date: addForm.date,
-            action: "BUY",
-            amount: adjustCost,
-            note: `沖銷：${source.name}獲利已於${addForm.name}成本調整扣抵，避免資產重複扣除`,
-          }),
-        });
-        if (!offsetRes.ok) alert(`「${addForm.name}」成本調整已儲存，但「${source.name}」的沖銷紀錄新增失敗，請手動補一筆買進 ${adjustCost} 的沖銷`);
-      }
+      // 獲利來源只記在備註：持股成本以先進先出計算，來源股票賣出時已實現的獲利不會留在它的成本裡，
+      // 不需要再補沖銷記錄（舊版會在來源股票補一筆「沖銷」，計算時一律略過）
       if (!adjustRes.ok) alert("成本調整儲存失敗，請稍後再試");
       setAddSaving(false);
       setShowAddModal(false);
@@ -671,12 +655,12 @@ export default function StockPage() {
                     <select value={addForm.costAdjustSource}
                       onChange={(e) => setAddForm({ ...addForm, costAdjustSource: e.target.value })}
                       className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
-                      <option value="">無（例如配息，不用沖銷）</option>
+                      <option value="">無（例如配息）</option>
                       {sourceStocks.map((s) => (
                         <option key={s.code} value={s.code}>{s.name}（{s.code}）</option>
                       ))}
                     </select>
-                    <p className="text-[11px] text-slate-400 mt-1">調整金額來自賣出其他股票的獲利時請選擇該股票，系統會同步沖銷它留在總投入金額裡的獲利，避免資產總攬重複扣除</p>
+                    <p className="text-[11px] text-slate-400 mt-1">選擇獲利來自哪一檔股票，會記在這筆調整的備註裡，方便日後對照</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">配股股數（增加股數，選填）</label>
