@@ -30,9 +30,9 @@ export async function GET() {
 
   const cred = await prisma.binanceCredential.findUnique({
     where: { userId: session.user.id },
-    select: { apiKeyHint: true, keyChangedAt: true, syncHour: true },
+    select: { apiKeyHint: true, keyChangedAt: true, syncHour: true, syncRequestedAt: true },
   });
-  return NextResponse.json(cred ? { connected: true, apiKeyHint: cred.apiKeyHint, keyChangedAt: cred.keyChangedAt, syncHour: cred.syncHour } : { connected: false });
+  return NextResponse.json(cred ? { connected: true, apiKeyHint: cred.apiKeyHint, keyChangedAt: cred.keyChangedAt, syncHour: cred.syncHour, syncRequestedAt: cred.syncRequestedAt } : { connected: false });
 }
 
 export async function PUT(req: NextRequest) {
@@ -72,7 +72,13 @@ export async function PATCH(req: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
-  const { syncHour: rawHour } = await req.json();
+  const { syncHour: rawHour, syncNow } = await req.json();
+  // 立即同步：記下要求時間，同步工作下一次檢查（10 分鐘內）就會同步
+  if (syncNow) {
+    const updated = await prisma.binanceCredential.updateMany({ where: { userId: session.user.id }, data: { syncRequestedAt: new Date() } });
+    if (updated.count === 0) return NextResponse.json({ error: "尚未連結幣安 API" }, { status: 404 });
+    return NextResponse.json({ requested: true });
+  }
   const syncHour = parseSyncHour(rawHour);
   if (syncHour === undefined) return NextResponse.json({ error: "時間格式不正確" }, { status: 400 });
 

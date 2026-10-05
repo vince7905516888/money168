@@ -116,7 +116,7 @@ export default function CryptoPage() {
   const [binanceSnap, setBinanceSnap] = useState<{ fetchedAt: string; balances: Record<string, { spot: number; funding: number; earn: number; total: number }>; error: string | null } | null>(null);
   const [binanceOpen, setBinanceOpen] = useState(false);
   // 會員自行設定的幣安 API 金鑰（選填）：有設定就自動同步核對，沒設定就維持手動記帳
-  const [binanceCred, setBinanceCred] = useState<{ connected: boolean; apiKeyHint?: string; keyChangedAt?: string; syncHour?: number | null } | null>(null);
+  const [binanceCred, setBinanceCred] = useState<{ connected: boolean; apiKeyHint?: string; keyChangedAt?: string; syncHour?: number | null; syncRequestedAt?: string | null } | null>(null);
   const [credForm, setCredForm] = useState({ apiKey: "", apiSecret: "", syncHour: "" });
   const [credEditing, setCredEditing] = useState(false);
   const [credSaving, setCredSaving] = useState(false);
@@ -755,6 +755,22 @@ export default function CryptoPage() {
     h === null || h === undefined ? "設定後立即同步，之後每 6 小時" : `每天 ${[0, 6, 12, 18].map((d) => `${pad2((h + d) % 24)}:00`).join("、")}`;
   const HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => h);
 
+  // 立即同步：要求同步工作在下一次檢查（10 分鐘內）抓一次最新資料
+  const syncPending = !!binanceCred?.syncRequestedAt && (!binanceSnap || new Date(binanceCred.syncRequestedAt) > new Date(binanceSnap.fetchedAt));
+  const requestSyncNow = async () => {
+    const res = await authFetch("/api/binance/credentials", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ syncNow: true }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "操作失敗，請稍後再試");
+      return;
+    }
+    fetchAll();
+  };
+
   const changeSyncHour = async (value: string) => {
     const res = await authFetch("/api/binance/credentials", {
       method: "PATCH",
@@ -984,6 +1000,11 @@ export default function CryptoPage() {
                       {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{pad2(h)}:00</option>)}
                     </select>
                   </label>
+                  <button type="button" onClick={requestSyncNow} disabled={syncPending}
+                    className="text-xs font-semibold text-emerald-600 border border-emerald-200 rounded-lg px-2.5 py-1 hover:bg-emerald-50 disabled:opacity-60"
+                    title="同步工作會在 10 分鐘內抓一次最新資料，完成後重新整理頁面就會自動入帳">
+                    {syncPending ? "同步排程中（10 分鐘內）" : "立即同步"}
+                  </button>
                   <button type="button" onClick={() => { setCredForm({ apiKey: "", apiSecret: "", syncHour: binanceCred?.syncHour == null ? "" : String(binanceCred.syncHour) }); setCredEditing(true); }}
                     className="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1 hover:bg-indigo-50">更新金鑰</button>
                   <button type="button" onClick={removeBinanceCred}

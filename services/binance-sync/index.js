@@ -169,12 +169,15 @@ async function cycle() {
   try {
     // lastSync 只算「設定金鑰之後」的同步，換了金鑰就重新開始計
     const { rows } = await db.query(`
-      select c."userId", c."apiKeyEnc", c."apiSecretEnc", c."syncHour",
-        (select max(s."fetchedAt") from "BinanceSnapshot" s where s."userId" = c."userId" and s."fetchedAt" >= c."keyChangedAt") as "lastSync"
+      select c."userId", c."apiKeyEnc", c."apiSecretEnc", c."syncHour", c."syncRequestedAt",
+        (select max(s."fetchedAt") from "BinanceSnapshot" s where s."userId" = c."userId" and s."fetchedAt" >= c."keyChangedAt") as "lastSync",
+        (select max(s."fetchedAt") from "BinanceSnapshot" s where s."userId" = c."userId") as "latestAny"
       from "BinanceCredential" c`);
     let synced = 0;
     for (const r of rows) {
-      if (!isDue(r.syncHour, r.lastSync)) continue;
+      // 會員按了「立即同步」且之後還沒同步過：不管同步時間，馬上同步
+      const requested = r.syncRequestedAt && (!r.latestAny || new Date(r.syncRequestedAt) > new Date(r.latestAny));
+      if (!requested && !isDue(r.syncHour, r.lastSync)) continue;
       try {
         KEY = decrypt(r.apiKeyEnc);
         SECRET = decrypt(r.apiSecretEnc);
