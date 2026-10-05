@@ -97,7 +97,8 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
   // 股票、美股、虛擬貨幣、黃金：目前仍持有部位的投入成本，跟前台資產總攬同一套算法
   // （不用買賣金額直接加總，否則賣出獲利/虧損會讓已出清的標的留下殘值，成本調整也會被算進去）
   const toHoldingInput = (list: typeof investments) => list.map((i) => ({ ...i, action: i.action ?? "BUY", date: i.date ?? i.createdAt }));
-  const stockTotal = computeHoldings(toHoldingInput(byType("STOCK"))).reduce((s, h) => s + h.bookCost, 0);
+  // 股票、美股用含成本調整的 cost，跟前台資產總攬一致（成本調整（用其他持股的獲利攤平虧損）視為把那筆已入帳的獲利拿去降低這檔的投入資金：）
+  const stockTotal = computeHoldings(toHoldingInput(byType("STOCK"))).reduce((s, h) => s + h.cost, 0);
   // 虛擬貨幣：持有成本＋配息的即時市值，跟前台資產總攬一致（價格有 60 秒快取，逐一計算會員時不會重複打 API）
   const cryptoHoldings = remainingHoldingsByAmount(byType("CRYPTO"));
   const dividendCodes = cryptoHoldings.filter((h) => h.dividendQty > 0).map((h) => h.code);
@@ -112,7 +113,7 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
   let usstockTwdTotal = 0;
   for (const cur of new Set(usstockInvestments.map((i) => i.currency || "USD"))) {
     const cost = computeHoldings(toHoldingInput(usstockInvestments.filter((i) => (i.currency || "USD") === cur)))
-      .reduce((s, h) => s + h.bookCost, 0);
+      .reduce((s, h) => s + h.cost, 0);
     usstockTwdTotal += cur === "TWD" ? cost : cost * (savedRateMap.get(cur) ?? 0);
   }
   const realestateTotal = sumAmount(byType("REALESTATE"));

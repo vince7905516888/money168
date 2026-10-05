@@ -122,7 +122,7 @@ export default function UsStockPage() {
   const currencyTotals = Object.fromEntries(
     [...new Set(investments.map((i) => i.currency || "USD"))].map((cur) => [
       cur,
-      computeHoldings(investments.filter((i) => (i.currency || "USD") === cur)).reduce((s, h) => s + h.bookCost, 0),
+      computeHoldings(investments.filter((i) => (i.currency || "USD") === cur)).reduce((s, h) => s + h.cost, 0),
     ])
   ) as Record<string, number>;
   const buyCount = investments.filter((i) => i.action === "BUY").length;

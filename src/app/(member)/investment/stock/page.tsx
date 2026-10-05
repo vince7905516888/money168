@@ -152,9 +152,8 @@ export default function StockPage() {
     return groups.sort((a, b) => time(b.rows[0].inv) - time(a.rows[0].inv));
   })();
   const pnlColor = (n: number) => (n >= 0 ? "text-red-500" : "text-emerald-600");
-  // 持股成本：目前仍持有部位的實際投入成本，跟資產總攬的股票投資同一個數字。
-  // 不用買賣金額直接加總：賣出獲利/虧損會讓已出清的股票留下殘值，成本調整也會被算進去
-  const netInvested = holdings.reduce((s, h) => s + h.bookCost, 0);
+  // 持股成本：目前仍持有部位的投入成本（含成本調整），跟資產總攬的股票投資同一個數字
+  const netInvested = holdings.reduce((s, h) => s + h.cost, 0);
   // 投資記錄依「申購/調整日期」由新到舊排序，補登前幾天的帳也會照日期排在正確位置；
   // 同一天的多筆再依建立時間由新到舊，同日內的先後順序才穩定
   const sortedInvestments = [...investments].sort((a, b) => {
@@ -345,7 +344,7 @@ export default function StockPage() {
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">持股成本</div>
           <div className={`text-2xl font-bold mt-1 ${netInvested >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(netInvested)}</div>
-          <div className="text-xs text-slate-400 mt-0.5">目前持股的實際投入成本</div>
+          <div className="text-xs text-slate-400 mt-0.5">目前持股的投入成本（含調帳）</div>
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">已實現損益</div>
