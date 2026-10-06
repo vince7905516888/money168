@@ -64,11 +64,28 @@ const EMPTY_ADD_FORM = {
   note: "",
 };
 
+// 台股交割日：成交日 + 2 個工作天（跳過週六、週日；國定假日請自行調整）
+function settlementDate(tradeDate: string): string {
+  const d = new Date(`${tradeDate}T00:00:00`);
+  if (isNaN(d.getTime())) return tradeDate;
+  let added = 0;
+  while (added < 2) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() !== 0 && d.getDay() !== 6) added++;
+  }
+  return d.toLocaleDateString("sv-SE");
+}
+
 export default function StockPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [realizedOpen, setRealizedOpen] = useState(false);
+  // 買賣同步到銀行資金管理：交割銀行（記住上次選的）與交割日（預設成交日 + 2 個工作天，可改）
+  const [bankNames, setBankNames] = useState<string[]>([]);
+  const [bankCategoryIds, setBankCategoryIds] = useState<{ INCOME?: string; EXPENSE?: string }>({});
+  const [settleBank, setSettleBank] = useState("");
+  const [settleDate, setSettleDate] = useState("");
   // 持股校正：把某一檔的股數與總成本調成券商庫存上的實際數字
   const [calibrating, setCalibrating] = useState<{ code: string; name: string; quantity: number; cost: number } | null>(null);
   const [calibForm, setCalibForm] = useState({ quantity: "", cost: "", note: "" });
@@ -88,12 +105,20 @@ export default function StockPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [invRes, feeRes, brokerRes] = await Promise.all([
+    const [invRes, feeRes, brokerRes, bankRes, catRes] = await Promise.all([
       fetch("/api/investments?type=STOCK"),
       fetch("/api/fee-settings"),
       fetch("/api/user-brokers"),
+      fetch("/api/banks/summary"),
+      fetch("/api/categories"),
     ]);
-    const [invData, feeData, brokerData] = await Promise.all([invRes.json(), feeRes.json(), brokerRes.json()]);
+    const [invData, feeData, brokerData, bankData, catData] = await Promise.all([invRes.json(), feeRes.json(), brokerRes.json(), bankRes.json().catch(() => []), catRes.json().catch(() => [])]);
+    setBankNames(Array.isArray(bankData) ? bankData.map((b: { name: string }) => b.name) : []);
+    const cats: { id: string; name: string; type: string }[] = Array.isArray(catData) ? catData : [];
+    setBankCategoryIds({
+      INCOME: cats.find((c) => c.name === "銀行" && c.type === "INCOME")?.id,
+      EXPENSE: cats.find((c) => c.name === "銀行" && c.type === "EXPENSE")?.id,
+    });
     setInvestments(Array.isArray(invData) ? invData : []);
     const fees: FeeSetting[] = Array.isArray(feeData) ? feeData : [];
     const commission = fees.find((f) => f.key === "stock_commission");
@@ -201,7 +226,11 @@ export default function StockPage() {
     setAddBrokerOpen(false);
   };
 
-  const openAdd = () => { resetAddForm(); setShowAddModal(true); };
+  const openAdd = () => {
+    resetAddForm(); setShowAddModal(true);
+    try { setSettleBank(localStorage.getItem("stock-settle-bank") ?? ""); } catch { setSettleBank(""); }
+    setSettleDate("");
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,7 +280,7 @@ export default function StockPage() {
       return;
     }
     setAddSaving(true);
-    await authFetch("/api/investments", {
+    const invRes = await authFetch("/api/investments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -270,6 +299,27 @@ export default function StockPage() {
         note: addForm.note,
       }),
     });
+    // 同步到銀行資金管理：買進記銀行支出、賣出記銀行收入（格式同手動記帳：分類「銀行」、備註放銀行名稱）
+    if (invRes.ok && settleBank) {
+      const isBuy = addForm.action === "BUY";
+      const stockName = addForm.name || addForm.code || "股票";
+      const bankRes = await authFetch("/api/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: isBuy ? stockName : `${stockName}賣出`,
+          amount: Math.round(subtotal),
+          type: isBuy ? "EXPENSE" : "INCOME",
+          date: settleDate || settlementDate(addForm.date),
+          categoryId: (isBuy ? bankCategoryIds.EXPENSE : bankCategoryIds.INCOME) ?? "",
+          note: settleBank,
+          source: "BANK",
+          currency: "TWD",
+        }),
+      });
+      if (!bankRes.ok) alert(`股票記錄已儲存，但銀行記錄新增失敗，請到銀行資金管理手動補一筆${isBuy ? "支出" : "收入"} ${Math.round(subtotal)}`);
+      try { localStorage.setItem("stock-settle-bank", settleBank); } catch { /* 無法記住也不影響 */ }
+    }
     setAddSaving(false);
     setShowAddModal(false);
     setPage(1);
@@ -865,6 +915,31 @@ export default function StockPage() {
                       <span>{addForm.action === "BUY" ? "最終小計（應付）" : "最終小計（應收）"}</span>
                       <span>{fmt(subtotal)}{addForm.adjustAmount !== "" && <span className="text-[10px] font-normal text-indigo-500 ml-1">（已調帳）</span>}</span>
                     </div>
+                  </div>
+
+                  {/* 同步到銀行資金管理 */}
+                  <div className="bg-sky-50 rounded-xl px-4 py-3 space-y-2">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">交割銀行（同步記到銀行）</label>
+                        <select value={settleBank} onChange={(e) => setSettleBank(e.target.value)}
+                          className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm bg-white focus:border-indigo-400 transition-colors">
+                          <option value="">不同步</option>
+                          {bankNames.map((b) => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">交割日</label>
+                        <input type="date" value={settleDate || settlementDate(addForm.date)} disabled={!settleBank}
+                          onChange={(e) => setSettleDate(e.target.value)}
+                          className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm bg-white focus:border-indigo-400 transition-colors disabled:bg-slate-50 disabled:text-slate-400" />
+                      </div>
+                    </div>
+                    {settleBank && (
+                      <p className="text-xs text-sky-700">
+                        會同時在「銀行資金管理」記一筆：{settleBank} {addForm.action === "BUY" ? "支出" : "收入"} {fmt(subtotal)}（交割日 {settleDate || settlementDate(addForm.date)}）
+                      </p>
+                    )}
                   </div>
                 </>
               )}
