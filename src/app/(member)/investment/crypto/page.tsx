@@ -323,13 +323,19 @@ export default function CryptoPage() {
   const tradeCode = addForm.code.trim().toUpperCase();
   const quoteLocked = tradeCode === USDT_CODE || tradeCode === TWD_CODE;
   const quote: "USDT" | "TWD" = quoteLocked ? "TWD" : addForm.quote;
+  // 所選交易所（沒選視為「未指定」）：USDT 夠不夠扣、換出幣夠不夠換，都要用這個交易所自己的數量比對，
+  // 不能用全部交易所加總——不然會把某個交易所根本沒有的餘額當成夠用，實際上是扣到別的交易所頭上
+  const selectedExchange = addForm.broker.trim() || UNSPECIFIED_EXCHANGE;
   const usdtHolding = holdings.find((h) => h.code === USDT_CODE);
-  const usdtHeld = usdtHolding?.quantity ?? 0;
   const usdtUnitCost = usdtHolding && usdtHolding.quantity > 0 ? usdtHolding.cost / usdtHolding.quantity : 0;
+  const usdtHeld = exchangesByCode.get(USDT_CODE)?.find((e) => e.exchange === selectedExchange)?.quantity ?? 0;
   const fmtQuote = (n: number) => (quote === "USDT" ? `${fmtQty(Math.round(n * 1e6) / 1e6)} USDT` : fmt(n));
   const quantity = parseFloat(addForm.quantity) || 0;
-  // 兌換試算：換出的幣以平均成本帶走成本，換到的幣承接同一筆成本（兌換本身不影響總資產）
-  const swapFromHolding = holdings.find((h) => h.code === addForm.swapFrom);
+  // 兌換試算：換出的幣以「所選交易所」自己的持有量與成本為準（換出的幣是從那個交易所扣的）
+  const swapFromHolding = addForm.swapFrom
+    ? (exchangeHoldings.find((h) => h.code === addForm.swapFrom && h.exchange === selectedExchange)
+        ?? { key: "", code: addForm.swapFrom, name: knownCoins.get(addForm.swapFrom) ?? addForm.swapFrom, exchange: selectedExchange, quantity: 0, cost: 0, dividendQty: 0 })
+    : undefined;
   const swapFromQty = parseFloat(addForm.swapFromQty) || 0;
   const swapToQty = parseFloat(addForm.swapToQty) || 0;
   const swapToCode = addForm.swapTo.trim().toUpperCase();
@@ -592,7 +598,7 @@ export default function CryptoPage() {
         return;
       }
       if (addForm.action === "BUY" && subtotal > usdtHeld + 1e-9) {
-        alert(`USDT 持有不足：需要 ${fmtQty(subtotal)}，目前 ${fmtQty(usdtHeld)}`);
+        alert(`${selectedExchange} 的 USDT 持有不足：需要 ${fmtQty(subtotal)}，目前 ${fmtQty(usdtHeld)}`);
         return;
       }
       const twd = subtotal * usdtUnitCost;
@@ -629,7 +635,7 @@ export default function CryptoPage() {
         return;
       }
       if (fee > usdtHeld + 1e-9) {
-        alert(`USDT 持有不足以支付手續費：需要 ${fmtQty(fee)}，目前 ${fmtQty(usdtHeld)}`);
+        alert(`${selectedExchange} 的 USDT 持有不足以支付手續費：需要 ${fmtQty(fee)}，目前 ${fmtQty(usdtHeld)}`);
         return;
       }
     }
@@ -1519,9 +1525,10 @@ export default function CryptoPage() {
                         className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
                         <option value="">請選擇</option>
                         {holdings.map((h) => (
-                          <option key={h.key} value={h.code}>{h.code === TWD_CODE ? "台幣" : h.code}（{fmtQty(h.quantity)}）</option>
+                          <option key={h.key} value={h.code}>{h.code === TWD_CODE ? "台幣" : h.code}</option>
                         ))}
                       </select>
+                      <p className="text-[11px] text-slate-400 mt-1">換出的是「{selectedExchange}」自己的持有量，要換哪個交易所請往上改「交易所／錢包」欄位</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">換出數量</label>
@@ -1774,7 +1781,7 @@ export default function CryptoPage() {
                   {quoteLocked
                     ? `交易 ${tradeCode} 一律用台幣計價`
                     : quote === "USDT"
-                      ? `用 USDT 買賣：自動${addForm.action === "BUY" ? "從 USDT 持有扣款" : "把款項加回 USDT 持有"}，依 USDT 平均成本 ${usdtUnitCost > 0 ? fmt2(usdtUnitCost) : "—"} 換算台幣（目前持有 ${fmtQty(usdtHeld)} USDT）`
+                      ? `用 USDT 買賣：自動${addForm.action === "BUY" ? "從 USDT 持有扣款" : "把款項加回 USDT 持有"}，依 USDT 平均成本 ${usdtUnitCost > 0 ? fmt2(usdtUnitCost) : "—"} 換算台幣（${selectedExchange} 目前持有 ${fmtQty(usdtHeld)} USDT）`
                       : "用台幣直接買賣"}
                 </p>
               </div>
@@ -1848,10 +1855,10 @@ export default function CryptoPage() {
                   </div>
                 )}
                 {quote === "USDT" && addForm.action === "BUY" && subtotal > usdtHeld + 1e-9 && (
-                  <p className="text-xs text-red-500">USDT 持有不足（目前 {fmtQty(usdtHeld)}）</p>
+                  <p className="text-xs text-red-500">{selectedExchange} 的 USDT 持有不足（目前 {fmtQty(usdtHeld)}）</p>
                 )}
                 {buyFeeInUsdt && fee > 0 && usdtUnitCost > 0 && fee > usdtHeld + 1e-9 && (
-                  <p className="text-xs text-red-500">USDT 持有不足以支付手續費（目前 {fmtQty(usdtHeld)}）</p>
+                  <p className="text-xs text-red-500">{selectedExchange} 的 USDT 持有不足以支付手續費（目前 {fmtQty(usdtHeld)}）</p>
                 )}
               </div>
 
