@@ -349,8 +349,16 @@ export default function CryptoPage() {
   const transferAvg = transferHolding && transferHolding.quantity > 0 ? transferHolding.cost / transferHolding.quantity : 0;
   const transferIn = quantity - transferFee;
   // 調帳試算：目前帳上數量、實際數量與差額（數量取到小數 8 位避免浮點誤差）
-  const adjustHolding = holdings.find((h) => h.code === addForm.adjustCode);
-  const adjustAvg = adjustHolding && adjustHolding.quantity > 0 ? adjustHolding.cost / adjustHolding.quantity : 0;
+  // 用「所選交易所」自己的帳上數量比對，不是全部交易所加總——同一幣種在不同交易所要分開校正，
+  // 否則拿全部加總去跟單一交易所的實際數量比對，差額會算錯（把別的交易所的量也扣掉或加上）
+  const adjustExchange = addForm.broker.trim() || UNSPECIFIED_EXCHANGE;
+  const adjustHolding = addForm.adjustCode
+    ? (exchangeHoldings.find((h) => h.code === addForm.adjustCode && h.exchange === adjustExchange)
+        ?? { key: "", code: addForm.adjustCode, name: knownCoins.get(addForm.adjustCode) ?? addForm.adjustCode, exchange: adjustExchange, quantity: 0, cost: 0, dividendQty: 0 })
+    : null;
+  const isTwdAdjust = addForm.adjustCode === TWD_CODE;
+  // 台幣沒有「平均成本」概念（本身就是台幣，1:1），校正台幣就是直接改金額，不是改顆數×均價
+  const adjustAvg = isTwdAdjust ? 1 : (adjustHolding && adjustHolding.quantity > 0 ? adjustHolding.cost / adjustHolding.quantity : 0);
   const adjustActual = parseFloat(addForm.adjustActual);
   const adjustDiff = adjustHolding && Number.isFinite(adjustActual) ? Math.round((adjustActual - adjustHolding.quantity) * 1e8) / 1e8 : 0;
   // 單價、總金額都沒填時，用這個幣目前的平均成本當單價（USDT 計價時換算成 USDT），只輸入顆數就能記帳
@@ -1420,7 +1428,8 @@ export default function CryptoPage() {
               )}
               {addForm.mode === "ADJUST" && (
                 <p className="text-xs text-slate-400 -mt-2">
-                  核對用：輸入交易所實際的持有數量，系統補一筆差額讓帳上數量一致（差額以目前平均成本計價，平均成本不變）
+                  核對用：先選下面的交易所，再輸入那個交易所實際的持有數量，系統補一筆差額讓帳上數量一致
+                  （只比對所選交易所自己的數量，不同交易所分開校正；差額以目前平均成本計價，平均成本不變）
                 </p>
               )}
               {addForm.mode === "DEPOSIT" && (
@@ -1662,29 +1671,35 @@ export default function CryptoPage() {
                       className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
                       <option value="">請選擇要核對的幣種</option>
                       {holdings.map((h) => (
-                        <option key={h.key} value={h.code}>{h.code === TWD_CODE ? "台幣" : h.name}（{h.code}）· 帳上 {fmtQty(h.quantity)}</option>
+                        <option key={h.key} value={h.code}>{h.code === TWD_CODE ? "台幣" : h.name}（{h.code}）</option>
                       ))}
                     </select>
+                    <p className="text-[11px] text-slate-400 mt-1">比對的是「{adjustExchange}」這個交易所自己的帳上數量，要核對哪個交易所請往上改「交易所／錢包」欄位</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">交易所實際持有數量</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">{isTwdAdjust ? "交易所實際台幣餘額" : "交易所實際持有數量"}</label>
                     <input required type="number" min="0" step="any" value={addForm.adjustActual}
                       onChange={(e) => setAddForm({ ...addForm, adjustActual: e.target.value })}
-                      placeholder={adjustHolding ? `帳上 ${fmtQty(adjustHolding.quantity)}` : "先選擇幣種"}
+                      placeholder={adjustHolding ? `帳上 ${isTwdAdjust ? fmt(adjustHolding.quantity) : fmtQty(adjustHolding.quantity)}` : "先選擇幣種"}
                       className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                   </div>
                   {adjustHolding && (
                     <div className="bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
                       <div className="flex justify-between text-xs text-slate-500">
-                        <span>目前帳上數量</span><span className="font-mono">{fmtQty(adjustHolding.quantity)}</span>
+                        <span>{adjustExchange} 目前帳上{isTwdAdjust ? "金額" : "數量"}</span>
+                        <span className="font-mono">{isTwdAdjust ? fmt(adjustHolding.quantity) : fmtQty(adjustHolding.quantity)}</span>
                       </div>
-                      <div className="flex justify-between text-xs text-slate-500">
-                        <span>平均成本</span><span>{fmtAvg(adjustAvg)}</span>
-                      </div>
+                      {!isTwdAdjust && (
+                        <div className="flex justify-between text-xs text-slate-500">
+                          <span>平均成本</span><span>{fmtAvg(adjustAvg)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between text-sm font-semibold pt-1.5 border-t border-slate-200">
                         <span className="text-slate-900">調帳差額</span>
                         <span className={adjustDiff === 0 ? "text-slate-400" : adjustDiff > 0 ? "text-sky-600" : "text-slate-600"}>
-                          {addForm.adjustActual === "" ? "—" : adjustDiff === 0 ? "無差額" : `${adjustDiff > 0 ? "+" : "−"}${fmtQty(Math.abs(adjustDiff))}（${adjustDiff > 0 ? "+" : "−"}${fmt(Math.abs(adjustDiff * adjustAvg))}）`}
+                          {addForm.adjustActual === "" ? "—" : adjustDiff === 0 ? "無差額" : isTwdAdjust
+                            ? `${adjustDiff > 0 ? "+" : "−"}${fmt(Math.abs(adjustDiff))}`
+                            : `${adjustDiff > 0 ? "+" : "−"}${fmtQty(Math.abs(adjustDiff))}（${adjustDiff > 0 ? "+" : "−"}${fmt(Math.abs(adjustDiff * adjustAvg))}）`}
                         </span>
                       </div>
                     </div>
