@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
   const userId = session.user.id;
 
-  const { name, quantity, date, note, code: rawCode } = await req.json();
+  const { name, quantity, date, note, broker, code: rawCode } = await req.json();
   const code = (rawCode || "USDT").trim();
   const qty = parseFloat(quantity);
 
@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
   }
   const unitCost = holding.cost / holding.quantity;
 
+  const brokerValue = broker?.trim() || null;
   const entry = await prisma.$transaction(async (tx) => {
     const deduct = await tx.investment.create({
       data: {
@@ -53,13 +54,14 @@ export async function POST(req: NextRequest) {
         quantity: qty,
         price: unitCost,
         amount: -qty * unitCost,
+        broker: brokerValue,
         date: entryDate,
         note: `暫計帳：${name}`,
         userId,
       },
     });
     return tx.suspenseEntry.create({
-      data: { name, code, quantity: qty, unitCost, date: entryDate, note: note || null, deductInvestmentId: deduct.id, userId },
+      data: { name, code, quantity: qty, unitCost, broker: brokerValue, date: entryDate, note: note || null, deductInvestmentId: deduct.id, userId },
     });
   });
 

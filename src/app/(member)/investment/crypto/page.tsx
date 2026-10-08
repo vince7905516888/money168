@@ -30,6 +30,7 @@ interface SuspenseEntry {
   code: string;
   quantity: number;
   unitCost: number;
+  broker?: string | null;
   date: string;
   note?: string | null;
   deductInvestmentId?: string | null;
@@ -38,7 +39,7 @@ interface SuspenseEntry {
 }
 
 const SUSPENSE_CODE = "USDT";
-const EMPTY_SUSPENSE_FORM = { name: "", quantity: "", date: "", note: "" };
+const EMPTY_SUSPENSE_FORM = { name: "", quantity: "", date: "", broker: "", note: "" };
 
 interface UserExchange {
   id: string;
@@ -674,8 +675,8 @@ export default function CryptoPage() {
 
   const openSuspense = (entry: SuspenseEntry | null) => {
     setSuspenseForm(entry
-      ? { name: entry.name, quantity: String(entry.quantity), date: entry.date.split("T")[0], note: entry.note ?? "" }
-      : { ...EMPTY_SUSPENSE_FORM, date: new Date().toLocaleDateString("sv-SE") });
+      ? { name: entry.name, quantity: String(entry.quantity), date: entry.date.split("T")[0], broker: entry.broker ?? "", note: entry.note ?? "" }
+      : { ...EMPTY_SUSPENSE_FORM, broker: addForm.broker, date: new Date().toLocaleDateString("sv-SE") });
     setSuspenseModal({ editing: entry });
   };
 
@@ -1187,6 +1188,16 @@ export default function CryptoPage() {
                     onChange={(e) => setSuspenseForm({ ...suspenseForm, date: e.target.value })}
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">從哪個交易所扣除（選填）</label>
+                <Combobox
+                  value={suspenseForm.broker}
+                  onChange={(v) => setSuspenseForm({ ...suspenseForm, broker: v })}
+                  options={allExchanges}
+                  placeholder="搜尋或選擇交易所"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">留空會標成「未指定」，持有狀況的交易所明細會對不起來</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>

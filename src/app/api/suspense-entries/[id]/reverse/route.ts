@@ -30,6 +30,7 @@ export async function POST(
         quantity: existing.quantity,
         price: existing.unitCost,
         amount: existing.quantity * existing.unitCost,
+        broker: existing.broker,
         date: reverseDate,
         note: `暫計帳回補：${existing.name}`,
         userId,

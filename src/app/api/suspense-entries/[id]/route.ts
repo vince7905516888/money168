@@ -12,7 +12,7 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const { id } = await params;
-  const { name, date, note } = await req.json();
+  const { name, date, note, broker } = await req.json();
 
   const existing = await prisma.suspenseEntry.findFirst({
     where: { id, userId: session.user.id },
@@ -21,19 +21,20 @@ export async function PUT(
 
   const newName = name !== undefined && name !== "" ? name : existing.name;
   const newDate = date !== undefined && date !== "" ? new Date(date) : existing.date;
+  const newBroker = broker !== undefined ? (broker?.trim() || null) : existing.broker;
 
   const updated = await prisma.$transaction(async (tx) => {
-    // 同步扣除記錄的日期與備註
+    // 同步扣除記錄的日期、交易所與備註
     if (existing.deductInvestmentId) {
       await tx.investment.updateMany({
         where: { id: existing.deductInvestmentId, userId: session.user.id },
-        data: { date: newDate, note: `暫計帳：${newName}` },
+        data: { date: newDate, broker: newBroker, note: `暫計帳：${newName}` },
       });
     }
     if (existing.reverseInvestmentId) {
       await tx.investment.updateMany({
         where: { id: existing.reverseInvestmentId, userId: session.user.id },
-        data: { note: `暫計帳回補：${newName}` },
+        data: { broker: newBroker, note: `暫計帳回補：${newName}` },
       });
     }
     return tx.suspenseEntry.update({
@@ -41,6 +42,7 @@ export async function PUT(
       data: {
         name: newName,
         date: newDate,
+        broker: newBroker,
         ...(note !== undefined ? { note: note || null } : {}),
       },
     });

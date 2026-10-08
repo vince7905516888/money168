@@ -126,6 +126,7 @@ model SuspenseEntry {
   code                String    @default("USDT")
   quantity            Float
   unitCost            Float // 扣除當下的每顆平均成本（台幣），回補時用同一個成本加回
+  broker              String? // 從哪個交易所／錢包扣除，寫入扣除／回補記錄的交易所欄位，讓持有狀況的交易所明細對得起來
   date                DateTime  @default(now())
   note                String?
   deductInvestmentId  String?
