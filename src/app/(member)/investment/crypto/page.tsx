@@ -230,6 +230,22 @@ export default function CryptoPage() {
     }
     return rows.sort((a, b) => (codeOrder.get(a.code) ?? 999) - (codeOrder.get(b.code) ?? 999) || b.cost - a.cost);
   })();
+  // 持有狀況改以交易所為主分類：幣安有哪些幣、各多少顆，BitoPro 有哪些幣、各多少顆，分開獨立呈現
+  const holdingsByExchange = (() => {
+    const groups = new Map<string, { exchange: string; rows: typeof exchangeHoldings; cost: number }>();
+    for (const h of exchangeHoldings) {
+      if (!groups.has(h.exchange)) groups.set(h.exchange, { exchange: h.exchange, rows: [], cost: 0 });
+      const g = groups.get(h.exchange)!;
+      g.rows.push(h);
+      g.cost += h.cost;
+    }
+    for (const g of groups.values()) g.rows.sort((a, b) => b.cost - a.cost);
+    return [...groups.values()].sort((a, b) => {
+      if (a.exchange === UNSPECIFIED_EXCHANGE) return 1;
+      if (b.exchange === UNSPECIFIED_EXCHANGE) return -1;
+      return b.cost - a.cost;
+    });
+  })();
   // 各幣種在哪些交易所持有（只取數量）：轉移／調帳試算與幣安核對沿用這份資料
   const exchangesByCode = new Map<string, { exchange: string; quantity: number }[]>();
   for (const h of exchangeHoldings) {
@@ -897,7 +913,6 @@ export default function CryptoPage() {
               <thead>
                 <tr className="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-50">
                   <th className="text-left font-semibold px-6 py-3">幣種</th>
-                  <th className="text-left font-semibold px-4 py-3">交易所</th>
                   <th className="text-right font-semibold px-4 py-3">持有顆數</th>
                   <th className="text-right font-semibold px-4 py-3">累計配息</th>
                   <th className="text-right font-semibold px-4 py-3">持有成本（台幣）</th>
@@ -906,47 +921,56 @@ export default function CryptoPage() {
                   <th className="text-right font-semibold px-6 py-3">目前市值</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
-                {exchangeHoldings.map((h, i) => {
-                  const sameCoinAsPrev = i > 0 && exchangeHoldings[i - 1].code === h.code;
-                  const marketValue = marketValueOf(h);
-                  return (
-                    <tr key={h.key} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-3 font-medium text-slate-800">
-                        {!sameCoinAsPrev && (
-                          <>
-                            {h.name}
-                            {h.code !== "—" && h.code !== h.name && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{h.code}</span>}
-                          </>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{h.exchange}</td>
-                      <td className="px-4 py-3 text-right text-slate-700 font-mono">{fmtQty(h.quantity)}</td>
-                      <td className="px-4 py-3 text-right font-mono">
-                        {h.dividendQty > 0 ? (
-                          <span className="text-amber-600">
-                            {fmtQty(h.dividendQty)}
-                            {livePrice(h.code) != null && (
-                              <span className="block text-[11px] text-slate-400 font-sans">≈ {fmt(Math.min(h.dividendQty, h.quantity) * livePrice(h.code)!)}</span>
-                            )}
-                          </span>
-                        ) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
-                      <td className="px-4 py-3 text-right text-slate-700">{fmtAvg(h.cost / h.quantity)}</td>
-                      <td className="px-4 py-3 text-right text-slate-700">{livePrice(h.code) != null ? fmtAvg(livePrice(h.code)!) : <span className="text-slate-300">—</span>}</td>
-                      <td className="px-6 py-3 text-right font-semibold">
-                        {marketValue != null ? (
-                          <span className={marketValue >= h.cost ? "text-red-500" : "text-emerald-600"}>{fmt(marketValue)}</span>
-                        ) : <span className="text-slate-300">—</span>}
+              {holdingsByExchange.map((group) => {
+                const groupMarketValue = group.rows.reduce((s, h) => s + (marketValueOf(h) ?? 0), 0);
+                const groupMissing = group.rows.filter((h) => marketValueOf(h) == null).length;
+                return (
+                  <tbody key={group.exchange} className="divide-y divide-slate-50">
+                    <tr className="bg-slate-50/80">
+                      <td colSpan={3} className="px-6 py-2 text-xs font-semibold text-slate-600">{group.exchange}</td>
+                      <td className="px-4 py-2 text-right text-xs text-slate-400">{fmt(group.cost)}</td>
+                      <td colSpan={2} />
+                      <td className="px-6 py-2 text-right text-xs text-slate-400">
+                        {groupMissing < group.rows.length ? fmt(groupMarketValue) : "—"}
                       </td>
                     </tr>
-                  );
-                })}
-                {suspenseQty > 0 && (
+                    {group.rows.map((h) => {
+                      const marketValue = marketValueOf(h);
+                      return (
+                        <tr key={h.key} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-3 font-medium text-slate-800">
+                            {h.name}
+                            {h.code !== "—" && h.code !== h.name && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{h.code}</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-700 font-mono">{fmtQty(h.quantity)}</td>
+                          <td className="px-4 py-3 text-right font-mono">
+                            {h.dividendQty > 0 ? (
+                              <span className="text-amber-600">
+                                {fmtQty(h.dividendQty)}
+                                {livePrice(h.code) != null && (
+                                  <span className="block text-[11px] text-slate-400 font-sans">≈ {fmt(Math.min(h.dividendQty, h.quantity) * livePrice(h.code)!)}</span>
+                                )}
+                              </span>
+                            ) : <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
+                          <td className="px-4 py-3 text-right text-slate-700">{fmtAvg(h.cost / h.quantity)}</td>
+                          <td className="px-4 py-3 text-right text-slate-700">{livePrice(h.code) != null ? fmtAvg(livePrice(h.code)!) : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-6 py-3 text-right font-semibold">
+                            {marketValue != null ? (
+                              <span className={marketValue >= h.cost ? "text-red-500" : "text-emerald-600"}>{fmt(marketValue)}</span>
+                            ) : <span className="text-slate-300">—</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                );
+              })}
+              {suspenseQty > 0 && (
+                <tbody className="divide-y divide-slate-50">
                   <tr className="bg-violet-50/40">
                     <td className="px-6 py-3 font-medium text-violet-700">暫計帳（待賺回）</td>
-                    <td className="px-4 py-3 text-slate-400">—</td>
                     <td className="px-4 py-3 text-right text-slate-700 font-mono">{fmtQty(suspenseQty)} {SUSPENSE_CODE}</td>
                     <td className="px-4 py-3 text-right text-slate-300">—</td>
                     <td className="px-4 py-3 text-right text-slate-700">{fmt(suspenseCost)}</td>
@@ -958,11 +982,11 @@ export default function CryptoPage() {
                       ) : <span className="text-slate-300">—</span>}
                     </td>
                   </tr>
-                )}
-              </tbody>
+                </tbody>
+              )}
               <tfoot>
                 <tr className="border-t border-slate-100 bg-slate-50">
-                  <td colSpan={4} className="px-6 py-3 font-semibold text-slate-800">合計{suspenseCost > 0 ? "（含暫計帳）" : ""}</td>
+                  <td colSpan={3} className="px-6 py-3 font-semibold text-slate-800">合計{suspenseCost > 0 ? "（含暫計帳）" : ""}</td>
                   <td className="px-4 py-3 text-right font-bold text-slate-900">{fmt(netInvested)}</td>
                   <td colSpan={2} />
                   <td className="px-6 py-3 text-right font-bold text-slate-900">
