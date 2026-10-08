@@ -967,13 +967,14 @@ export default function CryptoPage() {
                     </tr>
                     {group.rows.map((h) => {
                       const marketValue = marketValueOf(h);
+                      const isTwdRow = h.code === TWD_CODE;
                       return (
                         <tr key={h.key} className="hover:bg-slate-50 transition-colors">
                           <td className="px-6 py-3 font-medium text-slate-800">
                             {h.name}
                             {h.code !== "—" && h.code !== h.name && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{h.code}</span>}
                           </td>
-                          <td className="px-4 py-3 text-right text-slate-700 font-mono">{fmtQty(h.quantity)}</td>
+                          <td className="px-4 py-3 text-right text-slate-700 font-mono">{isTwdRow ? fmt(h.quantity) : fmtQty(h.quantity)}</td>
                           <td className="px-4 py-3 text-right font-mono">
                             {h.dividendQty > 0 ? (
                               <span className="text-amber-600">
@@ -985,10 +986,10 @@ export default function CryptoPage() {
                             ) : <span className="text-slate-300">—</span>}
                           </td>
                           <td className="px-4 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
-                          <td className="px-4 py-3 text-right text-slate-700">{fmtAvg(h.cost / h.quantity)}</td>
-                          <td className="px-4 py-3 text-right text-slate-700">{livePrice(h.code) != null ? fmtAvg(livePrice(h.code)!) : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-4 py-3 text-right text-slate-700">{isTwdRow ? <span className="text-slate-300">—</span> : fmtAvg(h.cost / h.quantity)}</td>
+                          <td className="px-4 py-3 text-right text-slate-700">{isTwdRow ? <span className="text-slate-300">—</span> : livePrice(h.code) != null ? fmtAvg(livePrice(h.code)!) : <span className="text-slate-300">—</span>}</td>
                           <td className="px-6 py-3 text-right font-semibold">
-                            {marketValue != null ? (
+                            {isTwdRow ? fmt(h.quantity) : marketValue != null ? (
                               <span className={marketValue >= h.cost ? "text-red-500" : "text-emerald-600"}>{fmt(marketValue)}</span>
                             ) : <span className="text-slate-300">—</span>}
                           </td>
