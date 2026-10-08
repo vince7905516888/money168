@@ -360,8 +360,12 @@ export default function CryptoPage() {
   const priceIsAuto = addForm.price === "" && addForm.override === "" && autoPrice > 0;
   const price = parseFloat(addForm.price) || (priceIsAuto ? autoPrice : 0);
   const fee = parseFloat(addForm.fee) || 0;
+  // 台幣計價的買進手續費固定用 USDT 計算（交易所手續費實際是從 USDT 扣的）：
+  // 輸入的是 USDT 顆數，依 USDT 平均成本換算台幣計入成本，並另外從 USDT 持有扣除
+  const buyFeeInUsdt = !quoteLocked && quote === "TWD" && addForm.action === "BUY";
+  const feeTwd = buyFeeInUsdt ? fee * usdtUnitCost : fee;
   const principal = quantity * price;
-  const calcSubtotal = addForm.action === "BUY" ? principal + fee : principal - fee;
+  const calcSubtotal = addForm.action === "BUY" ? principal + feeTwd : principal - fee;
   // 實際金額：如果填了就以此為準（交易所實際扣款/入帳金額可能與試算有落差），否則採自動試算結果
   const subtotal = addForm.override !== "" ? (parseFloat(addForm.override) || 0) : calcSubtotal;
 
@@ -611,6 +615,17 @@ export default function CryptoPage() {
       return;
     }
 
+    if (buyFeeInUsdt && fee > 0) {
+      if (usdtUnitCost <= 0) {
+        alert("目前沒有 USDT 持有，無法換算手續費成本，請改用台幣計價或先補登 USDT 持有");
+        return;
+      }
+      if (fee > usdtHeld + 1e-9) {
+        alert(`USDT 持有不足以支付手續費：需要 ${fmtQty(fee)}，目前 ${fmtQty(usdtHeld)}`);
+        return;
+      }
+    }
+
     setAddSaving(true);
     const res = await authFetch("/api/investments", {
       method: "POST",
@@ -624,7 +639,7 @@ export default function CryptoPage() {
         broker: addForm.broker,
         quantity: addForm.quantity,
         price: unitPrice,
-        fee: addForm.fee || undefined,
+        fee: fee ? Math.round(feeTwd * 100) / 100 : undefined,
         amount: addForm.action === "SELL" ? -subtotal : subtotal,
         note: addForm.note,
       }),
@@ -635,8 +650,16 @@ export default function CryptoPage() {
       alert(err?.error || "儲存失敗，請稍後再試");
       return;
     }
-    // 連動交易所台幣餘額：買進從台幣餘額扣款（餘額不足只扣到 0，其餘視為從外部付款），賣出款項存入台幣餘額
+    // 台幣計價買進的手續費是從 USDT 扣的：另外補一筆 USDT 扣款，數量＝輸入的手續費顆數
     const coin = addForm.code.trim() || addForm.name.trim() || "虛擬貨幣";
+    if (buyFeeInUsdt && fee > 0) {
+      const r = await postInvestment({
+        name: USDT_CODE, code: USDT_CODE, date: addForm.date, action: "SELL", broker: addForm.broker,
+        quantity: fee, price: usdtUnitCost, amount: -feeTwd, note: `買進 ${coin} 手續費`,
+      });
+      if (!r.ok) alert(`${coin} 已儲存，但手續費 USDT 扣款失敗，請手動補一筆 ${fmtQty(fee)} USDT`);
+    }
+    // 連動交易所台幣餘額：買進從台幣餘額扣款（餘額不足只扣到 0，其餘視為從外部付款），賣出款項存入台幣餘額
     if (addForm.action === "BUY" && addForm.payFromTwd && twdBalance > 0) {
       const pay = Math.min(subtotal, twdBalance);
       const r = await postInvestment({
@@ -1756,10 +1779,15 @@ export default function CryptoPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費（選填，{quote === "USDT" ? "USDT" : "台幣"}）</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費（選填，{buyFeeInUsdt || quote === "USDT" ? "USDT" : "台幣"}）</label>
                 <input type="number" min="0" step="any" value={addForm.fee}
-                  onChange={(e) => setAddForm({ ...addForm, fee: e.target.value })} placeholder="例如：50"
+                  onChange={(e) => setAddForm({ ...addForm, fee: e.target.value })} placeholder="例如：0.5"
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                {buyFeeInUsdt && (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    交易所手續費是從 USDT 扣的：依 USDT 平均成本 {usdtUnitCost > 0 ? fmt2(usdtUnitCost) : "—"} 換算台幣成本，並從 USDT 持有扣除{fee > 0 && usdtUnitCost > 0 ? `（≈ ${fmt(feeTwd)}）` : ""}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1788,7 +1816,8 @@ export default function CryptoPage() {
                   <span>成交金額</span><span>{fmtQuote(principal)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-500">
-                  <span>手續費</span><span>{fmtQuote(fee)}</span>
+                  <span>手續費</span>
+                  <span>{buyFeeInUsdt ? `${fmtQty(fee)} USDT${usdtUnitCost > 0 ? ` ≈ ${fmt(feeTwd)}` : ""}` : fmtQuote(fee)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>自動試算小計</span><span>{fmtQuote(calcSubtotal)}</span>
@@ -1804,6 +1833,9 @@ export default function CryptoPage() {
                 )}
                 {quote === "USDT" && addForm.action === "BUY" && subtotal > usdtHeld + 1e-9 && (
                   <p className="text-xs text-red-500">USDT 持有不足（目前 {fmtQty(usdtHeld)}）</p>
+                )}
+                {buyFeeInUsdt && fee > 0 && usdtUnitCost > 0 && fee > usdtHeld + 1e-9 && (
+                  <p className="text-xs text-red-500">USDT 持有不足以支付手續費（目前 {fmtQty(usdtHeld)}）</p>
                 )}
               </div>
 
