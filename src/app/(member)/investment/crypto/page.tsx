@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import Combobox from "@/components/ui/Combobox";
+import Pagination from "@/components/ui/Pagination";
 import { remainingHoldingsByAmount, suspenseOpenCost, isCryptoDividend } from "@/lib/stock-holdings";
 
 interface Investment {
@@ -783,19 +784,17 @@ export default function CryptoPage() {
 
   // 幣安核對：幣安實際數量 vs 帳上數量（台幣不在幣安，不比對）
   const BINANCE_EXCHANGE = "幣安 Binance";
-  // 帳上的幣安數量＝帳上總數量 − 記在其他交易所（例如 BitoPro）的數量；沒填交易所的視為幣安。
-  // EQ_ 開頭是幣安的美股代幣，記在美股頁，不在這裡核對
-  const otherExchangeQty = (code: string) =>
-    (exchangesByCode.get(code) ?? [])
-      .filter((e) => e.exchange !== BINANCE_EXCHANGE && e.exchange !== UNSPECIFIED_EXCHANGE)
-      .reduce((sum, e) => sum + e.quantity, 0);
+  // 帳上的幣安數量：直接取標記為「幣安 Binance」的持有量，跟「持有狀況」用同一份資料、同一種算法，
+  // 兩邊才會對得起來（舊算法用「全部加總 − 其他交易所」反推，沒填交易所的記錄一多就會兜不攏）
+  const binanceExchangeQty = (code: string) =>
+    (exchangesByCode.get(code) ?? []).find((e) => e.exchange === BINANCE_EXCHANGE)?.quantity ?? 0;
   const binanceRows = binanceSnap
     ? [...new Set([...Object.keys(binanceSnap.balances), ...holdings.map((h) => h.code)])]
         .filter((code) => code !== TWD_CODE && code !== "—" && !code.startsWith("EQ_"))
         .map((code) => {
           const actual = binanceSnap.balances[code]?.total ?? 0;
           const holding = holdings.find((h) => h.code === code);
-          const book = Math.max(0, (holding?.quantity ?? 0) - otherExchangeQty(code));
+          const book = Math.max(0, binanceExchangeQty(code));
           return { code, actual, book, diff: Math.round((actual - book) * 1e8) / 1e8, holding };
         })
         .filter((r) => r.actual !== 0 || r.book !== 0)
@@ -1355,22 +1354,8 @@ export default function CryptoPage() {
             ))}
           </div>
         )}
-        {!loading && pageCount > 1 && (
-          <div className="flex items-center justify-between px-6 py-3 border-t border-slate-50">
-            <span className="text-xs text-slate-400">
-              第 {currentPage} / {pageCount} 頁・共 {sortedInvestments.length} 筆
-            </span>
-            <div className="flex gap-1">
-              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                上一頁
-              </button>
-              <button type="button" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={currentPage >= pageCount}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                下一頁
-              </button>
-            </div>
-          </div>
+        {!loading && (
+          <Pagination page={currentPage} pageCount={pageCount} totalCount={sortedInvestments.length} onPageChange={setPage} />
         )}
       </div>
 
