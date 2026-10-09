@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import { computeHoldings } from "@/lib/stock-holdings";
 import Combobox from "@/components/ui/Combobox";
+import Pagination from "@/components/ui/Pagination";
 
 interface Investment {
   id: string;
@@ -38,6 +39,7 @@ const DEFAULT_BROKERS = [
 ];
 
 const CURRENCIES = ["USD", "TWD", "HKD"];
+const PAGE_SIZE = 20;
 
 const EMPTY_ADD_FORM = {
   mode: "TRADE" as "TRADE" | "COST_ADJUST",
@@ -60,6 +62,7 @@ const EMPTY_ADD_FORM = {
 export default function UsStockPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [addSaving, setAddSaving] = useState(false);
@@ -155,13 +158,17 @@ export default function UsStockPage() {
   // 調帳金額：實際扣款/入帳金額可能因匯率或券商計費方式跟試算有落差，填了就以此為準
   const subtotal = addForm.adjustAmount !== "" ? (parseFloat(addForm.adjustAmount) || 0) : calcSubtotal;
 
+  const pageCount = Math.max(1, Math.ceil(investments.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedInvestments = investments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   const resetAddForm = () => {
     setAddForm(EMPTY_ADD_FORM);
     setAddBrokerInput("");
     setAddBrokerOpen(false);
   };
 
-  const openAdd = () => { resetAddForm(); setShowAddModal(true); };
+  const openAdd = () => { resetAddForm(); setPage(1); setShowAddModal(true); };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -386,7 +393,7 @@ export default function UsStockPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {investments.map((inv) => (
+            {pagedInvestments.map((inv) => (
               <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
                 <div className="flex items-center gap-3">
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
@@ -425,6 +432,9 @@ export default function UsStockPage() {
               </div>
             ))}
           </div>
+        )}
+        {!loading && (
+          <Pagination page={currentPage} pageCount={pageCount} totalCount={investments.length} onPageChange={setPage} />
         )}
       </div>
 

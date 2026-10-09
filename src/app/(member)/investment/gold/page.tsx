@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import Combobox from "@/components/ui/Combobox";
+import Pagination from "@/components/ui/Pagination";
 
 interface Investment {
   id: string;
@@ -33,6 +34,8 @@ const DEFAULT_BANKS = [
   "星展銀行", "渣打銀行", "中華郵政", "六福銀樓", "金隆盛銀樓",
 ];
 
+const PAGE_SIZE = 20;
+
 const EMPTY_ADD_FORM = {
   name: "",
   code: "",
@@ -49,6 +52,7 @@ const EMPTY_ADD_FORM = {
 export default function GoldPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [addSaving, setAddSaving] = useState(false);
@@ -119,6 +123,10 @@ export default function GoldPage() {
   }, {} as Record<string, { name: string; code?: string; count: number; amount: number; units: number }>);
   const nameGroupList = Object.values(nameGroups);
 
+  const pageCount = Math.max(1, Math.ceil(investments.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedInvestments = investments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   // ---- 新增表單：即時試算 ----
   const quantity = parseFloat(addForm.quantity) || 0;
   const price = parseFloat(addForm.price) || 0;
@@ -134,7 +142,7 @@ export default function GoldPage() {
     setAddBankOpen(false);
   };
 
-  const openAdd = () => { resetAddForm(); setShowAddModal(true); };
+  const openAdd = () => { resetAddForm(); setPage(1); setShowAddModal(true); };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -287,7 +295,7 @@ export default function GoldPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {investments.map((inv) => (
+            {pagedInvestments.map((inv) => (
               <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
                 <div className="flex items-center gap-3">
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
@@ -323,6 +331,9 @@ export default function GoldPage() {
               </div>
             ))}
           </div>
+        )}
+        {!loading && (
+          <Pagination page={currentPage} pageCount={pageCount} totalCount={investments.length} onPageChange={setPage} />
         )}
       </div>
 

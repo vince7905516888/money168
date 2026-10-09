@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import Combobox from "@/components/ui/Combobox";
+import Pagination from "@/components/ui/Pagination";
 
 interface Debt {
   id: string;
@@ -312,22 +313,8 @@ export default function DebtsPage() {
             ))}
           </div>
         )}
-        {!loading && pageCount > 1 && (
-          <div className="flex items-center justify-between px-6 py-3 border-t border-slate-50">
-            <span className="text-xs text-slate-400">
-              第 {currentPage} / {pageCount} 頁・共 {debts.length} 筆
-            </span>
-            <div className="flex gap-1">
-              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                上一頁
-              </button>
-              <button type="button" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={currentPage >= pageCount}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                下一頁
-              </button>
-            </div>
-          </div>
+        {!loading && (
+          <Pagination page={currentPage} pageCount={pageCount} totalCount={debts.length} onPageChange={setPage} />
         )}
       </div>
 

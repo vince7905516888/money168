@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import Pagination from "@/components/ui/Pagination";
 
 interface Investment {
   id: string;
@@ -17,6 +18,8 @@ interface Investment {
   createdAt: string;
 }
 
+const PAGE_SIZE = 20;
+
 const EMPTY_ADD_FORM = {
   name: "",
   code: "",
@@ -30,6 +33,7 @@ const EMPTY_ADD_FORM = {
 export default function InsurancePage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [addSaving, setAddSaving] = useState(false);
@@ -71,9 +75,13 @@ export default function InsurancePage() {
 
   const amountInput = parseFloat(addForm.amount) || 0;
 
+  const pageCount = Math.max(1, Math.ceil(investments.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedInvestments = investments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   const resetAddForm = () => setAddForm(EMPTY_ADD_FORM);
 
-  const openAdd = () => { resetAddForm(); setShowAddModal(true); };
+  const openAdd = () => { resetAddForm(); setPage(1); setShowAddModal(true); };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,7 +224,7 @@ export default function InsurancePage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
-            {investments.map((inv) => (
+            {pagedInvestments.map((inv) => (
               <div key={inv.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors group">
                 <div className="flex items-center gap-3">
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
@@ -249,6 +257,9 @@ export default function InsurancePage() {
               </div>
             ))}
           </div>
+        )}
+        {!loading && (
+          <Pagination page={currentPage} pageCount={pageCount} totalCount={investments.length} onPageChange={setPage} />
         )}
       </div>
 

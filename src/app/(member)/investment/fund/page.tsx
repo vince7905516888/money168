@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import Combobox from "@/components/ui/Combobox";
+import Pagination from "@/components/ui/Pagination";
 
 interface Investment {
   id: string;
@@ -553,27 +554,7 @@ export default function FundPage() {
               ))}
             </div>
 
-            {recordsTotalPages > 1 && (
-              <div className="flex items-center justify-between px-6 py-3.5 border-t border-slate-50">
-                <span className="text-xs text-slate-400">共 {investments.length} 筆 · 第 {safeRecordPage} / {recordsTotalPages} 頁</span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setRecordPage((p) => Math.max(p - 1, 1))}
-                    disabled={safeRecordPage <= 1}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    上一頁
-                  </button>
-                  <button
-                    onClick={() => setRecordPage((p) => Math.min(p + 1, recordsTotalPages))}
-                    disabled={safeRecordPage >= recordsTotalPages}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    下一頁
-                  </button>
-                </div>
-              </div>
-            )}
+            <Pagination page={safeRecordPage} pageCount={recordsTotalPages} totalCount={investments.length} onPageChange={setRecordPage} />
           </>
         )}
       </div>

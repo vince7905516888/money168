@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { authFetch } from "@/lib/api-fetch";
 import PickerWithAdd from "@/components/ui/PickerWithAdd";
+import Pagination from "@/components/ui/Pagination";
 import TransferSide, { type PaymentMethod } from "@/components/finance/TransferSide";
 
 interface BankSummary {
@@ -598,27 +599,7 @@ export default function BanksPage() {
               </div>
 
               {/* 分頁 */}
-              {recordsTotalPages > 1 && (
-                <div className="flex items-center justify-between px-6 py-3.5 border-t border-slate-50">
-                  <span className="text-xs text-slate-400">共 {recordsTotal} 筆 · 第 {recordPage} / {recordsTotalPages} 頁</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setRecordPage((p) => Math.max(p - 1, 1))}
-                      disabled={recordPage <= 1}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      上一頁
-                    </button>
-                    <button
-                      onClick={() => setRecordPage((p) => Math.min(p + 1, recordsTotalPages))}
-                      disabled={recordPage >= recordsTotalPages}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      下一頁
-                    </button>
-                  </div>
-                </div>
-              )}
+              <Pagination page={recordPage} pageCount={recordsTotalPages} totalCount={recordsTotal} onPageChange={setRecordPage} />
             </>
           )
         )}
