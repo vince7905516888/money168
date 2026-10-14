@@ -108,6 +108,7 @@ export default function CryptoPage() {
   const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
   const [addSaving, setAddSaving] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("DATE_DESC");
+  const [exchangeFilter, setExchangeFilter] = useState("");
   const [page, setPage] = useState(1);
   const [holdingsOpen, setHoldingsOpen] = useState(false);
   // 即時台幣價格（key 為大寫代碼），每次進入頁面重新抓取
@@ -295,9 +296,13 @@ export default function CryptoPage() {
     : i.action === "BUY" ? { text: "買進", cls: "bg-emerald-100 text-emerald-700" }
     : { text: "賣出", cls: "bg-red-100 text-red-700" };
 
+  // 投資記錄的交易所篩選：依記錄實際出現過的交易所列出選項，沒填交易所的記錄歸到「未指定」
+  const recordExchanges = Array.from(new Set(investments.map((i) => i.broker?.trim() || UNSPECIFIED_EXCHANGE))).sort((a, b) => a.localeCompare(b, "zh-TW"));
+  const filteredInvestments = exchangeFilter ? investments.filter((i) => (i.broker?.trim() || UNSPECIFIED_EXCHANGE) === exchangeFilter) : investments;
+
   // 投資記錄排序
   const time = (i: Investment) => new Date(i.date ?? i.createdAt).getTime();
-  const sortedInvestments = [...investments].sort((a, b) => {
+  const sortedInvestments = [...filteredInvestments].sort((a, b) => {
     const byCreated = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     switch (sortKey) {
       case "DATE_ASC": return time(a) - time(b) || -byCreated;
@@ -1298,10 +1303,17 @@ export default function CryptoPage() {
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50">
           <h2 className="font-semibold text-slate-900">投資記錄</h2>
-          <select value={sortKey} onChange={(e) => { setSortKey(e.target.value as SortKey); setPage(1); }} aria-label="排序方式"
-            className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 focus:border-indigo-400 transition-colors">
-            {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+          <div className="flex items-center gap-2">
+            <select value={exchangeFilter} onChange={(e) => { setExchangeFilter(e.target.value); setPage(1); }} aria-label="交易所篩選"
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 focus:border-indigo-400 transition-colors">
+              <option value="">全部交易所</option>
+              {recordExchanges.map((ex) => <option key={ex} value={ex}>{ex}</option>)}
+            </select>
+            <select value={sortKey} onChange={(e) => { setSortKey(e.target.value as SortKey); setPage(1); }} aria-label="排序方式"
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 focus:border-indigo-400 transition-colors">
+              {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
         </div>
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
@@ -1309,6 +1321,11 @@ export default function CryptoPage() {
           <div className="py-16 text-center">
             <p className="text-slate-400 text-sm mb-3">還沒有虛擬貨幣投資記錄</p>
             <button onClick={openAdd} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆記錄</button>
+          </div>
+        ) : sortedInvestments.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-slate-400 text-sm mb-3">「{exchangeFilter}」沒有符合的記錄</p>
+            <button onClick={() => { setExchangeFilter(""); setPage(1); }} className="text-sm text-indigo-600 font-medium hover:underline">清除篩選</button>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
