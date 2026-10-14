@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
-import { computeHoldings, remainingCostByAmount, remainingHoldingsByAmount, dividendMarketValue, suspenseOpenCost } from "@/lib/stock-holdings";
+import { computeHoldings, remainingCostByExchange, remainingHoldingsByExchange, dividendMarketValue, suspenseOpenCost } from "@/lib/stock-holdings";
 
 type InvestmentType = "STOCK" | "USSTOCK" | "FUND" | "FOREX" | "CRYPTO" | "GOLD" | "REALESTATE" | "INSURANCE";
 
@@ -14,6 +14,7 @@ interface Investment {
   amount: number;
   quantity?: number;
   price?: number;
+  broker?: string;
   action?: "BUY" | "SELL";
   currency?: string;
   exchangeRate?: number;
@@ -94,7 +95,7 @@ export default function InvestmentOverviewPage() {
       invRes.json(), bankRes.json(), debtRes.json(), rateRes.json(), cashRes.json(), navRes.json(), suspenseRes.json(),
     ]);
     setSuspenseEntries(Array.isArray(suspenseData) ? suspenseData : []);
-    const dividendCodes = remainingHoldingsByAmount((Array.isArray(invData) ? invData as Investment[] : []).filter((i) => i.type === "CRYPTO"))
+    const dividendCodes = remainingHoldingsByExchange((Array.isArray(invData) ? invData as Investment[] : []).filter((i) => i.type === "CRYPTO"))
       .filter((h) => h.dividendQty > 0).map((h) => h.code);
     if (dividendCodes.length > 0) {
       fetch(`/api/crypto-prices?codes=${encodeURIComponent(dividendCodes.join(","))}`)
@@ -298,10 +299,10 @@ export default function InvestmentOverviewPage() {
   // 理由見該函式註解（虛擬貨幣的單價欄位不一定可靠，不能拿來重算成本）
   // 加上配息的即時市值（配息不計成本，持有成本裡沒有它的價值），以及暫計帳（從 USDT 扣除、尚未回補的部分，以扣除當下成本計）
   const suspenseTotal = suspenseOpenCost(suspenseEntries);
-  const cryptoTotal = remainingCostByAmount(byType("CRYPTO")) + dividendMarketValue(remainingHoldingsByAmount(byType("CRYPTO")), cryptoPrices) + suspenseTotal;
-  // 黃金資產＝目前仍持有部位的投入成本；跟虛擬貨幣一樣用 remainingCostByAmount 而非
+  const cryptoTotal = remainingCostByExchange(byType("CRYPTO")) + dividendMarketValue(remainingHoldingsByExchange(byType("CRYPTO")), cryptoPrices) + suspenseTotal;
+  // 黃金資產＝目前仍持有部位的投入成本；跟虛擬貨幣一樣用 remainingCostByExchange 而非
   // computeHoldings（黃金頁的單價欄位同樣有「實際金額」可覆蓋輸入，不一定等於 amount÷數量）
-  const goldTotal = remainingCostByAmount(goldInvestments);
+  const goldTotal = remainingCostByExchange(goldInvestments);
   const realestateTotal = sumAmount(byType("REALESTATE"));
   const insuranceTotal = sumAmount(byType("INSURANCE"));
   const debtTotal = debts.reduce((s, d) => s + d.amount, 0);

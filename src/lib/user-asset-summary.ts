@@ -2,7 +2,7 @@
 // 完全一樣的公式，抽出來讓後台總覽可以逐一算出每個會員的數字再加總成「站結」全站數字，
 // 兩邊才會對得起來。修改任一邊的公式時記得另一邊也要跟著改。
 import { prisma } from "@/lib/prisma";
-import { computeHoldings, remainingCostByAmount, remainingHoldingsByAmount, dividendMarketValue, suspenseOpenCost } from "@/lib/stock-holdings";
+import { computeHoldings, remainingCostByExchange, remainingHoldingsByExchange, dividendMarketValue, suspenseOpenCost } from "@/lib/stock-holdings";
 import { fetchCryptoTwdPrices } from "@/lib/crypto-prices";
 import { computeBankSummaries } from "@/lib/bank-balances";
 
@@ -100,11 +100,12 @@ export async function computeUserAssetSummary(userId: string): Promise<UserAsset
   // 股票、美股用含成本調整的 cost，跟前台資產總攬一致（成本調整（用其他持股的獲利攤平虧損）視為把那筆已入帳的獲利拿去降低這檔的投入資金：）
   const stockTotal = computeHoldings(toHoldingInput(byType("STOCK"))).reduce((s, h) => s + h.cost, 0);
   // 虛擬貨幣：持有成本＋配息的即時市值，跟前台資產總攬一致（價格有 60 秒快取，逐一計算會員時不會重複打 API）
-  const cryptoHoldings = remainingHoldingsByAmount(byType("CRYPTO"));
+  // 持有成本依交易所分開計算再加總，不能把不同交易所的買賣混在同一個時間序列裡算（見 remainingCostByExchange 說明）
+  const cryptoHoldings = remainingHoldingsByExchange(byType("CRYPTO"));
   const dividendCodes = cryptoHoldings.filter((h) => h.dividendQty > 0).map((h) => h.code);
   const { prices: cryptoPrices } = dividendCodes.length > 0 ? await fetchCryptoTwdPrices(dividendCodes) : { prices: {} };
-  const cryptoTotal = remainingCostByAmount(byType("CRYPTO")) + dividendMarketValue(cryptoHoldings, cryptoPrices);
-  const goldTotal = remainingCostByAmount(byType("GOLD"));
+  const cryptoTotal = remainingCostByExchange(byType("CRYPTO")) + dividendMarketValue(cryptoHoldings, cryptoPrices);
+  const goldTotal = remainingCostByExchange(byType("GOLD"));
   // 暫計帳（待賺回）：跟前台資產總攬一樣，尚未回補的部分以扣除當下成本計入資產
   const suspenseTotal = suspenseOpenCost(suspenseEntries);
 

@@ -183,6 +183,26 @@ export function remainingCostByAmount(list: AmountHoldingInput[]): number {
   return remainingHoldingsByAmount(list).reduce((s, g) => s + g.cost, 0);
 }
 
+// 跨交易所加總時，同一幣種要先依交易所分開各自算完移動平均成本再加總，不能把不同交易所的買賣
+// 混在同一個時間序列裡一起處理：SELL 是依「目前持有量」清算平均成本，混在一起算，某交易所的賣出
+// 會連帶扣到別間交易所的成本與數量，使總額失真（通常會比各交易所分開算完再加總的正確值更少）
+export function remainingHoldingsByExchange(list: (AmountHoldingInput & { broker?: string | null })[]): AmountHolding[] {
+  const UNSPECIFIED_EXCHANGE = "未指定";
+  const groups = new Map<string, (AmountHoldingInput & { broker?: string | null })[]>();
+  for (const inv of list) {
+    const key = inv.broker?.trim() || UNSPECIFIED_EXCHANGE;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(inv);
+  }
+  const rows: AmountHolding[] = [];
+  for (const subset of groups.values()) rows.push(...remainingHoldingsByAmount(subset));
+  return rows;
+}
+
+export function remainingCostByExchange(list: (AmountHoldingInput & { broker?: string | null })[]): number {
+  return remainingHoldingsByExchange(list).reduce((s, g) => s + g.cost, 0);
+}
+
 // 暫計帳（待賺回）資產：尚未回補的暫計帳，以扣除當下的成本計入資產。
 // 扣除時虛擬貨幣持有成本減少、這裡等額增加，回補後兩邊再換回來，總資產不因暫計帳而變動
 // 配息市值：目前仍持有的配息數量 × 即時台幣價格（價格表的 key 為大寫代碼）。

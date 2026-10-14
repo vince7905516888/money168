@@ -217,7 +217,6 @@ export default function CryptoPage() {
     const p = livePrice(h.code);
     return p == null ? null : h.quantity * p;
   };
-  const marketTotal = holdings.reduce((s, h) => s + (marketValueOf(h) ?? 0), 0);
   // 持有狀況明細：依「幣種＋交易所」各自獨立計算數量與成本，不同交易所分開列（沒填交易所的歸到「未指定」），
   // 不是把不同交易所的持有混在同一列算——每個交易所的數量、成本、均價、市值都是獨立算出來的
   const UNSPECIFIED_EXCHANGE = "未指定";
@@ -232,6 +231,9 @@ export default function CryptoPage() {
     }
     return rows.sort((a, b) => (codeOrder.get(a.code) ?? 999) - (codeOrder.get(b.code) ?? 999) || b.cost - a.cost);
   })();
+  // 總成本／總市值：用上面依交易所分開算完的 exchangeHoldings 加總，不能直接用 holdings（holdings 把全部
+  // 交易所的買賣混在同一個時間序列算平均成本，某交易所的賣出會誤扣到別交易所的成本，總額會比實際少）
+  const marketTotal = exchangeHoldings.reduce((s, h) => s + (marketValueOf(h) ?? 0), 0);
   // 持有狀況改以交易所為主分類：幣安有哪些幣、各多少顆，BitoPro 有哪些幣、各多少顆，分開獨立呈現
   const holdingsByExchange = (() => {
     const groups = new Map<string, { exchange: string; rows: typeof exchangeHoldings; cost: number }>();
@@ -260,7 +262,7 @@ export default function CryptoPage() {
   const suspenseCost = suspenseOpenCost(suspenseEntries);
   const suspenseQty = suspenseEntries.filter((e) => !e.reversedAt).reduce((s, e) => s + e.quantity, 0);
   const suspenseMarket = livePrice(SUSPENSE_CODE) != null ? suspenseQty * livePrice(SUSPENSE_CODE)! : null;
-  const netInvested = holdings.reduce((s, h) => s + h.cost, 0) + suspenseCost;
+  const netInvested = exchangeHoldings.reduce((s, h) => s + h.cost, 0) + suspenseCost;
   const isTransferRecord = (i: Investment) => !!i.note?.startsWith(TRANSFER_NOTE + "：") || !!i.note?.startsWith(SWAP_NOTE + "：");
   const isSwapRecord = (i: Investment) => !!i.note?.startsWith(SWAP_NOTE + "：");
   const buyCount = investments.filter((i) => i.action === "BUY" && !isTransferRecord(i)).length;
