@@ -51,6 +51,8 @@ interface PlanDetail {
   dividendFrequency: DividendFrequency;
   mode: PlanMode;
   shareIncrement: number | null;
+  startingAssetValue: number;
+  startingAvgPrice: number | null;
   rows: PlanRow[];
 }
 
@@ -190,6 +192,29 @@ export default function InvestmentCalculatorPage() {
     });
   };
 
+  // 開始試算前既有的持有金額／持股均價：只有第一列可以改，當作整個方案的起始基準
+  const saveStartingAssetValue = async (value: string) => {
+    if (!planDetail) return;
+    const num = parseFloat(value) || 0;
+    setPlanDetail({ ...planDetail, startingAssetValue: num });
+    await authFetch(`/api/calculator-plans/${planDetail.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startingAssetValue: num }),
+    });
+  };
+
+  const saveStartingAvgPrice = async (value: string) => {
+    if (!planDetail) return;
+    const num = value === "" ? null : (parseFloat(value) || 0);
+    setPlanDetail({ ...planDetail, startingAvgPrice: num });
+    await authFetch(`/api/calculator-plans/${planDetail.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startingAvgPrice: num }),
+    });
+  };
+
   // 本地先更新畫面（打字流暢），失去焦點時才存檔，避免每打一個字就打一次 API
   const updateLocalRow = (rowId: string, field: keyof PlanRow, value: string) => {
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, [field]: parseFloat(value) || 0 } : r)));
@@ -268,7 +293,11 @@ export default function InvestmentCalculatorPage() {
     const frequency = planDetail?.dividendFrequency ?? "MONTHLY";
     let foundTarget: ComputedRow | null = null;
 
-    for (const r of rows) {
+    const startingAssetValue = planDetail?.startingAssetValue ?? 0;
+    const startingAvgPrice = planDetail?.startingAvgPrice ?? null;
+
+    for (let idx = 0; idx < rows.length; idx++) {
+      const r = rows[idx];
       const isPaymentMonth = frequency === "MONTHLY" ? true : (QUARTERLY_MONTHS[frequency] ?? []).includes(r.month);
       // 這個月產生的配息：有手動覆蓋就用覆蓋值（例如對帳後的真實入帳金額），否則照公式算
       const dividend = r.dividendOverride != null ? r.dividendOverride : (isPaymentMonth ? holdingShares * r.dividendRate * r.afterTaxRate : 0);
@@ -297,10 +326,13 @@ export default function InvestmentCalculatorPage() {
 
       // 累計投入成本：台股版的配息加碼也是真金白銀買進股票，一樣算進投入成本
       cumulativeInvestment += mode === "TWSTOCK" ? sharesBought * r.price : r.investment;
+      // 第一列可以手動指定「開始試算前既有持股的均價」當基準，之後月份接著這個基準往下算
+      if (idx === 0 && startingAvgPrice != null) cumulativeInvestment = startingAvgPrice * holdingShares;
       const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
-      const assetValue = mode === "TWSTOCK"
+      // 每一列都加上「開始試算前既有的持有金額」（只在第一列顯示可編輯，其他列自動帶著走）
+      const assetValue = (mode === "TWSTOCK"
         ? holdingShares * r.price + pendingDividendCash
-        : holdingShares * r.price + cumulativeDividend;
+        : holdingShares * r.price + cumulativeDividend) + startingAssetValue;
 
       const row: ComputedRow = {
         ...r, sharesBought, dividendShares, holdingShares, dividend, cumulativeDividend,
@@ -310,7 +342,7 @@ export default function InvestmentCalculatorPage() {
       if (!foundTarget && target > 0 && assetValue >= target) foundTarget = row;
     }
     return { computed: list, targetRow: foundTarget };
-  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.mode]);
+  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice]);
 
   const last = computed[computed.length - 1];
   const isTwstock = planDetail?.mode === "TWSTOCK";
@@ -475,7 +507,14 @@ export default function InvestmentCalculatorPage() {
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                             className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.holdingSharesOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
                         </td>
-                        <td className="px-3 py-1.5 text-right text-slate-500">{fmtQty(r.avgPrice)}</td>
+                        <td className="px-1 py-1 text-right text-slate-500">
+                          {i === 0 ? (
+                            <input type="number" step="any" defaultValue={planDetail.startingAvgPrice ?? ""} placeholder={fmtQty(r.avgPrice)}
+                              title="留空＝從 0 開始照公式算；填數字＝開始試算前既有持股的均價，當作起始基準"
+                              onBlur={(e) => saveStartingAvgPrice(e.target.value)}
+                              className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${planDetail.startingAvgPrice != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                          ) : fmtQty(r.avgPrice)}
+                        </td>
                         <td className="px-1 py-1">
                           <div className="flex items-center justify-end gap-0.5">
                             <input key={`${r.id}-price-${r.price}`} type="number" step="any" defaultValue={r.price}
@@ -513,7 +552,14 @@ export default function InvestmentCalculatorPage() {
                             className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-emerald-300 ${r.dividendOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
                         </td>
                         <td className="px-3 py-1.5 text-right text-amber-600 font-medium">{fmtQty(r.pendingDividendCash)}</td>
-                        <td className="px-3 py-1.5 text-right text-indigo-600 font-semibold">{fmt(r.assetValue)}</td>
+                        <td className="px-1 py-1 text-right text-indigo-600 font-semibold">
+                          {i === 0 ? (
+                            <input type="number" step="any" defaultValue={planDetail.startingAssetValue}
+                              title="開始試算前既有的持有金額，會加到每一列的推估總資產裡"
+                              onBlur={(e) => saveStartingAssetValue(e.target.value)}
+                              className={`w-24 text-right px-2 py-1 border rounded text-sm font-semibold ${planDetail.startingAssetValue !== 0 ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                          ) : fmt(r.assetValue)}
+                        </td>
                         <td className="px-2 py-1.5">
                           <button onClick={() => handleDeleteRow(r.id)}
                             className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 text-xs transition-opacity">刪除</button>
@@ -566,7 +612,14 @@ export default function InvestmentCalculatorPage() {
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                             className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.holdingSharesOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
                         </td>
-                        <td className="px-3 py-1.5 text-right text-slate-500">{fmtQty(r.avgPrice)}</td>
+                        <td className="px-1 py-1 text-right text-slate-500">
+                          {i === 0 ? (
+                            <input type="number" step="any" defaultValue={planDetail.startingAvgPrice ?? ""} placeholder={fmtQty(r.avgPrice)}
+                              title="留空＝從 0 開始照公式算；填數字＝開始試算前既有持股的均價，當作起始基準"
+                              onBlur={(e) => saveStartingAvgPrice(e.target.value)}
+                              className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${planDetail.startingAvgPrice != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                          ) : fmtQty(r.avgPrice)}
+                        </td>
                         <td className="px-1 py-1">
                           <input key={`${r.id}-fee-${r.fee}`} type="number" step="any" defaultValue={r.fee}
                             onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
@@ -610,7 +663,14 @@ export default function InvestmentCalculatorPage() {
                             className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-emerald-300 ${r.dividendOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
                         </td>
                         <td className="px-3 py-1.5 text-right text-emerald-700 font-semibold">{fmtQty(r.cumulativeDividend)}</td>
-                        <td className="px-3 py-1.5 text-right text-indigo-600 font-semibold">{fmt(r.assetValue)}</td>
+                        <td className="px-1 py-1 text-right text-indigo-600 font-semibold">
+                          {i === 0 ? (
+                            <input type="number" step="any" defaultValue={planDetail.startingAssetValue}
+                              title="開始試算前既有的持有金額，會加到每一列的推估總資產裡"
+                              onBlur={(e) => saveStartingAssetValue(e.target.value)}
+                              className={`w-24 text-right px-2 py-1 border rounded text-sm font-semibold ${planDetail.startingAssetValue !== 0 ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                          ) : fmt(r.assetValue)}
+                        </td>
                         <td className="px-2 py-1.5">
                           <button onClick={() => handleDeleteRow(r.id)}
                             className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 text-xs transition-opacity">刪除</button>

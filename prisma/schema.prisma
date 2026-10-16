@@ -228,6 +228,8 @@ model CalculatorPlan {
   // （每月買進股數固定遞增，配息累積夠買 1 股的金額就自動加碼買股、零頭留到下個月）
   mode              String              @default("USSTOCK")
   shareIncrement    Float? // TWSTOCK 專用：每月買進股數的遞增量，延伸新月份時用來算下一列預設股數
+  startingAssetValue Float              @default(0) // 開始試算前既有的持有金額（選填），會加到每一列的推估總資產裡，只在第一列可以手動改
+  startingAvgPrice   Float? // 開始試算前既有持股的均價（選填），設定後第一列的持股均價改用這個值當基準，之後月份接著往下算，只在第一列可以手動改
   userId            String
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   rows         CalculatorPlanRow[]
