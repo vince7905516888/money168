@@ -204,6 +204,9 @@ model DividendEntry {
   name      String
   code      String?
   amount    Float
+  quantity  Float? // 再買進當下買進的股數／單位數（選填），加總可看配息滾存累積了多少股
+  price     Float? // 再買進當下的成交價（選填）
+  fee       Float? // 再買進的手續費（選填）
   date      DateTime       @default(now())
   note      String?
   userId    String

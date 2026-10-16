@@ -11,7 +11,7 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const { id } = await params;
-  const { type, name, code, amount, date, note } = await req.json();
+  const { type, name, code, amount, quantity, price, fee, date, note } = await req.json();
 
   const existing = await prisma.dividendEntry.findFirst({
     where: { id, userId: session.user.id },
@@ -29,6 +29,9 @@ export async function PUT(
       ...(name !== undefined ? { name } : {}),
       ...(code !== undefined ? { code: code || null } : {}),
       ...(amount !== undefined && amount !== "" ? { amount: parseFloat(amount) } : {}),
+      ...(quantity !== undefined ? { quantity: quantity === "" || quantity === null ? null : parseFloat(quantity) } : {}),
+      ...(price !== undefined ? { price: price === "" || price === null ? null : parseFloat(price) } : {}),
+      ...(fee !== undefined ? { fee: fee === "" || fee === null ? null : parseFloat(fee) } : {}),
       ...(date !== undefined ? { date: new Date(date) } : {}),
       ...(note !== undefined ? { note: note || null } : {}),
     },

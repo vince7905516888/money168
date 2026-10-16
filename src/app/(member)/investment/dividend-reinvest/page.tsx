@@ -13,6 +13,9 @@ interface DividendEntry {
   name: string;
   code?: string;
   amount: number;
+  quantity?: number;
+  price?: number;
+  fee?: number;
   date: string;
   note?: string;
   createdAt: string;
@@ -29,6 +32,9 @@ const EMPTY_ADD_FORM = {
   code: "",
   date: new Date().toISOString().split("T")[0],
   amount: "",
+  quantity: "",
+  price: "",
+  fee: "",
   note: "",
 };
 
@@ -40,7 +46,7 @@ export default function DividendReinvestPage() {
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<DividendEntry | null>(null);
-  const [editForm, setEditForm] = useState({ type: "STOCK" as AssetType, name: "", code: "", amount: "", date: "", note: "" });
+  const [editForm, setEditForm] = useState({ type: "STOCK" as AssetType, name: "", code: "", amount: "", quantity: "", price: "", fee: "", date: "", note: "" });
   const [saving, setSaving] = useState(false);
 
   const [typeFilter, setTypeFilter] = useState<"" | AssetType>("");
@@ -71,14 +77,16 @@ export default function DividendReinvestPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  // 依個別股票／基金名稱小計，用來看每一檔各自還剩多少配息沒投入
+  // 依個別股票／基金名稱小計，用來看每一檔各自還剩多少配息沒投入、累積滾存了多少股
   const nameTotals = entries.reduce((acc, e) => {
     const key = `${e.type}__${e.name}`;
-    if (!acc[key]) acc[key] = { type: e.type, name: e.name, code: e.code, total: 0 };
+    if (!acc[key]) acc[key] = { type: e.type, name: e.name, code: e.code, total: 0, quantity: 0 };
     acc[key].total += e.amount;
+    acc[key].quantity += e.quantity ?? 0;
     return acc;
-  }, {} as Record<string, { type: AssetType; name: string; code?: string; total: number }>);
+  }, {} as Record<string, { type: AssetType; name: string; code?: string; total: number; quantity: number }>);
   const nameTotalList = Object.values(nameTotals).sort((a, b) => b.total - a.total);
+  const fmtQty = (n: number) => new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 4 }).format(n);
 
   // 名稱自動建議：依目前選的類型，列出曾經輸入過的名稱
   const namesForType = (type: AssetType) =>
@@ -111,6 +119,9 @@ export default function DividendReinvestPage() {
         code: addForm.code.trim(),
         date: addForm.date,
         amount: signedAmount,
+        quantity: isReinvest ? addForm.quantity : "",
+        price: isReinvest ? addForm.price : "",
+        fee: isReinvest ? addForm.fee : "",
         note: addForm.note,
       }),
     });
@@ -131,6 +142,9 @@ export default function DividendReinvestPage() {
       name: e.name,
       code: e.code ?? "",
       amount: String(e.amount),
+      quantity: e.quantity != null ? String(e.quantity) : "",
+      price: e.price != null ? String(e.price) : "",
+      fee: e.fee != null ? String(e.fee) : "",
       date: e.date ? e.date.split("T")[0] : "",
       note: e.note ?? "",
     });
@@ -230,6 +244,7 @@ export default function DividendReinvestPage() {
                   <span className="text-slate-600">
                     <span className="text-[10px] text-slate-400 mr-1.5">{TYPE_LABEL[n.type]}</span>
                     {n.name}{n.code ? ` (${n.code})` : ""}
+                    {n.quantity > 0 && <span className="text-[11px] text-indigo-500 ml-1.5">滾存 {fmtQty(n.quantity)} 股</span>}
                   </span>
                   <span className={`font-semibold ${n.total >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(n.total)}</span>
                 </div>
@@ -277,6 +292,9 @@ export default function DividendReinvestPage() {
                   </div>
                   <div className="text-xs text-slate-400 mt-1">
                     {new Date(e.date ?? e.createdAt).toLocaleDateString("zh-TW")}
+                    {e.quantity ? ` · ${fmtQty(e.quantity)} 股` : ""}
+                    {e.price ? ` · @${fmtQty(e.price)}` : ""}
+                    {e.fee ? ` · 手續費 ${fmt(e.fee)}` : ""}
                     {e.note ? ` · ${e.note}` : ""}
                   </div>
                 </div>
@@ -361,6 +379,29 @@ export default function DividendReinvestPage() {
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
 
+              {isReinvest && (
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">股數（選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.quantity}
+                      onChange={(e) => setAddForm({ ...addForm, quantity: e.target.value })} placeholder="100"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">成交價（選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.price}
+                      onChange={(e) => setAddForm({ ...addForm, price: e.target.value })} placeholder="例如：35"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費（選填）</label>
+                    <input type="number" min="0" step="any" value={addForm.fee}
+                      onChange={(e) => setAddForm({ ...addForm, fee: e.target.value })} placeholder="例如：20"
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
                 <input value={addForm.note} onChange={(e) => setAddForm({ ...addForm, note: e.target.value })}
@@ -420,6 +461,26 @@ export default function DividendReinvestPage() {
                   onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 <p className="text-[11px] text-slate-400 mt-1">正數＝配息入帳（增加），負數＝再買進（減少）</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">股數（選填）</label>
+                  <input type="number" step="any" value={editForm.quantity}
+                    onChange={(e) => setEditForm({ ...editForm, quantity: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">成交價（選填）</label>
+                  <input type="number" step="any" value={editForm.price}
+                    onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費（選填）</label>
+                  <input type="number" step="any" value={editForm.fee}
+                    onChange={(e) => setEditForm({ ...editForm, fee: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">備註（選填）</label>
