@@ -18,7 +18,10 @@ export async function PUT(
     return NextResponse.json({ error: "找不到記錄" }, { status: 404 });
   }
 
-  const { investment, fee, price, dividendRate, afterTaxRate } = await req.json();
+  const { investment, fee, price, dividendRate, afterTaxRate, holdingSharesOverride, dividendOverride } = await req.json();
+
+  // 覆蓋欄位：空字串／null 代表清掉覆蓋、改回照公式算；其他欄位維持「沒傳就不動」
+  const overrideValue = (v: unknown) => (v === "" || v === null ? null : parseFloat(v as string));
 
   const updated = await prisma.calculatorPlanRow.update({
     where: { id },
@@ -28,6 +31,8 @@ export async function PUT(
       ...(price !== undefined && price !== "" ? { price: parseFloat(price) } : {}),
       ...(dividendRate !== undefined && dividendRate !== "" ? { dividendRate: parseFloat(dividendRate) } : {}),
       ...(afterTaxRate !== undefined && afterTaxRate !== "" ? { afterTaxRate: parseFloat(afterTaxRate) } : {}),
+      ...(holdingSharesOverride !== undefined ? { holdingSharesOverride: overrideValue(holdingSharesOverride) } : {}),
+      ...(dividendOverride !== undefined ? { dividendOverride: overrideValue(dividendOverride) } : {}),
     },
   });
 

@@ -35,6 +35,8 @@ interface PlanRow {
   price: number;
   dividendRate: number;
   afterTaxRate: number;
+  holdingSharesOverride: number | null;
+  dividendOverride: number | null;
 }
 
 interface PlanDetail {
@@ -181,6 +183,11 @@ export default function InvestmentCalculatorPage() {
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, [field]: parseFloat(value) || 0 } : r)));
   };
 
+  // 持有股數／實際配息覆蓋欄位：清空代表「不要覆蓋、改回照公式算」，跟其他欄位不同，空字串要存成 null 而不是 0
+  const updateLocalOverride = (rowId: string, field: "holdingSharesOverride" | "dividendOverride", value: string) => {
+    setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, [field]: value === "" ? null : (parseFloat(value) || 0) } : r)));
+  };
+
   // 套用到之後所有月份：把某一列目前的值（每月投入金額／買進價格等）往後批次套用到後面所有月份，
   // 不影響這一列本身跟之前的月份，用來反映「薪水變多/股價假設調整後，之後每個月都改用新數字」
   const applyForward = async (row: PlanRow, field: "investment" | "price", value: number) => {
@@ -206,6 +213,7 @@ export default function InvestmentCalculatorPage() {
       body: JSON.stringify({
         investment: row.investment, fee: row.fee, price: row.price,
         dividendRate: row.dividendRate, afterTaxRate: row.afterTaxRate,
+        holdingSharesOverride: row.holdingSharesOverride, dividendOverride: row.dividendOverride,
       }),
     });
   };
@@ -246,10 +254,14 @@ export default function InvestmentCalculatorPage() {
 
     for (const r of rows) {
       const isPaymentMonth = frequency === "MONTHLY" ? true : (QUARTERLY_MONTHS[frequency] ?? []).includes(r.month);
-      const dividend = isPaymentMonth ? holdingShares * r.dividendRate * r.afterTaxRate : 0;
+      // 實際配息：有手動覆蓋就用覆蓋值（例如對帳後的真實入帳金額），否則照公式算
+      const dividend = r.dividendOverride != null ? r.dividendOverride : (isPaymentMonth ? holdingShares * r.dividendRate * r.afterTaxRate : 0);
       cumulativeDividend += dividend;
       const sharesBought = r.price > 0 ? Math.max(0, r.investment - r.fee) / r.price : 0;
-      holdingShares += sharesBought;
+      // 持有股數：有手動覆蓋就用覆蓋值（例如券商對帳的真實股數，含配股等公式沒算到的部分）
+      // 當作這個月的最終持股，下個月接著這個數字往下算，否則用「上個月持股＋這個月買進」
+      const naturalHolding = holdingShares + sharesBought;
+      holdingShares = r.holdingSharesOverride != null ? r.holdingSharesOverride : naturalHolding;
       cumulativeInvestment += r.investment;
       const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
       const assetValue = holdingShares * r.price + cumulativeDividend;
@@ -372,7 +384,7 @@ export default function InvestmentCalculatorPage() {
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-50">
               <h2 className="font-semibold text-slate-900">逐月試算明細</h2>
-              <span className="text-xs text-slate-400">白底欄位可以直接點擊修改，改完按 Tab 或點別處就會自動存檔</span>
+              <span className="text-xs text-slate-400">白底欄位可以直接點擊修改，改完按 Tab 或點別處就會自動存檔；持有股數／實際配息留空照公式算，填了數字（<span className="text-amber-600">淡黃色</span>）就改成手動指定的值，清空可以還原</span>
             </div>
             <div className="overflow-auto max-h-[600px]">
               <table className="w-full text-sm whitespace-nowrap">
@@ -401,7 +413,7 @@ export default function InvestmentCalculatorPage() {
                       <td className="px-3 py-1.5 text-slate-700">{r.month}</td>
                       <td className="px-1 py-1">
                         <div className="flex items-center justify-end gap-0.5">
-                          <input type="number" step="any" defaultValue={r.investment}
+                          <input key={`${r.id}-inv-${r.investment}`} type="number" step="any" defaultValue={r.investment}
                             onChange={(e) => updateLocalRow(r.id, "investment", e.target.value)}
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                             className="w-24 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
@@ -410,17 +422,24 @@ export default function InvestmentCalculatorPage() {
                             className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
                         </div>
                       </td>
-                      <td className="px-3 py-1.5 text-right text-slate-700">{fmtQty(r.holdingShares)}</td>
+                      <td className="px-1 py-1">
+                        <input key={`${r.id}-hold-${r.holdingSharesOverride}`} type="number" step="any"
+                          defaultValue={r.holdingSharesOverride ?? ""} placeholder={fmtQty(r.holdingShares)}
+                          title="留空＝照公式自動算；填數字＝改成手動指定的真實股數，下個月開始接著這個數字往下算"
+                          onChange={(e) => updateLocalOverride(r.id, "holdingSharesOverride", e.target.value)}
+                          onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                          className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.holdingSharesOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                      </td>
                       <td className="px-3 py-1.5 text-right text-slate-500">{fmtQty(r.avgPrice)}</td>
                       <td className="px-1 py-1">
-                        <input type="number" step="any" defaultValue={r.fee}
+                        <input key={`${r.id}-fee-${r.fee}`} type="number" step="any" defaultValue={r.fee}
                           onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
                           onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                           className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
                       </td>
                       <td className="px-1 py-1">
                         <div className="flex items-center justify-end gap-0.5">
-                          <input type="number" step="any" defaultValue={r.price}
+                          <input key={`${r.id}-price-${r.price}`} type="number" step="any" defaultValue={r.price}
                             onChange={(e) => updateLocalRow(r.id, "price", e.target.value)}
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                             className="w-20 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
@@ -432,7 +451,7 @@ export default function InvestmentCalculatorPage() {
                       <td className="px-3 py-1.5 text-right text-slate-700">{fmtQty(r.sharesBought)}</td>
                       <td className="px-1 py-1">
                         {r.isPaymentMonth ? (
-                          <input type="number" step="any" defaultValue={r.dividendRate}
+                          <input key={`${r.id}-divrate-${r.dividendRate}`} type="number" step="any" defaultValue={r.dividendRate}
                             onChange={(e) => updateLocalRow(r.id, "dividendRate", e.target.value)}
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                             className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
@@ -441,12 +460,19 @@ export default function InvestmentCalculatorPage() {
                         )}
                       </td>
                       <td className="px-1 py-1">
-                        <input type="number" step="any" min="0" max="100" defaultValue={r.afterTaxRate * 100}
+                        <input key={`${r.id}-tax-${r.afterTaxRate}`} type="number" step="any" min="0" max="100" defaultValue={r.afterTaxRate * 100}
                           onChange={(e) => updateLocalRow(r.id, "afterTaxRate", String((parseFloat(e.target.value) || 0) / 100))}
                           onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                           className="w-14 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
                       </td>
-                      <td className="px-3 py-1.5 text-right text-emerald-600 font-medium">{fmtQty(r.dividend)}</td>
+                      <td className="px-1 py-1">
+                        <input key={`${r.id}-div-${r.dividendOverride}`} type="number" step="any"
+                          defaultValue={r.dividendOverride ?? ""} placeholder={fmtQty(r.dividend)}
+                          title="留空＝照公式自動算；填數字＝改成手動指定的真實配息入帳金額"
+                          onChange={(e) => updateLocalOverride(r.id, "dividendOverride", e.target.value)}
+                          onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                          className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-emerald-300 ${r.dividendOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                      </td>
                       <td className="px-3 py-1.5 text-right text-emerald-700 font-semibold">{fmtQty(r.cumulativeDividend)}</td>
                       <td className="px-3 py-1.5 text-right text-indigo-600 font-semibold">{fmt(r.assetValue)}</td>
                       <td className="px-2 py-1.5">

@@ -245,6 +245,10 @@ model CalculatorPlanRow {
   price         Float
   dividendRate  Float
   afterTaxRate  Float // 0~1
+  // 持有股數／實際配息可以手動覆蓋成實際對帳的數字（例如券商顯示的真實股數、真實入帳配息），
+  // 覆蓋後下個月開始的累計都會接著這個數字往下算；留空（null）則照公式算
+  holdingSharesOverride Float?
+  dividendOverride      Float?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
