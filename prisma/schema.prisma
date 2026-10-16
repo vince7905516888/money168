@@ -33,6 +33,7 @@ model User {
   investments        Investment[]
   debts              Debt[]
   dividendEntries    DividendEntry[]
+  calculatorPlans    CalculatorPlan[]
   suspenseEntries    SuspenseEntry[]
   binanceSnapshots   BinanceSnapshot[]
   binanceCredential  BinanceCredential?
@@ -213,6 +214,41 @@ model DividendEntry {
   user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
+}
+
+// 投資試算表：一個方案對應一檔股票／基金的「每月定額買進＋固定配息」試算，可以同時存多個
+// 方案（例如不同股票各一個），新增時依畫面上填的初始參數批次產生 CalculatorPlanRow，
+// 之後逐月明細可以一格一格手動改成實際發生的數字（投入金額、價格、配息等隨時間會跟原始假設不同）
+model CalculatorPlan {
+  id           String              @id @default(cuid())
+  name         String
+  targetAmount Float?
+  userId       String
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rows         CalculatorPlanRow[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+}
+
+// 逐月一列：investment/fee/price/dividendRate/afterTaxRate 是手動輸入的「本月實際參數」，
+// 買進股數、持有股數、實際配息、累計配息、推估總資產都是前端依序算出來的，不存在資料庫裡，
+// 這樣改掉其中一列的參數，後面所有月份的累計數字會自動連動更新，不會跟資料庫存的舊累計值兜不起來
+model CalculatorPlanRow {
+  id            String         @id @default(cuid())
+  planId        String
+  plan          CalculatorPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  year          Int
+  month         Int
+  investment    Float
+  fee           Float
+  price         Float
+  dividendRate  Float
+  afterTaxRate  Float // 0~1
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([planId, year, month])
+  @@index([planId])
 }
 
 // 舊版功能殘留的資料表，目前程式碼未使用，保留以避免刪除既有資料
