@@ -62,6 +62,7 @@ interface PlanDetail {
 interface ComputedRow extends PlanRow {
   sharesBought: number; // 這個月新買進的股數（含配息加碼買的部分，TWSTOCK 才有）
   dividendShares: number; // TWSTOCK：配息加碼買到的股數
+  dividendSharesCost: number; // TWSTOCK：配息加碼這筆實際花掉的金額＝配息加碼股數 × 買進價格
   holdingShares: number;
   dividend: number; // 這個月產生的配息金額
   cumulativeDividend: number; // 累計產生的配息金額（USSTOCK：還沒投入的現金；TWSTOCK：歷史累計產生總額，僅供參考）
@@ -341,7 +342,7 @@ export default function InvestmentCalculatorPage() {
         : holdingShares * r.price + cumulativeDividend) + startingAssetValue;
 
       const row: ComputedRow = {
-        ...r, sharesBought, dividendShares, holdingShares, dividend, cumulativeDividend,
+        ...r, sharesBought, dividendShares, dividendSharesCost: dividendShares * r.price, holdingShares, dividend, cumulativeDividend,
         pendingDividendCash, assetValue, isPaymentMonth, avgPrice,
       };
       list.push(row);
@@ -481,6 +482,7 @@ export default function InvestmentCalculatorPage() {
                       <th className="px-3 py-2.5 text-right font-semibold">持股均價</th>
                       <th className="px-3 py-2.5 text-right font-semibold">買進價格</th>
                       <th className="px-3 py-2.5 text-right font-semibold">配息加碼股數</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">配息購買金額</th>
                       <th className="px-3 py-2.5 text-right font-semibold">每股配息</th>
                       <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
                       <th className="px-3 py-2.5 text-right font-semibold">本期配息</th>
@@ -533,6 +535,7 @@ export default function InvestmentCalculatorPage() {
                           </div>
                         </td>
                         <td className="px-3 py-1.5 text-right text-slate-700">{r.dividendShares > 0 ? fmtQty(r.dividendShares) : "—"}</td>
+                        <td className="px-3 py-1.5 text-right text-slate-700">{r.dividendSharesCost > 0 ? fmt(r.dividendSharesCost) : "—"}</td>
                         <td className="px-1 py-1">
                           {r.isPaymentMonth ? (
                             <input key={`${r.id}-divrate-${r.dividendRate}`} type="number" step="any" defaultValue={r.dividendRate}
