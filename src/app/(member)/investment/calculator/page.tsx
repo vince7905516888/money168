@@ -318,7 +318,8 @@ export default function InvestmentCalculatorPage() {
     let holdingShares = 0;
     let cumulativeDividend = 0;
     let cumulativeInvestment = 0;
-    let pendingDividendCash = 0; // TWSTOCK 專用：還不夠買滿 1 張、留到下個月的配息零頭
+    let pendingDividendCash = 0; // TWSTOCK 專用：已經入帳、可以動用去加碼的配息現金（含零頭）
+    let dividendInTransit = 0; // TWSTOCK 專用：這個月剛宣告、還要等下個月才會實際入帳的配息
     const list: ComputedRow[] = [];
     const target = planDetail?.targetAmount ?? 0;
     const frequency = planDetail?.dividendFrequency ?? "MONTHLY";
@@ -341,7 +342,9 @@ export default function InvestmentCalculatorPage() {
         // 台股版：這個月固定計劃買進的股數（不隨價格變動），配息累積夠買 1000 股（1 張）的金額
         // 才自動加碼、而且只能整張買，零頭留到下個月（還原原本「1 張」為單位的加碼邏輯）
         const planned = r.sharesToBuy ?? 0;
-        pendingDividendCash += dividend;
+        // 配息是隔一個月才實際入帳：上個月宣告的這個月才能動用，這個月剛宣告的要留到下個月
+        pendingDividendCash += dividendInTransit;
+        dividendInTransit = dividend;
         // 配息加碼股數／金額有手動覆蓋就用覆蓋值（兩個欄位共用同一個覆蓋來源，改任一邊都會讓兩邊同步）
         if (r.dividendPurchaseOverride != null) {
           dividendSharesCost = r.dividendPurchaseOverride;
@@ -370,8 +373,9 @@ export default function InvestmentCalculatorPage() {
       if (idx === 0 && startingAvgPrice != null) cumulativeInvestment = startingAvgPrice * holdingShares;
       const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
       // 每一列都加上「開始試算前既有的持有金額」（只在第一列顯示可編輯，其他列自動帶著走）
+      // TWSTOCK 的推估總資產也要算進「還沒入帳但已宣告」的配息（dividendInTransit），不然資產會暫時少算一個月
       const assetValue = (mode === "TWSTOCK"
-        ? holdingShares * r.price + pendingDividendCash
+        ? holdingShares * r.price + pendingDividendCash + dividendInTransit
         : holdingShares * r.price + cumulativeDividend) + startingAssetValue;
 
       const row: ComputedRow = {
