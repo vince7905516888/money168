@@ -191,17 +191,18 @@ export default function StockPage() {
   ).sort().reverse();
   const effectiveStatsMonth = statsMonth || buyMonthOptions[0] || "";
   const monthlyBuyStats = (() => {
-    const map = new Map<string, { key: string; name: string; code: string; quantity: number; amount: number }>();
+    const map = new Map<string, { key: string; name: string; code: string; quantity: number; principal: number; fee: number }>();
     for (const inv of investments) {
       if (inv.action !== "BUY") continue;
       if ((inv.date ?? inv.createdAt).slice(0, 7) !== effectiveStatsMonth) continue;
       const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
-      if (!map.has(key)) map.set(key, { key, name: inv.name || "(未命名)", code: inv.code || "—", quantity: 0, amount: 0 });
+      if (!map.has(key)) map.set(key, { key, name: inv.name || "(未命名)", code: inv.code || "—", quantity: 0, principal: 0, fee: 0 });
       const g = map.get(key)!;
       g.quantity += inv.quantity ?? 0;
-      g.amount += inv.amount;
+      g.principal += (inv.quantity ?? 0) * (inv.price ?? 0);
+      g.fee += inv.fee ?? 0;
     }
-    return [...map.values()].sort((a, b) => b.amount - a.amount);
+    return [...map.values()].sort((a, b) => (b.principal + b.fee) - (a.principal + a.fee));
   })();
   // 投資記錄依「申購/調整日期」由新到舊排序，補登前幾天的帳也會照日期排在正確位置；
   // 同一天的多筆再依建立時間由新到舊，同日內的先後順序才穩定
@@ -478,7 +479,9 @@ export default function StockPage() {
                   <tr className="text-xs text-slate-400 border-b border-slate-50">
                     <th className="px-6 py-2.5 text-left font-medium">個股</th>
                     <th className="px-4 py-2.5 text-right font-medium">總股數</th>
-                    <th className="px-4 py-2.5 text-right font-medium">總價格</th>
+                    <th className="px-4 py-2.5 text-right font-medium">成交金額</th>
+                    <th className="px-4 py-2.5 text-right font-medium">手續費</th>
+                    <th className="px-4 py-2.5 text-right font-medium">總價格（含手續費）</th>
                     <th className="px-6 py-2.5 text-right font-medium">總均價</th>
                   </tr>
                 </thead>
@@ -490,9 +493,11 @@ export default function StockPage() {
                         {g.code !== "—" && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{g.code}</span>}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-700">{g.quantity.toLocaleString("zh-TW")}</td>
-                      <td className="px-4 py-3 text-right text-slate-700">{fmt(g.amount)}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{fmt(g.principal)}</td>
+                      <td className="px-4 py-3 text-right text-slate-500">{fmt(g.fee)}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{fmt(g.principal + g.fee)}</td>
                       <td className="px-6 py-3 text-right font-semibold text-slate-900">
-                        {g.quantity > 0 ? fmt(g.amount / g.quantity) : "—"}
+                        {g.quantity > 0 ? fmt((g.principal + g.fee) / g.quantity) : "—"}
                       </td>
                     </tr>
                   ))}
