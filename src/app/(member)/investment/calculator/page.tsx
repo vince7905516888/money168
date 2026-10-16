@@ -10,7 +10,7 @@ import { authFetch } from "@/lib/api-fetch";
 
 type DividendFrequency = "MONTHLY" | "QUARTERLY_1" | "QUARTERLY_2" | "QUARTERLY_3";
 // USSTOCK：每月投入固定金額，股數隨價格換算，配息累積現金不自動買股
-// TWSTOCK：每月買進股數固定遞增，配息累積夠買 1 股的金額就自動加碼買股、零頭留到下個月
+// TWSTOCK：每月買進股數固定遞增，配息累積夠買 1 張（1000 股）的金額就自動加碼買股、零頭留到下個月
 type PlanMode = "USSTOCK" | "TWSTOCK";
 
 // 季配息三種常見週期：配息月份分別落在 1.4.7.10 / 2.5.8.11 / 3.6.9.12 月
@@ -19,6 +19,9 @@ const QUARTERLY_MONTHS: Record<string, number[]> = {
   QUARTERLY_2: [2, 5, 8, 11],
   QUARTERLY_3: [3, 6, 9, 12],
 };
+
+// 台股版配息加碼：累積配息要夠買滿「1 張」（1000 股）才會加碼，且只能整張買，不是夠買 1 股就買
+const DIVIDEND_REINVEST_LOT_SIZE = 1000;
 
 interface PlanSummary {
   id: string;
@@ -62,7 +65,7 @@ interface ComputedRow extends PlanRow {
   holdingShares: number;
   dividend: number; // 這個月產生的配息金額
   cumulativeDividend: number; // 累計產生的配息金額（USSTOCK：還沒投入的現金；TWSTOCK：歷史累計產生總額，僅供參考）
-  pendingDividendCash: number; // TWSTOCK：還不夠買 1 股、留到下個月的配息零頭
+  pendingDividendCash: number; // TWSTOCK：還不夠買滿 1 張、留到下個月的配息零頭
   assetValue: number;
   isPaymentMonth: boolean;
   avgPrice: number; // 累計持股均價＝累計實際投入金額 ÷ 累計持股數
@@ -287,7 +290,7 @@ export default function InvestmentCalculatorPage() {
     let holdingShares = 0;
     let cumulativeDividend = 0;
     let cumulativeInvestment = 0;
-    let pendingDividendCash = 0; // TWSTOCK 專用：還不夠買 1 股、留到下個月的配息零頭
+    let pendingDividendCash = 0; // TWSTOCK 專用：還不夠買滿 1 張、留到下個月的配息零頭
     const list: ComputedRow[] = [];
     const target = planDetail?.targetAmount ?? 0;
     const frequency = planDetail?.dividendFrequency ?? "MONTHLY";
@@ -306,11 +309,14 @@ export default function InvestmentCalculatorPage() {
       let sharesBought: number;
       let dividendShares = 0;
       if (mode === "TWSTOCK") {
-        // 台股版：這個月固定計劃買進的股數（不隨價格變動），配息累積夠買 1 股的金額就自動加碼，零頭留到下個月
+        // 台股版：這個月固定計劃買進的股數（不隨價格變動），配息累積夠買 1000 股（1 張）的金額
+        // 才自動加碼、而且只能整張買，零頭留到下個月（還原原本「1 張」為單位的加碼邏輯）
         const planned = r.sharesToBuy ?? 0;
         pendingDividendCash += dividend;
         if (r.price > 0) {
-          dividendShares = Math.floor(pendingDividendCash / r.price);
+          const lotCost = r.price * DIVIDEND_REINVEST_LOT_SIZE;
+          const lots = Math.floor(pendingDividendCash / lotCost);
+          dividendShares = lots * DIVIDEND_REINVEST_LOT_SIZE;
           pendingDividendCash -= dividendShares * r.price;
         }
         sharesBought = planned + dividendShares;
