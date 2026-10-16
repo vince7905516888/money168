@@ -19,6 +19,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "investment.forex", label: "外匯投資", href: "/investment/forex", section: "投資" },
   { key: "investment.crypto", label: "虛擬貨幣", href: "/investment/crypto", section: "投資" },
   { key: "investment.dividend-reinvest", label: "配息複利滾存", href: "/investment/dividend-reinvest", section: "投資" },
+  { key: "investment.calculator", label: "投資試算表", href: "/investment/calculator", section: "投資" },
   { key: "investment.gold", label: "黃金投資", href: "/investment/gold", section: "投資" },
   { key: "investment.realestate", label: "不動產投資", href: "/investment/realestate", section: "投資" },
   { key: "investment.insurance", label: "保險投資", href: "/investment/insurance", section: "投資" },
