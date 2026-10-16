@@ -482,7 +482,8 @@ export default function StockPage() {
                     <th className="px-4 py-2.5 text-right font-medium">成交金額</th>
                     <th className="px-4 py-2.5 text-right font-medium">手續費</th>
                     <th className="px-4 py-2.5 text-right font-medium">總價格（含手續費）</th>
-                    <th className="px-6 py-2.5 text-right font-medium">總均價</th>
+                    <th className="px-4 py-2.5 text-right font-medium">均價（不含手續費）</th>
+                    <th className="px-6 py-2.5 text-right font-medium">均價（含手續費）</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -496,6 +497,9 @@ export default function StockPage() {
                       <td className="px-4 py-3 text-right text-slate-700">{fmt(g.principal)}</td>
                       <td className="px-4 py-3 text-right text-slate-500">{fmt(g.fee)}</td>
                       <td className="px-4 py-3 text-right text-slate-700">{fmt(g.principal + g.fee)}</td>
+                      <td className="px-4 py-3 text-right text-slate-500">
+                        {g.quantity > 0 ? fmt(g.principal / g.quantity) : "—"}
+                      </td>
                       <td className="px-6 py-3 text-right font-semibold text-slate-900">
                         {g.quantity > 0 ? fmt((g.principal + g.fee) / g.quantity) : "—"}
                       </td>
