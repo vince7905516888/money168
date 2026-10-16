@@ -224,6 +224,10 @@ model CalculatorPlan {
   name              String
   targetAmount      Float?
   dividendFrequency String              @default("MONTHLY") // "MONTHLY"（月配）或 "QUARTERLY_1"/"QUARTERLY_2"/"QUARTERLY_3"（季配，配息月份分別為1.4.7.10／2.5.8.11／3.6.9.12月）
+  // "USSTOCK"（固定每月投入金額，配息累積現金不自動買股）或 "TWSTOCK"
+  // （每月買進股數固定遞增，配息累積夠買 1 股的金額就自動加碼買股、零頭留到下個月）
+  mode              String              @default("USSTOCK")
+  shareIncrement    Float? // TWSTOCK 專用：每月買進股數的遞增量，延伸新月份時用來算下一列預設股數
   userId            String
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   rows         CalculatorPlanRow[]
@@ -245,6 +249,7 @@ model CalculatorPlanRow {
   price         Float
   dividendRate  Float
   afterTaxRate  Float // 0~1
+  sharesToBuy   Float? // TWSTOCK 專用：這個月固定計劃買進的股數（不含配息加碼買的部分）
   // 持有股數／實際配息可以手動覆蓋成實際對帳的數字（例如券商顯示的真實股數、真實入帳配息），
   // 覆蓋後下個月開始的累計都會接著這個數字往下算；留空（null）則照公式算
   holdingSharesOverride Float?

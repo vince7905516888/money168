@@ -45,6 +45,9 @@ export async function POST(
       price: body.price !== undefined ? parseFloat(body.price) : (lastRow?.price ?? 0),
       dividendRate: body.dividendRate !== undefined ? parseFloat(body.dividendRate) : (lastRow?.dividendRate ?? 0),
       afterTaxRate: body.afterTaxRate !== undefined ? parseFloat(body.afterTaxRate) : (lastRow?.afterTaxRate ?? 0),
+      sharesToBuy: plan.mode === "TWSTOCK"
+        ? (body.sharesToBuy !== undefined ? parseFloat(body.sharesToBuy) : (lastRow?.sharesToBuy ?? 0) + (plan.shareIncrement ?? 0))
+        : null,
     },
   }).catch(() => null);
 

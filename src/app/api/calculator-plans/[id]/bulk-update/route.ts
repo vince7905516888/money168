@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-const ALLOWED_FIELDS = ["investment", "fee", "price", "dividendRate", "afterTaxRate"] as const;
+const ALLOWED_FIELDS = ["investment", "fee", "price", "dividendRate", "afterTaxRate", "sharesToBuy"] as const;
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
 
 // 批次套用：把某個年月「之後」的所有列，某個欄位都改成同一個值；不影響那個年月本身與之前的列

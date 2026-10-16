@@ -9,6 +9,9 @@ import { authFetch } from "@/lib/api-fetch";
 // 改掉中間某一列的參數，後面所有月份的累計數字會自動跟著連動。
 
 type DividendFrequency = "MONTHLY" | "QUARTERLY_1" | "QUARTERLY_2" | "QUARTERLY_3";
+// USSTOCK：每月投入固定金額，股數隨價格換算，配息累積現金不自動買股
+// TWSTOCK：每月買進股數固定遞增，配息累積夠買 1 股的金額就自動加碼買股、零頭留到下個月
+type PlanMode = "USSTOCK" | "TWSTOCK";
 
 // 季配息三種常見週期：配息月份分別落在 1.4.7.10 / 2.5.8.11 / 3.6.9.12 月
 const QUARTERLY_MONTHS: Record<string, number[]> = {
@@ -22,6 +25,7 @@ interface PlanSummary {
   name: string;
   targetAmount: number | null;
   dividendFrequency: DividendFrequency;
+  mode: PlanMode;
   createdAt: string;
   _count: { rows: number };
 }
@@ -37,6 +41,7 @@ interface PlanRow {
   afterTaxRate: number;
   holdingSharesOverride: number | null;
   dividendOverride: number | null;
+  sharesToBuy: number | null;
 }
 
 interface PlanDetail {
@@ -44,14 +49,18 @@ interface PlanDetail {
   name: string;
   targetAmount: number | null;
   dividendFrequency: DividendFrequency;
+  mode: PlanMode;
+  shareIncrement: number | null;
   rows: PlanRow[];
 }
 
 interface ComputedRow extends PlanRow {
-  sharesBought: number;
+  sharesBought: number; // 這個月新買進的股數（含配息加碼買的部分，TWSTOCK 才有）
+  dividendShares: number; // TWSTOCK：配息加碼買到的股數
   holdingShares: number;
-  dividend: number;
-  cumulativeDividend: number;
+  dividend: number; // 這個月產生的配息金額
+  cumulativeDividend: number; // 累計產生的配息金額（USSTOCK：還沒投入的現金；TWSTOCK：歷史累計產生總額，僅供參考）
+  pendingDividendCash: number; // TWSTOCK：還不夠買 1 股、留到下個月的配息零頭
   assetValue: number;
   isPaymentMonth: boolean;
   avgPrice: number; // 累計持股均價＝累計實際投入金額 ÷ 累計持股數
@@ -59,6 +68,7 @@ interface ComputedRow extends PlanRow {
 
 const EMPTY_CREATE_FORM = {
   name: "",
+  mode: "USSTOCK" as PlanMode,
   startYear: new Date().getFullYear(),
   startMonth: new Date().getMonth() + 1,
   years: "10",
@@ -69,6 +79,8 @@ const EMPTY_CREATE_FORM = {
   afterTaxRate: "70",
   dividendFrequency: "MONTHLY" as DividendFrequency,
   targetAmount: "",
+  startShares: "2000",
+  shareIncrement: "2000",
 };
 
 export default function InvestmentCalculatorPage() {
@@ -190,9 +202,10 @@ export default function InvestmentCalculatorPage() {
 
   // 套用到之後所有月份：把某一列目前的值（每月投入金額／買進價格等）往後批次套用到後面所有月份，
   // 不影響這一列本身跟之前的月份，用來反映「薪水變多/股價假設調整後，之後每個月都改用新數字」
-  const applyForward = async (row: PlanRow, field: "investment" | "price", value: number) => {
+  const applyForward = async (row: PlanRow, field: "investment" | "price" | "sharesToBuy", value: number) => {
     if (!planDetail) return;
-    if (!confirm(`確定要把 ${row.year} 年 ${row.month} 月之後的「${field === "investment" ? "每月投入金額" : "買進價格"}」都改成 ${value}？`)) return;
+    const fieldLabel = field === "investment" ? "每月投入金額" : field === "price" ? "買進價格" : "本月計劃買進股數";
+    if (!confirm(`確定要把 ${row.year} 年 ${row.month} 月之後的「${fieldLabel}」都改成 ${value}？`)) return;
     const res = await authFetch(`/api/calculator-plans/${planDetail.id}/bulk-update`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -214,6 +227,7 @@ export default function InvestmentCalculatorPage() {
         investment: row.investment, fee: row.fee, price: row.price,
         dividendRate: row.dividendRate, afterTaxRate: row.afterTaxRate,
         holdingSharesOverride: row.holdingSharesOverride, dividendOverride: row.dividendOverride,
+        sharesToBuy: row.sharesToBuy,
       }),
     });
   };
@@ -244,9 +258,11 @@ export default function InvestmentCalculatorPage() {
   // 依序把每列的輸入參數算成買進股數／持有股數／實際配息／累計配息／推估總資產；
   // 季配息的話只有每 3 個月（第 3、6、9...列）才實際發配息，其他月份配息記為 0 但累計配息照樣往前帶
   const { computed, targetRow } = useMemo(() => {
+    const mode = planDetail?.mode ?? "USSTOCK";
     let holdingShares = 0;
     let cumulativeDividend = 0;
     let cumulativeInvestment = 0;
+    let pendingDividendCash = 0; // TWSTOCK 專用：還不夠買 1 股、留到下個月的配息零頭
     const list: ComputedRow[] = [];
     const target = planDetail?.targetAmount ?? 0;
     const frequency = planDetail?.dividendFrequency ?? "MONTHLY";
@@ -254,26 +270,55 @@ export default function InvestmentCalculatorPage() {
 
     for (const r of rows) {
       const isPaymentMonth = frequency === "MONTHLY" ? true : (QUARTERLY_MONTHS[frequency] ?? []).includes(r.month);
-      // 實際配息：有手動覆蓋就用覆蓋值（例如對帳後的真實入帳金額），否則照公式算
+      // 這個月產生的配息：有手動覆蓋就用覆蓋值（例如對帳後的真實入帳金額），否則照公式算
       const dividend = r.dividendOverride != null ? r.dividendOverride : (isPaymentMonth ? holdingShares * r.dividendRate * r.afterTaxRate : 0);
       cumulativeDividend += dividend;
-      const sharesBought = r.price > 0 ? Math.max(0, r.investment - r.fee) / r.price : 0;
+
+      let sharesBought: number;
+      let dividendShares = 0;
+      if (mode === "TWSTOCK") {
+        // 台股版：這個月固定計劃買進的股數（不隨價格變動），配息累積夠買 1 股的金額就自動加碼，零頭留到下個月
+        const planned = r.sharesToBuy ?? 0;
+        pendingDividendCash += dividend;
+        if (r.price > 0) {
+          dividendShares = Math.floor(pendingDividendCash / r.price);
+          pendingDividendCash -= dividendShares * r.price;
+        }
+        sharesBought = planned + dividendShares;
+      } else {
+        // 美股版：每月投入固定金額（扣手續費）÷ 買進價格，配息不自動買股、單純累積現金
+        sharesBought = r.price > 0 ? Math.max(0, r.investment - r.fee) / r.price : 0;
+      }
+
       // 持有股數：有手動覆蓋就用覆蓋值（例如券商對帳的真實股數，含配股等公式沒算到的部分）
       // 當作這個月的最終持股，下個月接著這個數字往下算，否則用「上個月持股＋這個月買進」
       const naturalHolding = holdingShares + sharesBought;
       holdingShares = r.holdingSharesOverride != null ? r.holdingSharesOverride : naturalHolding;
-      cumulativeInvestment += r.investment;
+
+      // 累計投入成本：台股版的配息加碼也是真金白銀買進股票，一樣算進投入成本
+      cumulativeInvestment += mode === "TWSTOCK" ? sharesBought * r.price : r.investment;
       const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
-      const assetValue = holdingShares * r.price + cumulativeDividend;
-      const row: ComputedRow = { ...r, sharesBought, holdingShares, dividend, cumulativeDividend, assetValue, isPaymentMonth, avgPrice };
+      const assetValue = mode === "TWSTOCK"
+        ? holdingShares * r.price + pendingDividendCash
+        : holdingShares * r.price + cumulativeDividend;
+
+      const row: ComputedRow = {
+        ...r, sharesBought, dividendShares, holdingShares, dividend, cumulativeDividend,
+        pendingDividendCash, assetValue, isPaymentMonth, avgPrice,
+      };
       list.push(row);
       if (!foundTarget && target > 0 && assetValue >= target) foundTarget = row;
     }
     return { computed: list, targetRow: foundTarget };
-  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency]);
+  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.mode]);
 
   const last = computed[computed.length - 1];
-  const totalPrincipal = rows.reduce((s, r) => s + r.investment, 0);
+  const isTwstock = planDetail?.mode === "TWSTOCK";
+  // 累計投入本金：美股版是每月投入金額加總；台股版沒有「投入金額」這個欄位，
+  // 改用最後一列的「持股均價 × 持股數」反推累計實際花掉的錢（含配息加碼買的部分）
+  const totalPrincipal = isTwstock
+    ? (last ? last.avgPrice * last.holdingShares : 0)
+    : rows.reduce((s, r) => s + r.investment, 0);
 
   return (
     <div className="w-full">
@@ -294,7 +339,7 @@ export default function InvestmentCalculatorPage() {
           <label className="text-sm font-medium text-slate-600">試算方案</label>
           <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white min-w-[200px]">
-            {plans.map((p) => <option key={p.id} value={p.id}>{p.name}（{p._count.rows} 個月）</option>)}
+            {plans.map((p) => <option key={p.id} value={p.id}>{p.name}（{p.mode === "TWSTOCK" ? "台股版" : "美股版"} · {p._count.rows} 個月）</option>)}
           </select>
           {planDetail && (
             <button onClick={handleDeletePlan} className="text-xs text-red-500 hover:underline">刪除此方案</button>
@@ -370,8 +415,8 @@ export default function InvestmentCalculatorPage() {
                 <div className="text-xl font-bold text-slate-900 mt-1">{fmt(totalPrincipal)}</div>
               </div>
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-                <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">累計配息現金</div>
-                <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(last.cumulativeDividend)}</div>
+                <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">{isTwstock ? "剩餘未投入配息" : "累計配息現金"}</div>
+                <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(isTwstock ? last.pendingDividendCash : last.cumulativeDividend)}</div>
               </div>
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">推估總資產</div>
@@ -387,102 +432,194 @@ export default function InvestmentCalculatorPage() {
               <span className="text-xs text-slate-400">白底欄位可以直接點擊修改，改完按 Tab 或點別處就會自動存檔；持有股數／實際配息留空照公式算，填了數字（<span className="text-amber-600">淡黃色</span>）就改成手動指定的值，清空可以還原</span>
             </div>
             <div className="overflow-auto max-h-[600px]">
-              <table className="w-full text-sm whitespace-nowrap">
-                <thead className="sticky top-0 bg-slate-50 z-10">
-                  <tr className="text-xs text-slate-500">
-                    <th className="px-3 py-2.5 text-left font-semibold">年份</th>
-                    <th className="px-3 py-2.5 text-left font-semibold">月份</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">每月投入金額</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">持有股數</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">持股均價</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">手續費</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">買進價格</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">買進股數</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">每股配息</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">實際配息</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">累計配息</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">推估總資產</th>
-                    <th className="px-3 py-2.5"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {computed.map((r, i) => (
-                    <tr key={r.id} className={`group hover:bg-slate-50 transition-colors ${targetRow === r ? "bg-emerald-50" : ""}`}>
-                      <td className="px-3 py-1.5 text-slate-700">{i === 0 || r.month === 1 ? r.year : ""}</td>
-                      <td className="px-3 py-1.5 text-slate-700">{r.month}</td>
-                      <td className="px-1 py-1">
-                        <div className="flex items-center justify-end gap-0.5">
-                          <input key={`${r.id}-inv-${r.investment}`} type="number" step="any" defaultValue={r.investment}
-                            onChange={(e) => updateLocalRow(r.id, "investment", e.target.value)}
+              {isTwstock ? (
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead className="sticky top-0 bg-slate-50 z-10">
+                    <tr className="text-xs text-slate-500">
+                      <th className="px-3 py-2.5 text-left font-semibold">年份</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">月份</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">本月計劃買進股數</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">持有股數</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">持股均價</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">買進價格</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">配息加碼股數</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">每股配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">本期配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">剩餘未投入配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產</th>
+                      <th className="px-3 py-2.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {computed.map((r, i) => (
+                      <tr key={r.id} className={`group hover:bg-slate-50 transition-colors ${targetRow === r ? "bg-emerald-50" : ""}`}>
+                        <td className="px-3 py-1.5 text-slate-700">{i === 0 || r.month === 1 ? r.year : ""}</td>
+                        <td className="px-3 py-1.5 text-slate-700">{r.month}</td>
+                        <td className="px-1 py-1">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <input key={`${r.id}-shares-${r.sharesToBuy}`} type="number" step="any" defaultValue={r.sharesToBuy ?? 0}
+                              onChange={(e) => updateLocalRow(r.id, "sharesToBuy", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-24 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                            <button type="button" title="把這個股數套用到之後所有月份（會蓋掉原本遞增的規律，之後都固定這個數字）"
+                              onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "sharesToBuy", rows.find((x) => x.id === r.id)!.sharesToBuy ?? 0)}
+                              className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                          </div>
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-hold-${r.holdingSharesOverride}`} type="number" step="any"
+                            defaultValue={r.holdingSharesOverride ?? ""} placeholder={fmtQty(r.holdingShares)}
+                            title="留空＝照公式自動算；填數字＝改成手動指定的真實股數，下個月開始接著這個數字往下算"
+                            onChange={(e) => updateLocalOverride(r.id, "holdingSharesOverride", e.target.value)}
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                            className="w-24 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
-                          <button type="button" title="把這個金額套用到之後所有月份"
-                            onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "investment", rows.find((x) => x.id === r.id)!.investment)}
-                            className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
-                        </div>
-                      </td>
-                      <td className="px-1 py-1">
-                        <input key={`${r.id}-hold-${r.holdingSharesOverride}`} type="number" step="any"
-                          defaultValue={r.holdingSharesOverride ?? ""} placeholder={fmtQty(r.holdingShares)}
-                          title="留空＝照公式自動算；填數字＝改成手動指定的真實股數，下個月開始接著這個數字往下算"
-                          onChange={(e) => updateLocalOverride(r.id, "holdingSharesOverride", e.target.value)}
-                          onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                          className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.holdingSharesOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
-                      </td>
-                      <td className="px-3 py-1.5 text-right text-slate-500">{fmtQty(r.avgPrice)}</td>
-                      <td className="px-1 py-1">
-                        <input key={`${r.id}-fee-${r.fee}`} type="number" step="any" defaultValue={r.fee}
-                          onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
-                          onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                          className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
-                      </td>
-                      <td className="px-1 py-1">
-                        <div className="flex items-center justify-end gap-0.5">
-                          <input key={`${r.id}-price-${r.price}`} type="number" step="any" defaultValue={r.price}
-                            onChange={(e) => updateLocalRow(r.id, "price", e.target.value)}
+                            className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.holdingSharesOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-slate-500">{fmtQty(r.avgPrice)}</td>
+                        <td className="px-1 py-1">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <input key={`${r.id}-price-${r.price}`} type="number" step="any" defaultValue={r.price}
+                              onChange={(e) => updateLocalRow(r.id, "price", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-20 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                            <button type="button" title="把這個價格套用到之後所有月份"
+                              onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "price", rows.find((x) => x.id === r.id)!.price)}
+                              className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                          </div>
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-slate-700">{r.dividendShares > 0 ? fmtQty(r.dividendShares) : "—"}</td>
+                        <td className="px-1 py-1">
+                          {r.isPaymentMonth ? (
+                            <input key={`${r.id}-divrate-${r.dividendRate}`} type="number" step="any" defaultValue={r.dividendRate}
+                              onChange={(e) => updateLocalRow(r.id, "dividendRate", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                          ) : (
+                            <div className="w-16 text-right px-2 py-1 text-slate-300 text-sm" title="這個月不是配息月">—</div>
+                          )}
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-tax-${r.afterTaxRate}`} type="number" step="any" min="0" max="100" defaultValue={r.afterTaxRate * 100}
+                            onChange={(e) => updateLocalRow(r.id, "afterTaxRate", String((parseFloat(e.target.value) || 0) / 100))}
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                            className="w-20 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
-                          <button type="button" title="把這個價格套用到之後所有月份"
-                            onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "price", rows.find((x) => x.id === r.id)!.price)}
-                            className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
-                        </div>
-                      </td>
-                      <td className="px-3 py-1.5 text-right text-slate-700">{fmtQty(r.sharesBought)}</td>
-                      <td className="px-1 py-1">
-                        {r.isPaymentMonth ? (
-                          <input key={`${r.id}-divrate-${r.dividendRate}`} type="number" step="any" defaultValue={r.dividendRate}
-                            onChange={(e) => updateLocalRow(r.id, "dividendRate", e.target.value)}
+                            className="w-14 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-div-${r.dividendOverride}`} type="number" step="any"
+                            defaultValue={r.dividendOverride ?? ""} placeholder={fmtQty(r.dividend)}
+                            title="留空＝照公式自動算；填數字＝改成手動指定的真實配息金額"
+                            onChange={(e) => updateLocalOverride(r.id, "dividendOverride", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-emerald-300 ${r.dividendOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-amber-600 font-medium">{fmtQty(r.pendingDividendCash)}</td>
+                        <td className="px-3 py-1.5 text-right text-indigo-600 font-semibold">{fmt(r.assetValue)}</td>
+                        <td className="px-2 py-1.5">
+                          <button onClick={() => handleDeleteRow(r.id)}
+                            className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 text-xs transition-opacity">刪除</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead className="sticky top-0 bg-slate-50 z-10">
+                    <tr className="text-xs text-slate-500">
+                      <th className="px-3 py-2.5 text-left font-semibold">年份</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">月份</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">每月投入金額</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">持有股數</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">持股均價</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">手續費</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">買進價格</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">買進股數</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">每股配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">實際配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">累計配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產</th>
+                      <th className="px-3 py-2.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {computed.map((r, i) => (
+                      <tr key={r.id} className={`group hover:bg-slate-50 transition-colors ${targetRow === r ? "bg-emerald-50" : ""}`}>
+                        <td className="px-3 py-1.5 text-slate-700">{i === 0 || r.month === 1 ? r.year : ""}</td>
+                        <td className="px-3 py-1.5 text-slate-700">{r.month}</td>
+                        <td className="px-1 py-1">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <input key={`${r.id}-inv-${r.investment}`} type="number" step="any" defaultValue={r.investment}
+                              onChange={(e) => updateLocalRow(r.id, "investment", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-24 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                            <button type="button" title="把這個金額套用到之後所有月份"
+                              onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "investment", rows.find((x) => x.id === r.id)!.investment)}
+                              className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                          </div>
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-hold-${r.holdingSharesOverride}`} type="number" step="any"
+                            defaultValue={r.holdingSharesOverride ?? ""} placeholder={fmtQty(r.holdingShares)}
+                            title="留空＝照公式自動算；填數字＝改成手動指定的真實股數，下個月開始接著這個數字往下算"
+                            onChange={(e) => updateLocalOverride(r.id, "holdingSharesOverride", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.holdingSharesOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-slate-500">{fmtQty(r.avgPrice)}</td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-fee-${r.fee}`} type="number" step="any" defaultValue={r.fee}
+                            onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                             className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
-                        ) : (
-                          <div className="w-16 text-right px-2 py-1 text-slate-300 text-sm" title="這個月不是配息月">—</div>
-                        )}
-                      </td>
-                      <td className="px-1 py-1">
-                        <input key={`${r.id}-tax-${r.afterTaxRate}`} type="number" step="any" min="0" max="100" defaultValue={r.afterTaxRate * 100}
-                          onChange={(e) => updateLocalRow(r.id, "afterTaxRate", String((parseFloat(e.target.value) || 0) / 100))}
-                          onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                          className="w-14 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
-                      </td>
-                      <td className="px-1 py-1">
-                        <input key={`${r.id}-div-${r.dividendOverride}`} type="number" step="any"
-                          defaultValue={r.dividendOverride ?? ""} placeholder={fmtQty(r.dividend)}
-                          title="留空＝照公式自動算；填數字＝改成手動指定的真實配息入帳金額"
-                          onChange={(e) => updateLocalOverride(r.id, "dividendOverride", e.target.value)}
-                          onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                          className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-emerald-300 ${r.dividendOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
-                      </td>
-                      <td className="px-3 py-1.5 text-right text-emerald-700 font-semibold">{fmtQty(r.cumulativeDividend)}</td>
-                      <td className="px-3 py-1.5 text-right text-indigo-600 font-semibold">{fmt(r.assetValue)}</td>
-                      <td className="px-2 py-1.5">
-                        <button onClick={() => handleDeleteRow(r.id)}
-                          className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 text-xs transition-opacity">刪除</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        </td>
+                        <td className="px-1 py-1">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <input key={`${r.id}-price-${r.price}`} type="number" step="any" defaultValue={r.price}
+                              onChange={(e) => updateLocalRow(r.id, "price", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-20 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                            <button type="button" title="把這個價格套用到之後所有月份"
+                              onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "price", rows.find((x) => x.id === r.id)!.price)}
+                              className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                          </div>
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-slate-700">{fmtQty(r.sharesBought)}</td>
+                        <td className="px-1 py-1">
+                          {r.isPaymentMonth ? (
+                            <input key={`${r.id}-divrate-${r.dividendRate}`} type="number" step="any" defaultValue={r.dividendRate}
+                              onChange={(e) => updateLocalRow(r.id, "dividendRate", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                          ) : (
+                            <div className="w-16 text-right px-2 py-1 text-slate-300 text-sm" title="這個月不是配息月">—</div>
+                          )}
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-tax-${r.afterTaxRate}`} type="number" step="any" min="0" max="100" defaultValue={r.afterTaxRate * 100}
+                            onChange={(e) => updateLocalRow(r.id, "afterTaxRate", String((parseFloat(e.target.value) || 0) / 100))}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className="w-14 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-div-${r.dividendOverride}`} type="number" step="any"
+                            defaultValue={r.dividendOverride ?? ""} placeholder={fmtQty(r.dividend)}
+                            title="留空＝照公式自動算；填數字＝改成手動指定的真實配息入帳金額"
+                            onChange={(e) => updateLocalOverride(r.id, "dividendOverride", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-emerald-300 ${r.dividendOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-emerald-700 font-semibold">{fmtQty(r.cumulativeDividend)}</td>
+                        <td className="px-3 py-1.5 text-right text-indigo-600 font-semibold">{fmt(r.assetValue)}</td>
+                        <td className="px-2 py-1.5">
+                          <button onClick={() => handleDeleteRow(r.id)}
+                            className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 text-xs transition-opacity">刪除</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
             <div className="px-6 py-3.5 border-t border-slate-50">
               <button onClick={handleAddRow} disabled={addingRow}
@@ -507,6 +644,19 @@ export default function InvestmentCalculatorPage() {
                   placeholder="例如：元大高股息 0056"
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">版本</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setCreateForm({ ...createForm, mode: "USSTOCK" })}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${createForm.mode === "USSTOCK" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                    美股版（固定每月投入金額）
+                  </button>
+                  <button type="button" onClick={() => setCreateForm({ ...createForm, mode: "TWSTOCK" })}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${createForm.mode === "TWSTOCK" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                    台股版（固定每月遞增股數）
+                  </button>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">起始年份</label>
@@ -528,25 +678,43 @@ export default function InvestmentCalculatorPage() {
                   onChange={(e) => setCreateForm({ ...createForm, years: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">每月投入金額</label>
-                  <input type="number" min="0" step="any" value={createForm.monthlyInvestment}
-                    onChange={(e) => setCreateForm({ ...createForm, monthlyInvestment: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              {createForm.mode === "TWSTOCK" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">起始股數（第 1 個月買進股數）</label>
+                    <input type="number" min="0" step="any" value={createForm.startShares}
+                      onChange={(e) => setCreateForm({ ...createForm, startShares: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">每月遞增股數</label>
+                    <input type="number" min="0" step="any" value={createForm.shareIncrement}
+                      onChange={(e) => setCreateForm({ ...createForm, shareIncrement: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                    <p className="text-[11px] text-slate-400 mt-1">第 N 個月固定買進「起始股數 ＋ (N-1) × 遞增股數」</p>
+                  </div>
                 </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">每月投入金額</label>
+                    <input type="number" min="0" step="any" value={createForm.monthlyInvestment}
+                      onChange={(e) => setCreateForm({ ...createForm, monthlyInvestment: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費</label>
+                    <input type="number" min="0" step="any" value={createForm.fee}
+                      onChange={(e) => setCreateForm({ ...createForm, fee: e.target.value })}
+                      className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">買進價格</label>
                   <input type="number" min="0" step="any" value={createForm.price}
                     onChange={(e) => setCreateForm({ ...createForm, price: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">手續費</label>
-                  <input type="number" min="0" step="any" value={createForm.fee}
-                    onChange={(e) => setCreateForm({ ...createForm, fee: e.target.value })}
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
                 <div>
