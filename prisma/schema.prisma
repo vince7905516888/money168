@@ -32,6 +32,7 @@ model User {
   userExchangeRates  UserExchangeRate[]
   investments        Investment[]
   debts              Debt[]
+  dividendEntries    DividendEntry[]
   suspenseEntries    SuspenseEntry[]
   binanceSnapshots   BinanceSnapshot[]
   binanceCredential  BinanceCredential?
@@ -192,6 +193,23 @@ model Debt {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// 配息複利滾存：股票／基金配息入帳與再買進支出的記錄，正數＝配息入帳（增加餘額）、
+// 負數＝再買進（減少餘額），同一檔（name）的記錄加總即為目前尚未投入的配息餘額，
+// 跟負債表（Debt）同一套「增加／減少用正負號」設計。type 只會用到 STOCK 或 FUND
+model DividendEntry {
+  id        String         @id @default(cuid())
+  type      InvestmentType
+  name      String
+  code      String?
+  amount    Float
+  date      DateTime       @default(now())
+  note      String?
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 }
 
 // 舊版功能殘留的資料表，目前程式碼未使用，保留以避免刪除既有資料

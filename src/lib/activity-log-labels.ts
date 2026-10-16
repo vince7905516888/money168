@@ -8,6 +8,9 @@ export const ACTIVITY_ACTION_LABEL: Record<string, string> = {
   CREATE_DEBT: "新增負債",
   UPDATE_DEBT: "編輯負債",
   DELETE_DEBT: "刪除負債",
+  CREATE_DIVIDEND: "新增配息記錄",
+  UPDATE_DIVIDEND: "編輯配息記錄",
+  DELETE_DIVIDEND: "刪除配息記錄",
   CREATE_MARTINGALE_STRATEGY: "新增自訂策略",
   DELETE_MARTINGALE_STRATEGY: "刪除自訂策略",
 };
