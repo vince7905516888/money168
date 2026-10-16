@@ -44,6 +44,7 @@ interface PlanRow {
   afterTaxRate: number;
   holdingSharesOverride: number | null;
   dividendOverride: number | null;
+  dividendPurchaseOverride: number | null;
   sharesToBuy: number | null;
 }
 
@@ -225,8 +226,18 @@ export default function InvestmentCalculatorPage() {
   };
 
   // 持有股數／實際配息覆蓋欄位：清空代表「不要覆蓋、改回照公式算」，跟其他欄位不同，空字串要存成 null 而不是 0
-  const updateLocalOverride = (rowId: string, field: "holdingSharesOverride" | "dividendOverride", value: string) => {
+  const updateLocalOverride = (rowId: string, field: "holdingSharesOverride" | "dividendOverride" | "dividendPurchaseOverride", value: string) => {
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, [field]: value === "" ? null : (parseFloat(value) || 0) } : r)));
+  };
+
+  // 配息加碼股數欄位改股數輸入，換算成金額存進同一個 dividendPurchaseOverride（跟配息購買金額共用同一個覆蓋來源，改任一邊都會同步）
+  const updateDividendSharesOverride = (rowId: string, value: string) => {
+    setRows((prev) => prev.map((r) => {
+      if (r.id !== rowId) return r;
+      if (value === "") return { ...r, dividendPurchaseOverride: null };
+      const shares = parseFloat(value) || 0;
+      return { ...r, dividendPurchaseOverride: shares * r.price };
+    }));
   };
 
   // 套用到之後所有月份：把某一列目前的值（每月投入金額／買進價格等）往後批次套用到後面所有月份，
@@ -256,7 +267,7 @@ export default function InvestmentCalculatorPage() {
         investment: row.investment, fee: row.fee, price: row.price,
         dividendRate: row.dividendRate, afterTaxRate: row.afterTaxRate,
         holdingSharesOverride: row.holdingSharesOverride, dividendOverride: row.dividendOverride,
-        sharesToBuy: row.sharesToBuy,
+        sharesToBuy: row.sharesToBuy, dividendPurchaseOverride: row.dividendPurchaseOverride,
       }),
     });
   };
@@ -309,17 +320,23 @@ export default function InvestmentCalculatorPage() {
 
       let sharesBought: number;
       let dividendShares = 0;
+      let dividendSharesCost = 0;
       if (mode === "TWSTOCK") {
         // 台股版：這個月固定計劃買進的股數（不隨價格變動），配息累積夠買 1000 股（1 張）的金額
         // 才自動加碼、而且只能整張買，零頭留到下個月（還原原本「1 張」為單位的加碼邏輯）
         const planned = r.sharesToBuy ?? 0;
         pendingDividendCash += dividend;
-        if (r.price > 0) {
+        // 配息加碼股數／金額有手動覆蓋就用覆蓋值（兩個欄位共用同一個覆蓋來源，改任一邊都會讓兩邊同步）
+        if (r.dividendPurchaseOverride != null) {
+          dividendSharesCost = r.dividendPurchaseOverride;
+          dividendShares = r.price > 0 ? dividendSharesCost / r.price : 0;
+        } else if (r.price > 0) {
           const lotCost = r.price * DIVIDEND_REINVEST_LOT_SIZE;
           const lots = Math.floor(pendingDividendCash / lotCost);
           dividendShares = lots * DIVIDEND_REINVEST_LOT_SIZE;
-          pendingDividendCash -= dividendShares * r.price;
+          dividendSharesCost = dividendShares * r.price;
         }
+        pendingDividendCash -= dividendSharesCost;
         sharesBought = planned + dividendShares;
       } else {
         // 美股版：每月投入固定金額（扣手續費）÷ 買進價格，配息不自動買股、單純累積現金
@@ -342,7 +359,7 @@ export default function InvestmentCalculatorPage() {
         : holdingShares * r.price + cumulativeDividend) + startingAssetValue;
 
       const row: ComputedRow = {
-        ...r, sharesBought, dividendShares, dividendSharesCost: dividendShares * r.price, holdingShares, dividend, cumulativeDividend,
+        ...r, sharesBought, dividendShares, dividendSharesCost, holdingShares, dividend, cumulativeDividend,
         pendingDividendCash, assetValue, isPaymentMonth, avgPrice,
       };
       list.push(row);
@@ -534,8 +551,22 @@ export default function InvestmentCalculatorPage() {
                               className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
                           </div>
                         </td>
-                        <td className="px-3 py-1.5 text-right text-slate-700">{r.dividendShares > 0 ? fmtQty(r.dividendShares) : "—"}</td>
-                        <td className="px-3 py-1.5 text-right text-slate-700">{r.dividendSharesCost > 0 ? fmt(r.dividendSharesCost) : "—"}</td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-divshares-${r.dividendPurchaseOverride}`} type="number" step="any"
+                            defaultValue={r.dividendPurchaseOverride != null ? r.dividendShares : ""} placeholder={r.dividendShares > 0 ? fmtQty(r.dividendShares) : "0"}
+                            title="留空＝照「滿1張才加碼」公式算；填股數＝改成手動指定的配息加碼股數，會連動換算配息購買金額"
+                            onChange={(e) => updateDividendSharesOverride(r.id, e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.dividendPurchaseOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-divcost-${r.dividendPurchaseOverride}`} type="number" step="any"
+                            defaultValue={r.dividendPurchaseOverride ?? ""} placeholder={r.dividendSharesCost > 0 ? fmtQty(r.dividendSharesCost) : "0"}
+                            title="留空＝照「滿1張才加碼」公式算；填金額＝改成手動指定的配息購買金額，會連動換算配息加碼股數"
+                            onChange={(e) => updateLocalOverride(r.id, "dividendPurchaseOverride", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.dividendPurchaseOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
                         <td className="px-1 py-1">
                           {r.isPaymentMonth ? (
                             <input key={`${r.id}-divrate-${r.dividendRate}`} type="number" step="any" defaultValue={r.dividendRate}

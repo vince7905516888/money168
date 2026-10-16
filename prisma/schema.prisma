@@ -256,6 +256,9 @@ model CalculatorPlanRow {
   // 覆蓋後下個月開始的累計都會接著這個數字往下算；留空（null）則照公式算
   holdingSharesOverride Float?
   dividendOverride      Float?
+  // TWSTOCK 專用：這個月實際用配息買股花掉的金額，留空照「滿1張才加碼」公式算，
+  // 填了就改用這個金額（股數＝這個金額 ÷ 買進價格），從剩餘未投入配息裡扣
+  dividendPurchaseOverride Float?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
