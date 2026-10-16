@@ -27,16 +27,22 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const { id } = await params;
-  const { name, targetAmount } = await req.json();
+  const { name, targetAmount, dividendFrequency } = await req.json();
 
   const existing = await prisma.calculatorPlan.findFirst({ where: { id, userId: session.user.id } });
   if (!existing) return NextResponse.json({ error: "找不到方案" }, { status: 404 });
+
+  const VALID_FREQUENCIES = ["MONTHLY", "QUARTERLY_1", "QUARTERLY_2", "QUARTERLY_3"];
+  if (dividendFrequency !== undefined && !VALID_FREQUENCIES.includes(dividendFrequency)) {
+    return NextResponse.json({ error: "配息頻率選項不正確" }, { status: 400 });
+  }
 
   const updated = await prisma.calculatorPlan.update({
     where: { id },
     data: {
       ...(name !== undefined ? { name } : {}),
       ...(targetAmount !== undefined ? { targetAmount: targetAmount === "" || targetAmount === null ? null : parseFloat(targetAmount) } : {}),
+      ...(dividendFrequency !== undefined ? { dividendFrequency } : {}),
     },
   });
 

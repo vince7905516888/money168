@@ -220,10 +220,11 @@ model DividendEntry {
 // 方案（例如不同股票各一個），新增時依畫面上填的初始參數批次產生 CalculatorPlanRow，
 // 之後逐月明細可以一格一格手動改成實際發生的數字（投入金額、價格、配息等隨時間會跟原始假設不同）
 model CalculatorPlan {
-  id           String              @id @default(cuid())
-  name         String
-  targetAmount Float?
-  userId       String
+  id                String              @id @default(cuid())
+  name              String
+  targetAmount      Float?
+  dividendFrequency String              @default("MONTHLY") // "MONTHLY"（月配）或 "QUARTERLY_1"/"QUARTERLY_2"/"QUARTERLY_3"（季配，配息月份分別為1.4.7.10／2.5.8.11／3.6.9.12月）
+  userId            String
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   rows         CalculatorPlanRow[]
   createdAt    DateTime            @default(now())

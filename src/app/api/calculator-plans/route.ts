@@ -9,7 +9,7 @@ export async function GET() {
   const plans = await prisma.calculatorPlan.findMany({
     where: { userId: session.user.id },
     orderBy: { createdAt: "asc" },
-    select: { id: true, name: true, targetAmount: true, createdAt: true, _count: { select: { rows: true } } },
+    select: { id: true, name: true, targetAmount: true, dividendFrequency: true, createdAt: true, _count: { select: { rows: true } } },
   });
 
   return NextResponse.json(plans);
@@ -20,13 +20,15 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const {
-    name, startYear, startMonth, years, targetAmount,
+    name, startYear, startMonth, years, targetAmount, dividendFrequency,
     monthlyInvestment, fee, price, dividendPerShare, afterTaxRate,
   } = await req.json();
 
   if (!name || !startYear || !startMonth) {
     return NextResponse.json({ error: "請填寫必要欄位" }, { status: 400 });
   }
+  const VALID_FREQUENCIES = ["MONTHLY", "QUARTERLY_1", "QUARTERLY_2", "QUARTERLY_3"];
+  const frequency = VALID_FREQUENCIES.includes(dividendFrequency) ? dividendFrequency : "MONTHLY";
   const monthCount = Math.max(1, Math.min(600, parseInt(years) || 10) * 12);
   const investment = parseFloat(monthlyInvestment) || 0;
   const feeVal = parseFloat(fee) || 0;
@@ -38,6 +40,7 @@ export async function POST(req: NextRequest) {
     data: {
       name,
       targetAmount: targetAmount !== undefined && targetAmount !== "" ? parseFloat(targetAmount) : null,
+      dividendFrequency: frequency,
       userId: session.user.id,
     },
   });

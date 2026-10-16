@@ -8,10 +8,20 @@ import { authFetch } from "@/lib/api-fetch";
 // 買進股數／持有股數／實際配息／累計配息／推估總資產都是前端依序算出來的，不存進資料庫，
 // 改掉中間某一列的參數，後面所有月份的累計數字會自動跟著連動。
 
+type DividendFrequency = "MONTHLY" | "QUARTERLY_1" | "QUARTERLY_2" | "QUARTERLY_3";
+
+// 季配息三種常見週期：配息月份分別落在 1.4.7.10 / 2.5.8.11 / 3.6.9.12 月
+const QUARTERLY_MONTHS: Record<string, number[]> = {
+  QUARTERLY_1: [1, 4, 7, 10],
+  QUARTERLY_2: [2, 5, 8, 11],
+  QUARTERLY_3: [3, 6, 9, 12],
+};
+
 interface PlanSummary {
   id: string;
   name: string;
   targetAmount: number | null;
+  dividendFrequency: DividendFrequency;
   createdAt: string;
   _count: { rows: number };
 }
@@ -31,6 +41,7 @@ interface PlanDetail {
   id: string;
   name: string;
   targetAmount: number | null;
+  dividendFrequency: DividendFrequency;
   rows: PlanRow[];
 }
 
@@ -40,6 +51,8 @@ interface ComputedRow extends PlanRow {
   dividend: number;
   cumulativeDividend: number;
   assetValue: number;
+  isPaymentMonth: boolean;
+  avgPrice: number; // 累計持股均價＝累計實際投入金額 ÷ 累計持股數
 }
 
 const EMPTY_CREATE_FORM = {
@@ -52,6 +65,7 @@ const EMPTY_CREATE_FORM = {
   price: "54.8484",
   dividendPerShare: "0.6339",
   afterTaxRate: "70",
+  dividendFrequency: "MONTHLY" as DividendFrequency,
   targetAmount: "",
 };
 
@@ -152,9 +166,37 @@ export default function InvestmentCalculatorPage() {
     fetchPlans();
   };
 
+  const saveFrequency = async (frequency: DividendFrequency) => {
+    if (!planDetail) return;
+    setPlanDetail({ ...planDetail, dividendFrequency: frequency });
+    await authFetch(`/api/calculator-plans/${planDetail.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dividendFrequency: frequency }),
+    });
+  };
+
   // 本地先更新畫面（打字流暢），失去焦點時才存檔，避免每打一個字就打一次 API
   const updateLocalRow = (rowId: string, field: keyof PlanRow, value: string) => {
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, [field]: parseFloat(value) || 0 } : r)));
+  };
+
+  // 套用到之後所有月份：把某一列目前的值（每月投入金額／買進價格等）往後批次套用到後面所有月份，
+  // 不影響這一列本身跟之前的月份，用來反映「薪水變多/股價假設調整後，之後每個月都改用新數字」
+  const applyForward = async (row: PlanRow, field: "investment" | "price", value: number) => {
+    if (!planDetail) return;
+    if (!confirm(`確定要把 ${row.year} 年 ${row.month} 月之後的「${field === "investment" ? "每月投入金額" : "買進價格"}」都改成 ${value}？`)) return;
+    const res = await authFetch(`/api/calculator-plans/${planDetail.id}/bulk-update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ afterYear: row.year, afterMonth: row.month, field, value }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(err?.error || "套用失敗");
+      return;
+    }
+    fetchDetail(planDetail.id);
   };
 
   const saveRow = async (row: PlanRow) => {
@@ -191,32 +233,38 @@ export default function InvestmentCalculatorPage() {
     if (planDetail) fetchDetail(planDetail.id);
   };
 
-  // 依序把每列的輸入參數算成買進股數／持有股數／實際配息／累計配息／推估總資產
+  // 依序把每列的輸入參數算成買進股數／持有股數／實際配息／累計配息／推估總資產；
+  // 季配息的話只有每 3 個月（第 3、6、9...列）才實際發配息，其他月份配息記為 0 但累計配息照樣往前帶
   const { computed, targetRow } = useMemo(() => {
     let holdingShares = 0;
     let cumulativeDividend = 0;
+    let cumulativeInvestment = 0;
     const list: ComputedRow[] = [];
     const target = planDetail?.targetAmount ?? 0;
+    const frequency = planDetail?.dividendFrequency ?? "MONTHLY";
     let foundTarget: ComputedRow | null = null;
 
     for (const r of rows) {
-      const dividend = holdingShares * r.dividendRate * r.afterTaxRate;
+      const isPaymentMonth = frequency === "MONTHLY" ? true : (QUARTERLY_MONTHS[frequency] ?? []).includes(r.month);
+      const dividend = isPaymentMonth ? holdingShares * r.dividendRate * r.afterTaxRate : 0;
       cumulativeDividend += dividend;
       const sharesBought = r.price > 0 ? Math.max(0, r.investment - r.fee) / r.price : 0;
       holdingShares += sharesBought;
+      cumulativeInvestment += r.investment;
+      const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
       const assetValue = holdingShares * r.price + cumulativeDividend;
-      const row: ComputedRow = { ...r, sharesBought, holdingShares, dividend, cumulativeDividend, assetValue };
+      const row: ComputedRow = { ...r, sharesBought, holdingShares, dividend, cumulativeDividend, assetValue, isPaymentMonth, avgPrice };
       list.push(row);
       if (!foundTarget && target > 0 && assetValue >= target) foundTarget = row;
     }
     return { computed: list, targetRow: foundTarget };
-  }, [rows, planDetail?.targetAmount]);
+  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency]);
 
   const last = computed[computed.length - 1];
   const totalPrincipal = rows.reduce((s, r) => s + r.investment, 0);
 
   return (
-    <div className="w-full max-w-7xl">
+    <div className="w-full">
       <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">投資試算表</h1>
@@ -253,8 +301,8 @@ export default function InvestmentCalculatorPage() {
         <div className="py-16 text-center text-slate-400 text-sm">載入方案中...</div>
       ) : (
         <>
-          {/* 目標資產設定 */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-6">
+          {/* 目標資產與配息頻率設定 */}
+          <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-6 space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
               <label className="text-sm font-medium text-slate-700">目標資產（選填）</label>
               <input type="number" min="0" step="any" value={targetInput}
@@ -262,6 +310,17 @@ export default function InvestmentCalculatorPage() {
                 placeholder="例如：1000000"
                 className="w-48 border border-slate-200 rounded-lg px-3.5 py-2 text-sm focus:border-indigo-400 transition-colors" />
               <span className="text-xs text-slate-400">填了之後，下面逐月明細達成目標的那一列會特別標示</span>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="text-sm font-medium text-slate-700">配息頻率</label>
+              <select value={planDetail.dividendFrequency} onChange={(e) => saveFrequency(e.target.value as DividendFrequency)}
+                className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white">
+                <option value="MONTHLY">月配息</option>
+                <option value="QUARTERLY_1">季配息（1、4、7、10 月）</option>
+                <option value="QUARTERLY_2">季配息（2、5、8、11 月）</option>
+                <option value="QUARTERLY_3">季配息（3、6、9、12 月）</option>
+              </select>
+              <span className="text-xs text-slate-400">季配息時，每股配息欄位代表「每次配息」的金額，只有落在配息月份的那一列才會實際入帳</span>
             </div>
           </div>
 
@@ -323,6 +382,7 @@ export default function InvestmentCalculatorPage() {
                     <th className="px-3 py-2.5 text-left font-semibold">月份</th>
                     <th className="px-3 py-2.5 text-right font-semibold">每月投入金額</th>
                     <th className="px-3 py-2.5 text-right font-semibold">持有股數</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">持股均價</th>
                     <th className="px-3 py-2.5 text-right font-semibold">手續費</th>
                     <th className="px-3 py-2.5 text-right font-semibold">買進價格</th>
                     <th className="px-3 py-2.5 text-right font-semibold">買進股數</th>
@@ -340,12 +400,18 @@ export default function InvestmentCalculatorPage() {
                       <td className="px-3 py-1.5 text-slate-700">{i === 0 || r.month === 1 ? r.year : ""}</td>
                       <td className="px-3 py-1.5 text-slate-700">{r.month}</td>
                       <td className="px-1 py-1">
-                        <input type="number" step="any" defaultValue={r.investment}
-                          onChange={(e) => updateLocalRow(r.id, "investment", e.target.value)}
-                          onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                          className="w-24 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                        <div className="flex items-center justify-end gap-0.5">
+                          <input type="number" step="any" defaultValue={r.investment}
+                            onChange={(e) => updateLocalRow(r.id, "investment", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className="w-24 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                          <button type="button" title="把這個金額套用到之後所有月份"
+                            onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "investment", rows.find((x) => x.id === r.id)!.investment)}
+                            className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                        </div>
                       </td>
                       <td className="px-3 py-1.5 text-right text-slate-700">{fmtQty(r.holdingShares)}</td>
+                      <td className="px-3 py-1.5 text-right text-slate-500">{fmtQty(r.avgPrice)}</td>
                       <td className="px-1 py-1">
                         <input type="number" step="any" defaultValue={r.fee}
                           onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
@@ -353,17 +419,26 @@ export default function InvestmentCalculatorPage() {
                           className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
                       </td>
                       <td className="px-1 py-1">
-                        <input type="number" step="any" defaultValue={r.price}
-                          onChange={(e) => updateLocalRow(r.id, "price", e.target.value)}
-                          onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                          className="w-20 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                        <div className="flex items-center justify-end gap-0.5">
+                          <input type="number" step="any" defaultValue={r.price}
+                            onChange={(e) => updateLocalRow(r.id, "price", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className="w-20 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                          <button type="button" title="把這個價格套用到之後所有月份"
+                            onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "price", rows.find((x) => x.id === r.id)!.price)}
+                            className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                        </div>
                       </td>
                       <td className="px-3 py-1.5 text-right text-slate-700">{fmtQty(r.sharesBought)}</td>
                       <td className="px-1 py-1">
-                        <input type="number" step="any" defaultValue={r.dividendRate}
-                          onChange={(e) => updateLocalRow(r.id, "dividendRate", e.target.value)}
-                          onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                          className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                        {r.isPaymentMonth ? (
+                          <input type="number" step="any" defaultValue={r.dividendRate}
+                            onChange={(e) => updateLocalRow(r.id, "dividendRate", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                        ) : (
+                          <div className="w-16 text-right px-2 py-1 text-slate-300 text-sm" title="這個月不是配息月">—</div>
+                        )}
                       </td>
                       <td className="px-1 py-1">
                         <input type="number" step="any" min="0" max="100" defaultValue={r.afterTaxRate * 100}
@@ -449,7 +524,7 @@ export default function InvestmentCalculatorPage() {
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">每股配息（月）</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">每次配息金額（每股）</label>
                   <input type="number" min="0" step="any" value={createForm.dividendPerShare}
                     onChange={(e) => setCreateForm({ ...createForm, dividendPerShare: e.target.value })}
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
@@ -463,11 +538,22 @@ export default function InvestmentCalculatorPage() {
                     className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">目標資產（選填）</label>
-                  <input type="number" min="0" step="any" value={createForm.targetAmount}
-                    onChange={(e) => setCreateForm({ ...createForm, targetAmount: e.target.value })} placeholder="例如：1000000"
-                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">配息頻率</label>
+                  <select value={createForm.dividendFrequency}
+                    onChange={(e) => setCreateForm({ ...createForm, dividendFrequency: e.target.value as DividendFrequency })}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                    <option value="MONTHLY">月配息</option>
+                    <option value="QUARTERLY_1">季配息（1、4、7、10 月）</option>
+                    <option value="QUARTERLY_2">季配息（2、5、8、11 月）</option>
+                    <option value="QUARTERLY_3">季配息（3、6、9、12 月）</option>
+                  </select>
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">目標資產（選填）</label>
+                <input type="number" min="0" step="any" value={createForm.targetAmount}
+                  onChange={(e) => setCreateForm({ ...createForm, targetAmount: e.target.value })} placeholder="例如：1000000"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowCreateModal(false)}
