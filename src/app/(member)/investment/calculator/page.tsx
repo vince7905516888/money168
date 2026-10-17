@@ -513,7 +513,7 @@ export default function InvestmentCalculatorPage() {
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">累計手續費</div>
                 <div className="text-xl font-bold text-slate-500 mt-1">{fmt(last.cumulativeFee)}</div>
-                <div className="text-[11px] text-slate-400 mt-0.5">{isTwstock ? "第二列起已從推估總資產扣除" : "純紀錄，不影響任何計算"}</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">{isTwstock ? "不包含手續費" : "純紀錄，不影響任何計算"}</div>
               </div>
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">推估總資產</div>
@@ -552,7 +552,7 @@ export default function InvestmentCalculatorPage() {
                       <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
                       <th className="px-3 py-2.5 text-right font-semibold">本期配息</th>
                       <th className="px-3 py-2.5 text-right font-semibold">剩餘未投入配息</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有股數×買進價格＋剩餘未投入配息）。第二列開始：上月推估總資產＋(本月計劃買進股數＋配息加碼股數)×本月買進價格＋本月剩餘未投入配息－本月手續費">上月總資產＋買進股數×價格＋剩餘配息－手續費</span></th>
+                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有股數×買進價格＋剩餘未投入配息）。第二列開始：上月推估總資產＋(本月計劃買進股數＋配息加碼股數)×本月買進價格＋本月剩餘未投入配息－本月手續費">上月總資產＋買進股數×價格＋剩餘配息</span></th>
                       <th className="px-3 py-2.5"></th>
                     </tr>
                   </thead>
