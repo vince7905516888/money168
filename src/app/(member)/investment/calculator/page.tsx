@@ -71,6 +71,7 @@ interface ComputedRow extends PlanRow {
   assetValue: number;
   isPaymentMonth: boolean;
   avgPrice: number; // 累計持股均價＝累計實際投入金額 ÷ 累計持股數
+  cumulativeFee: number; // 累計手續費，純紀錄用，不影響任何計算
 }
 
 const EMPTY_CREATE_FORM = {
@@ -320,6 +321,7 @@ export default function InvestmentCalculatorPage() {
     let cumulativeInvestment = 0;
     let pendingDividendCash = 0; // TWSTOCK 專用：已經入帳、可以動用去加碼的配息現金（含零頭）
     let dividendInTransit = 0; // TWSTOCK 專用：這個月剛宣告、還要等下個月才會實際入帳的配息
+    let cumulativeFee = 0; // 累計手續費，純紀錄用，不影響任何計算
     const list: ComputedRow[] = [];
     const target = planDetail?.targetAmount ?? 0;
     const frequency = planDetail?.dividendFrequency ?? "MONTHLY";
@@ -373,14 +375,19 @@ export default function InvestmentCalculatorPage() {
       if (idx === 0 && startingAvgPrice != null) cumulativeInvestment = startingAvgPrice * holdingShares;
       const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
       // 每一列都加上「開始試算前既有的持有金額」（只在第一列顯示可編輯，其他列自動帶著走）
-      // TWSTOCK 的推估總資產也要算進「還沒入帳但已宣告」的配息（dividendInTransit），不然資產會暫時少算一個月
+      // TWSTOCK 的推估總資產＝累計實際投入成本（含配息加碼買股的部分，用買進當月的價格，不會因為
+      // 之後價格變動被回頭重算）＋目前剩餘未投入配息。不能用「上個月總資產＋這個月剩餘未投入配息」
+      // 這種每月都把餘額整包加一次的寫法，餘額只要放著不動、沒拿去加碼，每個月都會被重複累加、
+      // 總資產會無緣無故一直膨脹；還沒入帳的配息（dividendInTransit）也還不算真正的資產，先不計入
       const assetValue = (mode === "TWSTOCK"
-        ? holdingShares * r.price + pendingDividendCash + dividendInTransit
+        ? cumulativeInvestment + pendingDividendCash
         : holdingShares * r.price + cumulativeDividend) + startingAssetValue;
+
+      cumulativeFee += r.fee;
 
       const row: ComputedRow = {
         ...r, sharesBought, dividendShares, dividendSharesCost, holdingShares, dividend, cumulativeDividend,
-        pendingDividendCash, assetValue, isPaymentMonth, avgPrice,
+        pendingDividendCash, assetValue, isPaymentMonth, avgPrice, cumulativeFee,
       };
       list.push(row);
       if (!foundTarget && target > 0 && assetValue >= target) foundTarget = row;
@@ -481,7 +488,7 @@ export default function InvestmentCalculatorPage() {
 
           {/* 總覽 */}
           {last && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">目前累計持股</div>
                 <div className="text-xl font-bold text-slate-900 mt-1">{fmtQty(last.holdingShares)} 股</div>
@@ -493,6 +500,11 @@ export default function InvestmentCalculatorPage() {
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">{isTwstock ? "剩餘未投入配息" : "累計配息現金"}</div>
                 <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(isTwstock ? last.pendingDividendCash : last.cumulativeDividend)}</div>
+              </div>
+              <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">累計手續費</div>
+                <div className="text-xl font-bold text-slate-500 mt-1">{fmt(last.cumulativeFee)}</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">純紀錄，不影響任何計算</div>
               </div>
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">推估總資產</div>
@@ -524,6 +536,7 @@ export default function InvestmentCalculatorPage() {
                       <th className="px-3 py-2.5 text-right font-semibold">持有股數</th>
                       <th className="px-3 py-2.5 text-right font-semibold">持股均價</th>
                       <th className="px-3 py-2.5 text-right font-semibold">買進價格</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">手續費</th>
                       <th className="px-3 py-2.5 text-right font-semibold">配息加碼股數</th>
                       <th className="px-3 py-2.5 text-right font-semibold">配息購買金額</th>
                       <th className="px-3 py-2.5 text-right font-semibold">每股配息</th>
@@ -576,6 +589,13 @@ export default function InvestmentCalculatorPage() {
                               onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "price", rows.find((x) => x.id === r.id)!.price)}
                               className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
                           </div>
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-${dataVersion}`} type="number" step="any" defaultValue={r.fee}
+                            title="純紀錄用，不影響任何計算"
+                            onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
                         </td>
                         <td className="px-1 py-1">
                           <input key={`${r.id}-${dataVersion}`} type="number" step="any"
