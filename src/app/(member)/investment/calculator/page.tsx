@@ -378,13 +378,13 @@ export default function InvestmentCalculatorPage() {
       // 第一列的「起始持有金額」是直接指定那一列的推估總資產是多少（取代公式算出來的值，不是疊加上去），
       // 填 0 代表沒有手動指定、照公式用持有股數×價格＋剩餘未投入配息算。
       // TWSTOCK 從第二列開始，推估總資產＝上個月推估總資產＋這個月（計劃買進股數＋配息加碼股數）
-      // ×這個月買進價格＋這個月剩餘未投入配息，逐月累加
+      // ×這個月買進價格＋這個月剩餘未投入配息－這個月手續費，逐月累加
       let assetValue: number;
       if (mode === "TWSTOCK") {
         if (idx === 0) {
           assetValue = startingAssetValue !== 0 ? startingAssetValue : (holdingShares * r.price + pendingDividendCash);
         } else {
-          assetValue = prevAssetValue + sharesBought * r.price + pendingDividendCash;
+          assetValue = prevAssetValue + sharesBought * r.price + pendingDividendCash - r.fee;
         }
       } else {
         // 美股版維持原本「每一列都加上起始持有金額」的簡單寫法（美股版沒有被回報這個問題）
@@ -513,7 +513,7 @@ export default function InvestmentCalculatorPage() {
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">累計手續費</div>
                 <div className="text-xl font-bold text-slate-500 mt-1">{fmt(last.cumulativeFee)}</div>
-                <div className="text-[11px] text-slate-400 mt-0.5">純紀錄，不影響任何計算</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">{isTwstock ? "第二列起已從推估總資產扣除" : "純紀錄，不影響任何計算"}</div>
               </div>
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">推估總資產</div>
@@ -552,7 +552,7 @@ export default function InvestmentCalculatorPage() {
                       <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
                       <th className="px-3 py-2.5 text-right font-semibold">本期配息</th>
                       <th className="px-3 py-2.5 text-right font-semibold">剩餘未投入配息</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有股數×買進價格＋剩餘未投入配息）。第二列開始：上月推估總資產＋(本月計劃買進股數＋配息加碼股數)×本月買進價格＋本月剩餘未投入配息－本月手續費">上月總資產＋買進股數×價格＋剩餘配息－手續費</span></th>
                       <th className="px-3 py-2.5"></th>
                     </tr>
                   </thead>
@@ -601,7 +601,7 @@ export default function InvestmentCalculatorPage() {
                         </td>
                         <td className="px-1 py-1">
                           <input key={`${r.id}-${dataVersion}`} type="number" step="any" defaultValue={r.fee}
-                            title="純紀錄用，不影響任何計算"
+                            title="第一列(起始列)不計算；第二列開始會從當月推估總資產裡扣除"
                             onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                             className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
