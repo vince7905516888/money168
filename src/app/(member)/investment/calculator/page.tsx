@@ -249,9 +249,9 @@ export default function InvestmentCalculatorPage() {
 
   // 套用到之後所有月份：把某一列目前的值（每月投入金額／買進價格等）往後批次套用到後面所有月份，
   // 不影響這一列本身跟之前的月份，用來反映「薪水變多/股價假設調整後，之後每個月都改用新數字」
-  const applyForward = async (row: PlanRow, field: "investment" | "price" | "sharesToBuy", value: number) => {
+  const applyForward = async (row: PlanRow, field: "investment" | "price" | "sharesToBuy" | "fee", value: number) => {
     if (!planDetail) return;
-    const fieldLabel = field === "investment" ? "每月投入金額" : field === "price" ? "買進價格" : "本月計劃買進股數";
+    const fieldLabel = field === "investment" ? "每月投入金額" : field === "price" ? "買進價格" : field === "fee" ? "手續費" : "本月計劃買進股數";
     if (!confirm(`確定要把 ${row.year} 年 ${row.month} 月之後的「${fieldLabel}」都改成 ${value}？`)) return;
     const res = await authFetch(`/api/calculator-plans/${planDetail.id}/bulk-update`, {
       method: "POST",
@@ -600,11 +600,16 @@ export default function InvestmentCalculatorPage() {
                           </div>
                         </td>
                         <td className="px-1 py-1">
-                          <input key={`${r.id}-${dataVersion}`} type="number" step="any" defaultValue={r.fee}
-                            title="第一列(起始列)不計算；第二列開始會從當月推估總資產裡扣除"
-                            onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
-                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
-                            className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                          <div className="flex items-center justify-end gap-0.5">
+                            <input key={`${r.id}-${dataVersion}`} type="number" step="any" defaultValue={r.fee}
+                              title="第一列(起始列)不計算；第二列開始會從當月推估總資產裡扣除"
+                              onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                            <button type="button" title="把這個手續費套用到之後所有月份"
+                              onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "fee", rows.find((x) => x.id === r.id)!.fee)}
+                              className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                          </div>
                         </td>
                         <td className="px-1 py-1">
                           <input key={`${r.id}-${dataVersion}`} type="number" step="any"
