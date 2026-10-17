@@ -74,6 +74,7 @@ interface ComputedRow extends PlanRow {
   isPaymentMonth: boolean;
   avgPrice: number; // 累計持股均價＝累計實際投入金額 ÷ 累計持股數
   cumulativeFee: number; // 累計手續費，純紀錄用，不影響任何計算
+  actualPrincipal: number; // TWSTOCK：實際累計投入本金＝只算自己掏錢買的部分（本月計劃買進股數×買進價格），不含配息加碼買的部分
 }
 
 const EMPTY_CREATE_FORM = {
@@ -344,6 +345,7 @@ export default function InvestmentCalculatorPage() {
     let holdingShares = 0;
     let cumulativeDividend = 0;
     let cumulativeInvestment = 0;
+    let cumulativePrincipal = 0; // TWSTOCK：實際累計投入本金，只算自己掏錢買進的部分（計劃買進股數×價格），不含配息加碼的部分
     let pendingDividendCash = 0; // TWSTOCK 專用：已經入帳、可以動用去加碼的配息現金（含零頭）
     let dividendInTransit = 0; // TWSTOCK 專用：這個月剛宣告、還要等下個月才會實際入帳的配息
     let prevAssetValue = 0; // TWSTOCK 專用：上個月的推估總資產，逐月累加用
@@ -388,6 +390,7 @@ export default function InvestmentCalculatorPage() {
         }
         pendingDividendCash -= dividendSharesCost;
         sharesBought = planned + dividendShares;
+        cumulativePrincipal += planned * r.price;
       } else {
         // 美股版：每月投入固定金額（扣手續費）÷ 買進價格，配息不自動買股、單純累積現金
         sharesBought = r.price > 0 ? Math.max(0, r.investment - r.fee) / r.price : 0;
@@ -401,7 +404,10 @@ export default function InvestmentCalculatorPage() {
       // 累計投入成本：台股版的配息加碼也是真金白銀買進股票，一樣算進投入成本
       cumulativeInvestment += mode === "TWSTOCK" ? sharesBought * r.price : r.investment;
       // 第一列可以手動指定「開始試算前既有持股的均價」當基準，之後月份接著這個基準往下算
-      if (idx === 0 && startingAvgPrice != null) cumulativeInvestment = startingAvgPrice * holdingShares;
+      if (idx === 0 && startingAvgPrice != null) {
+        cumulativeInvestment = startingAvgPrice * holdingShares;
+        cumulativePrincipal = startingAvgPrice * holdingShares; // 起始部位算是自己掏錢買的本金，不是配息滾出來的
+      }
       const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
       // 第一列的「起始持有金額」是直接指定那一列的推估總資產是多少（取代公式算出來的值，不是疊加上去），
       // 填 0 代表沒有手動指定、照公式用持有股數×價格＋剩餘未投入配息算。
@@ -426,7 +432,7 @@ export default function InvestmentCalculatorPage() {
 
       const row: ComputedRow = {
         ...r, sharesBought, dividendShares, dividendSharesCost, holdingShares, dividend, cumulativeDividend,
-        pendingDividendCash, assetValue, isPaymentMonth, avgPrice, cumulativeFee,
+        pendingDividendCash, assetValue, isPaymentMonth, avgPrice, cumulativeFee, actualPrincipal: cumulativePrincipal,
       };
       list.push(row);
       if (!foundTarget && target > 0 && assetValue >= target) foundTarget = row;
@@ -546,7 +552,22 @@ export default function InvestmentCalculatorPage() {
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">累計投入本金</div>
                 <div className="text-xl font-bold text-slate-900 mt-1">{fmt(totalPrincipal)}</div>
+                {isTwstock && <div className="text-[11px] text-slate-400 mt-0.5">含配息再投入買的部分</div>}
               </div>
+              {isTwstock && (
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">實際累計投入本金</div>
+                  <div className="text-xl font-bold text-slate-900 mt-1">{fmt(last.actualPrincipal)}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">不含配息再投入買的部分</div>
+                </div>
+              )}
+              {isTwstock && (
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                  <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">累積配息金額</div>
+                  <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(last.cumulativeDividend)}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">歷史累計總共領到的配息</div>
+                </div>
+              )}
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">{isTwstock ? "剩餘未投入配息" : "累計配息現金"}</div>
                 <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(isTwstock ? last.pendingDividendCash : last.cumulativeDividend)}</div>
