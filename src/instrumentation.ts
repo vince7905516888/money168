@@ -15,4 +15,9 @@ export async function register() {
   // 期貨未平倉排程同等級，不是全市場排程。
   const { startBatchAlertCheck } = await import("@/lib/batch-alert-check");
   startBatchAlertCheck();
+
+  // 投資試算表「目前市值」股價：只掃有填股票代號的試算方案（見 calculator-price-refresh.ts），
+  // 量級跟上面兩個排程同等級，不是全市場排程。
+  const { startCalculatorPriceAutoRefresh } = await import("@/lib/calculator-price-refresh");
+  startCalculatorPriceAutoRefresh();
 }

@@ -233,6 +233,9 @@ model CalculatorPlan {
   startingAvgPrice   Float? // 開始試算前既有持股的均價（選填），設定後第一列的持股均價改用這個值當基準，之後月份接著往下算，只在第一列可以手動改
   feeNote           String? // 「累計手續費」卡片下方的小字說明，使用者可自行輸入，留空則用預設文字
   allowOddLot       Boolean             @default(false) // TWSTOCK 專用：配息加碼是否允許零股（剩餘配息不夠買滿 1 張也能買），預設關閉（維持滿 1 張才加碼）
+  stockCode         String? // 股票代號（選填），填了之後背景排程會每天自動抓最新收盤價，用來算「目前市值」
+  currentPrice      Float? // 最近一次抓到的股價（見 lib/calculator-price-refresh.ts）
+  currentPriceUpdatedAt DateTime? // currentPrice 最後更新時間
   userId            String
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   rows         CalculatorPlanRow[]

@@ -62,6 +62,9 @@ interface PlanDetail {
   startingAvgPrice: number | null;
   feeNote: string | null;
   allowOddLot: boolean;
+  stockCode: string | null;
+  currentPrice: number | null;
+  currentPriceUpdatedAt: string | null;
   rows: PlanRow[];
 }
 
@@ -93,6 +96,7 @@ const EMPTY_CREATE_FORM = {
   afterTaxRate: "70",
   dividendFrequency: "MONTHLY" as DividendFrequency,
   customPaymentMonths: [] as number[],
+  stockCode: "",
   targetAmount: "",
   startShares: "2000",
   shareIncrement: "2000",
@@ -117,6 +121,7 @@ export default function InvestmentCalculatorPage() {
   // 讓「伺服器資料變了（例如批次套用、新增月份）」才重新掛載、顯示最新值，
   // 本地打字（只更新 rows state，不會重抓）不會觸發，欄位才不會每打一個字就被重設、失焦
   const [dataVersion, setDataVersion] = useState(0);
+  const [refreshingPrice, setRefreshingPrice] = useState(false);
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
@@ -257,6 +262,27 @@ export default function InvestmentCalculatorPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ feeNote: note }),
     });
+  };
+
+  // 股票代號：填了之後背景排程會每天自動抓最新收盤價，用來算「目前市值」
+  const saveStockCode = async (value: string) => {
+    if (!planDetail) return;
+    const code = value.trim() === "" ? null : value.trim();
+    setPlanDetail({ ...planDetail, stockCode: code });
+    await authFetch(`/api/calculator-plans/${planDetail.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stockCode: code }),
+    });
+    if (code) refreshPrices();
+  };
+
+  const refreshPrices = async () => {
+    if (!planDetail) return;
+    setRefreshingPrice(true);
+    await authFetch("/api/calculator-plans/refresh-prices", { method: "POST" });
+    setRefreshingPrice(false);
+    fetchDetail(planDetail.id);
   };
 
   // TWSTOCK 專用：配息加碼是否允許零股（剩餘配息不夠買滿 1 張也能買）
@@ -556,6 +582,23 @@ export default function InvestmentCalculatorPage() {
                 <span className="text-xs text-slate-400">預設關閉：剩餘未投入配息要湊到滿 1 張（1,000 股）才會自動加碼；打勾後剩餘配息不管多少，夠買幾股就買幾股</span>
               </div>
             )}
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="text-sm font-medium text-slate-700">股票代號（選填）</label>
+              <input key={`stockCode-${dataVersion}`} type="text" defaultValue={planDetail.stockCode ?? ""}
+                placeholder="例如：00878"
+                onBlur={(e) => saveStockCode(e.target.value)}
+                className="w-32 border border-slate-200 rounded-lg px-3.5 py-2 text-sm focus:border-indigo-400 transition-colors" />
+              <button type="button" onClick={refreshPrices} disabled={refreshingPrice || !planDetail.stockCode}
+                className="text-xs text-indigo-600 font-medium hover:underline disabled:opacity-40 disabled:no-underline">
+                {refreshingPrice ? "更新中..." : "重新整理股價"}
+              </button>
+              <span className="text-xs text-slate-400">
+                填了股票代號後，系統每天會自動抓最新收盤價來算「目前市值」（目前只支援台股上市股票）
+                {planDetail.currentPrice != null && planDetail.currentPriceUpdatedAt && (
+                  <> ・目前股價 {fmt(planDetail.currentPrice)}（{new Date(planDetail.currentPriceUpdatedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 更新）</>
+                )}
+              </span>
+            </div>
           </div>
 
           {/* 目標達成預估 */}
@@ -621,7 +664,17 @@ export default function InvestmentCalculatorPage() {
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">推估總資產</div>
                 <div className="text-xl font-bold text-indigo-600 mt-1">{fmt(last.assetValue)}</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">依逐月明細輸入的買進價格推算</div>
               </div>
+              {planDetail.stockCode && planDetail.currentPrice != null && (
+                <div className="bg-indigo-50/40 rounded-2xl p-5 border border-indigo-100 shadow-sm">
+                  <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">目前市值</div>
+                  <div className="text-xl font-bold text-indigo-700 mt-1">
+                    {fmt(last.holdingShares * planDetail.currentPrice + (isTwstock ? last.pendingDividendCash : last.cumulativeDividend))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">以 {planDetail.stockCode} 最新股價 {fmt(planDetail.currentPrice)} 即時計算</div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1031,11 +1084,20 @@ export default function InvestmentCalculatorPage() {
                   <p className="text-xs text-slate-400 mt-1.5">勾選這檔股票實際配息的月份，都不勾代表這檔不配息；建立後也可以在方案頁面裡再調整</p>
                 </div>
               )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">目標資產（選填）</label>
-                <input type="number" min="0" step="any" value={createForm.targetAmount}
-                  onChange={(e) => setCreateForm({ ...createForm, targetAmount: e.target.value })} placeholder="例如：1000000"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">股票代號（選填）</label>
+                  <input type="text" value={createForm.stockCode}
+                    onChange={(e) => setCreateForm({ ...createForm, stockCode: e.target.value })} placeholder="例如：00878"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                  <p className="text-xs text-slate-400 mt-1">填了會每天自動抓收盤價算目前市值（只支援台股上市）</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">目標資產（選填）</label>
+                  <input type="number" min="0" step="any" value={createForm.targetAmount}
+                    onChange={(e) => setCreateForm({ ...createForm, targetAmount: e.target.value })} placeholder="例如：1000000"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
+                </div>
               </div>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowCreateModal(false)}

@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   const {
     name, startYear, startMonth, years, targetAmount, dividendFrequency, mode,
     monthlyInvestment, fee, price, dividendPerShare, afterTaxRate,
-    startShares, shareIncrement, customPaymentMonths,
+    startShares, shareIncrement, customPaymentMonths, stockCode,
   } = await req.json();
 
   if (!name || !startYear || !startMonth) {
@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
       targetAmount: targetAmount !== undefined && targetAmount !== "" ? parseFloat(targetAmount) : null,
       dividendFrequency: frequency,
       customPaymentMonths: customMonths,
+      stockCode: stockCode && String(stockCode).trim() ? String(stockCode).trim() : null,
       mode: planMode,
       shareIncrement: planMode === "TWSTOCK" ? incrementVal : null,
       userId: session.user.id,
