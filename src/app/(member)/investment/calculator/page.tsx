@@ -122,6 +122,7 @@ export default function InvestmentCalculatorPage() {
   // 本地打字（只更新 rows state，不會重抓）不會觸發，欄位才不會每打一個字就被重設、失焦
   const [dataVersion, setDataVersion] = useState(0);
   const [refreshingPrice, setRefreshingPrice] = useState(false);
+  const [settingsExpanded, setSettingsExpanded] = useState(true);
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
@@ -540,7 +541,14 @@ export default function InvestmentCalculatorPage() {
       ) : (
         <>
           {/* 目標資產與配息頻率設定 */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm mb-6 space-y-3">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm mb-6">
+            <button type="button" onClick={() => setSettingsExpanded((v) => !v)}
+              className="w-full flex items-center justify-between px-5 py-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors rounded-2xl">
+              方案設定
+              <span className={`text-slate-400 transition-transform ${settingsExpanded ? "rotate-180" : ""}`}>▾</span>
+            </button>
+            {settingsExpanded && (
+            <div className="px-5 pb-5 space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
               <label className="text-sm font-medium text-slate-700">目標資產（選填）</label>
               <input type="number" min="0" step="any" value={targetInput}
@@ -607,6 +615,8 @@ export default function InvestmentCalculatorPage() {
                 )}
               </span>
             </div>
+            </div>
+            )}
           </div>
 
           {/* 目標達成預估 */}
