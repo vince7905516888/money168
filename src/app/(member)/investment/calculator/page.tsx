@@ -347,6 +347,7 @@ export default function InvestmentCalculatorPage() {
     let pendingDividendCash = 0; // TWSTOCK 專用：已經入帳、可以動用去加碼的配息現金（含零頭）
     let dividendInTransit = 0; // TWSTOCK 專用：這個月剛宣告、還要等下個月才會實際入帳的配息
     let prevAssetValue = 0; // TWSTOCK 專用：上個月的推估總資產，逐月累加用
+    let prevPendingDividendCash = 0; // TWSTOCK 專用：上個月的剩餘未投入配息，用來算這個月「新增」的部分（避免同一筆餘額被逐月重複相加而虛增）
     let cumulativeFee = 0; // 累計手續費，純紀錄用，不影響任何計算
     const list: ComputedRow[] = [];
     const target = planDetail?.targetAmount ?? 0;
@@ -405,19 +406,21 @@ export default function InvestmentCalculatorPage() {
       // 第一列的「起始持有金額」是直接指定那一列的推估總資產是多少（取代公式算出來的值，不是疊加上去），
       // 填 0 代表沒有手動指定、照公式用持有股數×價格＋剩餘未投入配息算。
       // TWSTOCK 從第二列開始，推估總資產＝上個月推估總資產＋這個月（計劃買進股數＋配息加碼股數）
-      // ×這個月買進價格＋這個月剩餘未投入配息－這個月手續費，逐月累加
+      // ×這個月買進價格＋這個月剩餘未投入配息「比上個月新增的部分」－這個月手續費，逐月累加
+      // （剩餘未投入配息是餘額不是這個月才多出來的錢，只能算差額，不能整包加，否則沒花掉的餘額會被逐月重複累加而虛增總資產）
       let assetValue: number;
       if (mode === "TWSTOCK") {
         if (idx === 0) {
           assetValue = startingAssetValue !== 0 ? startingAssetValue : (holdingShares * r.price + pendingDividendCash);
         } else {
-          assetValue = prevAssetValue + sharesBought * r.price + pendingDividendCash - r.fee;
+          assetValue = prevAssetValue + sharesBought * r.price + (pendingDividendCash - prevPendingDividendCash) - r.fee;
         }
       } else {
         // 美股版維持原本「每一列都加上起始持有金額」的簡單寫法（美股版沒有被回報這個問題）
         assetValue = holdingShares * r.price + cumulativeDividend + startingAssetValue;
       }
       prevAssetValue = assetValue;
+      prevPendingDividendCash = pendingDividendCash;
 
       cumulativeFee += r.fee;
 
@@ -593,7 +596,7 @@ export default function InvestmentCalculatorPage() {
                       <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
                       <th className="px-3 py-2.5 text-right font-semibold">本期配息</th>
                       <th className="px-3 py-2.5 text-right font-semibold">剩餘未投入配息</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有股數×買進價格＋剩餘未投入配息）。第二列開始：上月推估總資產＋(本月計劃買進股數＋配息加碼股數)×本月買進價格＋本月剩餘未投入配息－本月手續費">上月總資產＋買進股數×價格＋剩餘配息</span></th>
+                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有股數×買進價格＋剩餘未投入配息）。第二列開始：上月推估總資產＋(本月計劃買進股數＋配息加碼股數)×本月買進價格＋本月剩餘未投入配息比上月新增的部分－本月手續費">上月總資產＋買進股數×價格＋剩餘配息</span></th>
                       <th className="px-3 py-2.5"></th>
                     </tr>
                   </thead>
