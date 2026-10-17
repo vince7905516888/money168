@@ -8,7 +8,7 @@ import { authFetch } from "@/lib/api-fetch";
 // 買進股數／持有股數／實際配息／累計配息／推估總資產都是前端依序算出來的，不存進資料庫，
 // 改掉中間某一列的參數，後面所有月份的累計數字會自動跟著連動。
 
-type DividendFrequency = "MONTHLY" | "QUARTERLY_1" | "QUARTERLY_2" | "QUARTERLY_3";
+type DividendFrequency = "MONTHLY" | "QUARTERLY_1" | "QUARTERLY_2" | "QUARTERLY_3" | "CUSTOM";
 // USSTOCK：每月投入固定金額，股數隨價格換算，配息累積現金不自動買股
 // TWSTOCK：每月買進股數固定遞增，配息累積夠買 1 張（1000 股）的金額就自動加碼買股、零頭留到下個月
 type PlanMode = "USSTOCK" | "TWSTOCK";
@@ -33,6 +33,8 @@ interface PlanSummary {
   _count: { rows: number };
 }
 
+const MONTH_LABELS = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+
 interface PlanRow {
   id: string;
   year: number;
@@ -53,6 +55,7 @@ interface PlanDetail {
   name: string;
   targetAmount: number | null;
   dividendFrequency: DividendFrequency;
+  customPaymentMonths: number[];
   mode: PlanMode;
   shareIncrement: number | null;
   startingAssetValue: number;
@@ -89,6 +92,7 @@ const EMPTY_CREATE_FORM = {
   dividendPerShare: "0.6339",
   afterTaxRate: "70",
   dividendFrequency: "MONTHLY" as DividendFrequency,
+  customPaymentMonths: [] as number[],
   targetAmount: "",
   startShares: "2000",
   shareIncrement: "2000",
@@ -204,6 +208,19 @@ export default function InvestmentCalculatorPage() {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dividendFrequency: frequency }),
+    });
+  };
+
+  // 自訂配息月份（dividendFrequency="CUSTOM" 時用）：半年配、年配、不配息等非固定週期的定存股自己勾選配息月份
+  const toggleCustomMonth = async (month: number) => {
+    if (!planDetail) return;
+    const current = planDetail.customPaymentMonths ?? [];
+    const next = current.includes(month) ? current.filter((m) => m !== month) : [...current, month].sort((a, b) => a - b);
+    setPlanDetail({ ...planDetail, customPaymentMonths: next });
+    await authFetch(`/api/calculator-plans/${planDetail.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customPaymentMonths: next }),
     });
   };
 
@@ -363,7 +380,9 @@ export default function InvestmentCalculatorPage() {
 
     for (let idx = 0; idx < rows.length; idx++) {
       const r = rows[idx];
-      const isPaymentMonth = frequency === "MONTHLY" ? true : (QUARTERLY_MONTHS[frequency] ?? []).includes(r.month);
+      const isPaymentMonth = frequency === "MONTHLY" ? true
+        : frequency === "CUSTOM" ? (planDetail?.customPaymentMonths ?? []).includes(r.month)
+        : (QUARTERLY_MONTHS[frequency] ?? []).includes(r.month);
       // 這個月產生的配息：有手動覆蓋就用覆蓋值（例如對帳後的真實入帳金額），否則照公式算
       const dividend = r.dividendOverride != null ? r.dividendOverride : (isPaymentMonth ? holdingShares * r.dividendRate * r.afterTaxRate : 0);
       cumulativeDividend += dividend;
@@ -438,7 +457,7 @@ export default function InvestmentCalculatorPage() {
       if (!foundTarget && target > 0 && assetValue >= target) foundTarget = row;
     }
     return { computed: list, targetRow: foundTarget };
-  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice, planDetail?.allowOddLot]);
+  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.customPaymentMonths, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice, planDetail?.allowOddLot]);
 
   const last = computed[computed.length - 1];
   const isTwstock = planDetail?.mode === "TWSTOCK";
@@ -504,9 +523,28 @@ export default function InvestmentCalculatorPage() {
                 <option value="QUARTERLY_1">季配息（1、4、7、10 月）</option>
                 <option value="QUARTERLY_2">季配息（2、5、8、11 月）</option>
                 <option value="QUARTERLY_3">季配息（3、6、9、12 月）</option>
+                <option value="CUSTOM">自訂月份（半年配／年配／不配息）</option>
               </select>
               <span className="text-xs text-slate-400">季配息時，每股配息欄位代表「每次配息」的金額，只有落在配息月份的那一列才會實際入帳</span>
             </div>
+            {planDetail.dividendFrequency === "CUSTOM" && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="text-sm font-medium text-slate-700 shrink-0">配息月份</label>
+                <div className="flex flex-wrap gap-2">
+                  {MONTH_LABELS.map((label, i) => {
+                    const month = i + 1;
+                    const checked = (planDetail.customPaymentMonths ?? []).includes(month);
+                    return (
+                      <button key={month} type="button" onClick={() => toggleCustomMonth(month)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${checked ? "bg-indigo-600 border-indigo-600 text-white" : "border-slate-200 text-slate-500 hover:border-indigo-300"}`}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="text-xs text-slate-400">勾選這檔股票實際配息的月份，都不勾代表這檔不配息</span>
+              </div>
+            )}
             {isTwstock && (
               <div className="flex items-center gap-3 flex-wrap">
                 <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
@@ -965,9 +1003,34 @@ export default function InvestmentCalculatorPage() {
                     <option value="QUARTERLY_1">季配息（1、4、7、10 月）</option>
                     <option value="QUARTERLY_2">季配息（2、5、8、11 月）</option>
                     <option value="QUARTERLY_3">季配息（3、6、9、12 月）</option>
+                    <option value="CUSTOM">自訂月份（半年配／年配／不配息）</option>
                   </select>
                 </div>
               </div>
+              {createForm.dividendFrequency === "CUSTOM" && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">配息月份</label>
+                  <div className="flex flex-wrap gap-2">
+                    {MONTH_LABELS.map((label, i) => {
+                      const month = i + 1;
+                      const checked = createForm.customPaymentMonths.includes(month);
+                      return (
+                        <button key={month} type="button"
+                          onClick={() => setCreateForm({
+                            ...createForm,
+                            customPaymentMonths: checked
+                              ? createForm.customPaymentMonths.filter((m) => m !== month)
+                              : [...createForm.customPaymentMonths, month].sort((a, b) => a - b),
+                          })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${checked ? "bg-indigo-600 border-indigo-600 text-white" : "border-slate-200 text-slate-500 hover:border-indigo-300"}`}>
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1.5">勾選這檔股票實際配息的月份，都不勾代表這檔不配息；建立後也可以在方案頁面裡再調整</p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">目標資產（選填）</label>
                 <input type="number" min="0" step="any" value={createForm.targetAmount}

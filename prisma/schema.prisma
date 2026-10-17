@@ -223,7 +223,8 @@ model CalculatorPlan {
   id                String              @id @default(cuid())
   name              String
   targetAmount      Float?
-  dividendFrequency String              @default("MONTHLY") // "MONTHLY"（月配）或 "QUARTERLY_1"/"QUARTERLY_2"/"QUARTERLY_3"（季配，配息月份分別為1.4.7.10／2.5.8.11／3.6.9.12月）
+  dividendFrequency String              @default("MONTHLY") // "MONTHLY"（月配）或 "QUARTERLY_1"/"QUARTERLY_2"/"QUARTERLY_3"（季配，配息月份分別為1.4.7.10／2.5.8.11／3.6.9.12月）或 "CUSTOM"（自訂月份，給半年配／年配／不配息等非固定週期的定存股用）
+  customPaymentMonths Int[]            @default([]) // dividendFrequency="CUSTOM" 時，使用者自己勾選的配息月份（1~12），空陣列代表不配息
   // "USSTOCK"（固定每月投入金額，配息累積現金不自動買股）或 "TWSTOCK"
   // （每月買進股數固定遞增，配息累積夠買 1 股的金額就自動加碼買股、零頭留到下個月）
   mode              String              @default("USSTOCK")

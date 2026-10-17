@@ -22,14 +22,18 @@ export async function POST(req: NextRequest) {
   const {
     name, startYear, startMonth, years, targetAmount, dividendFrequency, mode,
     monthlyInvestment, fee, price, dividendPerShare, afterTaxRate,
-    startShares, shareIncrement,
+    startShares, shareIncrement, customPaymentMonths,
   } = await req.json();
 
   if (!name || !startYear || !startMonth) {
     return NextResponse.json({ error: "請填寫必要欄位" }, { status: 400 });
   }
-  const VALID_FREQUENCIES = ["MONTHLY", "QUARTERLY_1", "QUARTERLY_2", "QUARTERLY_3"];
+  const VALID_FREQUENCIES = ["MONTHLY", "QUARTERLY_1", "QUARTERLY_2", "QUARTERLY_3", "CUSTOM"];
   const frequency = VALID_FREQUENCIES.includes(dividendFrequency) ? dividendFrequency : "MONTHLY";
+  // 自訂配息月份：半年配、年配、不配息（空陣列）這類非固定週期的定存股用，只收 1~12 的整數
+  const customMonths = Array.isArray(customPaymentMonths)
+    ? [...new Set(customPaymentMonths.map((n: unknown) => parseInt(String(n))).filter((n: number) => n >= 1 && n <= 12))]
+    : [];
   const planMode = mode === "TWSTOCK" ? "TWSTOCK" : "USSTOCK";
   const monthCount = Math.max(1, Math.min(600, parseInt(years) || 10) * 12);
   const priceVal = parseFloat(price) || 0;
@@ -46,6 +50,7 @@ export async function POST(req: NextRequest) {
       name,
       targetAmount: targetAmount !== undefined && targetAmount !== "" ? parseFloat(targetAmount) : null,
       dividendFrequency: frequency,
+      customPaymentMonths: customMonths,
       mode: planMode,
       shareIncrement: planMode === "TWSTOCK" ? incrementVal : null,
       userId: session.user.id,
