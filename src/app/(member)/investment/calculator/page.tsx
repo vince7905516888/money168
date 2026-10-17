@@ -321,6 +321,7 @@ export default function InvestmentCalculatorPage() {
     let cumulativeInvestment = 0;
     let pendingDividendCash = 0; // TWSTOCK 專用：已經入帳、可以動用去加碼的配息現金（含零頭）
     let dividendInTransit = 0; // TWSTOCK 專用：這個月剛宣告、還要等下個月才會實際入帳的配息
+    let prevAssetValue = 0; // TWSTOCK 專用：上個月的推估總資產，逐月累加用
     let cumulativeFee = 0; // 累計手續費，純紀錄用，不影響任何計算
     const list: ComputedRow[] = [];
     const target = planDetail?.targetAmount ?? 0;
@@ -375,13 +376,20 @@ export default function InvestmentCalculatorPage() {
       if (idx === 0 && startingAvgPrice != null) cumulativeInvestment = startingAvgPrice * holdingShares;
       const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
       // 每一列都加上「開始試算前既有的持有金額」（只在第一列顯示可編輯，其他列自動帶著走）
-      // TWSTOCK 的推估總資產＝累計實際投入成本（含配息加碼買股的部分，用買進當月的價格，不會因為
-      // 之後價格變動被回頭重算）＋目前剩餘未投入配息。不能用「上個月總資產＋這個月剩餘未投入配息」
-      // 這種每月都把餘額整包加一次的寫法，餘額只要放著不動、沒拿去加碼，每個月都會被重複累加、
-      // 總資產會無緣無故一直膨脹；還沒入帳的配息（dividendInTransit）也還不算真正的資產，先不計入
-      const assetValue = (mode === "TWSTOCK"
-        ? cumulativeInvestment + pendingDividendCash
-        : holdingShares * r.price + cumulativeDividend) + startingAssetValue;
+      // TWSTOCK 從第二列開始，推估總資產＝上個月推估總資產＋這個月（計劃買進股數＋配息加碼股數）
+      // ×這個月買進價格＋這個月剩餘未投入配息，逐月累加；第一列（起始列）維持用持有股數×價格＋
+      // 剩餘未投入配息＋起始持有金額當基準
+      let assetValue: number;
+      if (mode === "TWSTOCK") {
+        if (idx === 0) {
+          assetValue = holdingShares * r.price + pendingDividendCash + startingAssetValue;
+        } else {
+          assetValue = prevAssetValue + sharesBought * r.price + pendingDividendCash;
+        }
+      } else {
+        assetValue = holdingShares * r.price + cumulativeDividend + startingAssetValue;
+      }
+      prevAssetValue = assetValue;
 
       cumulativeFee += r.fee;
 
