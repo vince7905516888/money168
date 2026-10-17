@@ -488,6 +488,12 @@ export default function InvestmentCalculatorPage() {
   }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.customPaymentMonths, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice, planDetail?.allowOddLot]);
 
   const last = computed[computed.length - 1];
+  // 目前市值要用「現在這個月」實際持有的股數算，不是表格最後一列（表格可能已經延伸到未來月份）；
+  // 找不到現在這個月（例如明細還沒延伸到現在）就退回表格最後一列當基準
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const currentMonthRow = computed.filter((r) => r.year < currentYear || (r.year === currentYear && r.month <= currentMonth)).pop() ?? last;
   const isTwstock = planDetail?.mode === "TWSTOCK";
   // 累計投入本金：美股版是每月投入金額加總；台股版沒有「投入金額」這個欄位，
   // 改用最後一列的「持股均價 × 持股數」反推累計實際花掉的錢（含配息加碼買的部分）
@@ -668,15 +674,32 @@ export default function InvestmentCalculatorPage() {
                 <div className="text-xl font-bold text-indigo-600 mt-1">{fmt(last.assetValue)}</div>
                 <div className="text-[11px] text-slate-400 mt-0.5">依逐月明細輸入的買進價格推算</div>
               </div>
-              {planDetail.stockCode && planDetail.currentPrice != null && (
-                <div className="bg-indigo-50/40 rounded-2xl p-5 border border-indigo-100 shadow-sm">
-                  <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">目前市值</div>
-                  <div className="text-xl font-bold text-indigo-700 mt-1">
-                    {fmt(last.holdingShares * planDetail.currentPrice + (isTwstock ? last.pendingDividendCash : last.cumulativeDividend))}
-                  </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">以 {planDetail.stockCode} 最新股價 {fmtPrice(planDetail.currentPrice)} 即時計算</div>
-                </div>
-              )}
+              {planDetail.stockCode && planDetail.currentPrice != null && (() => {
+                const marketValue = currentMonthRow.holdingShares * planDetail.currentPrice
+                  + (isTwstock ? currentMonthRow.pendingDividendCash : currentMonthRow.cumulativeDividend);
+                const costBasis = currentMonthRow.avgPrice * currentMonthRow.holdingShares;
+                const pnl = marketValue - costBasis;
+                const pnlPercent = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
+                return (
+                  <>
+                    <div className="bg-indigo-50/40 rounded-2xl p-5 border border-indigo-100 shadow-sm">
+                      <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">目前市值</div>
+                      <div className="text-xl font-bold text-indigo-700 mt-1">{fmt(marketValue)}</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {currentMonthRow.year} 年 {currentMonthRow.month} 月持股 {fmtQty(currentMonthRow.holdingShares)} 股 × {planDetail.stockCode} 最新股價 {fmtPrice(planDetail.currentPrice)}
+                      </div>
+                    </div>
+                    <div className={`rounded-2xl p-5 border shadow-sm ${pnl >= 0 ? "bg-rose-50/40 border-rose-100" : "bg-emerald-50/40 border-emerald-100"}`}>
+                      <div className={`text-xs font-semibold uppercase tracking-wider mb-1 ${pnl >= 0 ? "text-rose-500" : "text-emerald-500"}`}>目前持有盈虧</div>
+                      <div className={`text-xl font-bold mt-1 ${pnl >= 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                        {pnl >= 0 ? "+" : ""}{fmt(pnl)}
+                        <span className="text-sm font-medium ml-1.5">（{pnl >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%）</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">目前市值－累計投入成本 {fmt(costBasis)}</div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
