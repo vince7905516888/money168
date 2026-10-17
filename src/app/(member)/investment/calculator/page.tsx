@@ -375,18 +375,19 @@ export default function InvestmentCalculatorPage() {
       // 第一列可以手動指定「開始試算前既有持股的均價」當基準，之後月份接著這個基準往下算
       if (idx === 0 && startingAvgPrice != null) cumulativeInvestment = startingAvgPrice * holdingShares;
       const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
-      // 每一列都加上「開始試算前既有的持有金額」（只在第一列顯示可編輯，其他列自動帶著走）
+      // 第一列的「起始持有金額」是直接指定那一列的推估總資產是多少（取代公式算出來的值，不是疊加上去），
+      // 填 0 代表沒有手動指定、照公式用持有股數×價格＋剩餘未投入配息算。
       // TWSTOCK 從第二列開始，推估總資產＝上個月推估總資產＋這個月（計劃買進股數＋配息加碼股數）
-      // ×這個月買進價格＋這個月剩餘未投入配息，逐月累加；第一列（起始列）維持用持有股數×價格＋
-      // 剩餘未投入配息＋起始持有金額當基準
+      // ×這個月買進價格＋這個月剩餘未投入配息，逐月累加
       let assetValue: number;
       if (mode === "TWSTOCK") {
         if (idx === 0) {
-          assetValue = holdingShares * r.price + pendingDividendCash + startingAssetValue;
+          assetValue = startingAssetValue !== 0 ? startingAssetValue : (holdingShares * r.price + pendingDividendCash);
         } else {
           assetValue = prevAssetValue + sharesBought * r.price + pendingDividendCash;
         }
       } else {
+        // 美股版維持原本「每一列都加上起始持有金額」的簡單寫法（美股版沒有被回報這個問題）
         assetValue = holdingShares * r.price + cumulativeDividend + startingAssetValue;
       }
       prevAssetValue = assetValue;
@@ -649,7 +650,7 @@ export default function InvestmentCalculatorPage() {
                         <td className="px-1 py-1 text-right text-indigo-600 font-semibold">
                           {i === 0 ? (
                             <input type="number" step="any" defaultValue={planDetail.startingAssetValue}
-                              title="開始試算前既有的持有金額，會加到每一列的推估總資產裡"
+                              title="直接指定這一列(起始列)的推估總資產是多少，會取代公式算出來的值，不是疊加上去；填 0 代表不手動指定、照公式算"
                               onBlur={(e) => saveStartingAssetValue(e.target.value)}
                               className={`w-24 text-right px-2 py-1 border rounded text-sm font-semibold ${planDetail.startingAssetValue !== 0 ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
                           ) : fmt(r.assetValue)}
