@@ -58,6 +58,7 @@ interface PlanDetail {
   startingAssetValue: number;
   startingAvgPrice: number | null;
   feeNote: string | null;
+  allowOddLot: boolean;
   rows: PlanRow[];
 }
 
@@ -240,6 +241,17 @@ export default function InvestmentCalculatorPage() {
     });
   };
 
+  // TWSTOCK 專用：配息加碼是否允許零股（剩餘配息不夠買滿 1 張也能買）
+  const saveAllowOddLot = async (checked: boolean) => {
+    if (!planDetail) return;
+    setPlanDetail({ ...planDetail, allowOddLot: checked });
+    await authFetch(`/api/calculator-plans/${planDetail.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowOddLot: checked }),
+    });
+  };
+
   // 本地先更新畫面（打字流暢），失去焦點時才存檔，避免每打一個字就打一次 API
   const updateLocalRow = (rowId: string, field: keyof PlanRow, value: string) => {
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, [field]: parseFloat(value) || 0 } : r)));
@@ -343,6 +355,8 @@ export default function InvestmentCalculatorPage() {
 
     const startingAssetValue = planDetail?.startingAssetValue ?? 0;
     const startingAvgPrice = planDetail?.startingAvgPrice ?? null;
+    // 允許零股時以 1 股為單位，剩餘配息夠買幾股就買幾股；否則維持滿 1 張（1,000 股）才加碼
+    const dividendLotSize = planDetail?.allowOddLot ? 1 : DIVIDEND_REINVEST_LOT_SIZE;
 
     for (let idx = 0; idx < rows.length; idx++) {
       const r = rows[idx];
@@ -366,9 +380,9 @@ export default function InvestmentCalculatorPage() {
           dividendSharesCost = r.dividendPurchaseOverride;
           dividendShares = r.price > 0 ? dividendSharesCost / r.price : 0;
         } else if (r.price > 0) {
-          const lotCost = r.price * DIVIDEND_REINVEST_LOT_SIZE;
+          const lotCost = r.price * dividendLotSize;
           const lots = Math.floor(pendingDividendCash / lotCost);
-          dividendShares = lots * DIVIDEND_REINVEST_LOT_SIZE;
+          dividendShares = lots * dividendLotSize;
           dividendSharesCost = dividendShares * r.price;
         }
         pendingDividendCash -= dividendSharesCost;
@@ -415,7 +429,7 @@ export default function InvestmentCalculatorPage() {
       if (!foundTarget && target > 0 && assetValue >= target) foundTarget = row;
     }
     return { computed: list, targetRow: foundTarget };
-  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice]);
+  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice, planDetail?.allowOddLot]);
 
   const last = computed[computed.length - 1];
   const isTwstock = planDetail?.mode === "TWSTOCK";
@@ -484,6 +498,17 @@ export default function InvestmentCalculatorPage() {
               </select>
               <span className="text-xs text-slate-400">季配息時，每股配息欄位代表「每次配息」的金額，只有落在配息月份的那一列才會實際入帳</span>
             </div>
+            {isTwstock && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                  <input type="checkbox" checked={planDetail.allowOddLot}
+                    onChange={(e) => saveAllowOddLot(e.target.checked)}
+                    className="w-4 h-4 accent-indigo-500" />
+                  配息加碼允許買零股
+                </label>
+                <span className="text-xs text-slate-400">預設關閉：剩餘未投入配息要湊到滿 1 張（1,000 股）才會自動加碼；打勾後剩餘配息不管多少，夠買幾股就買幾股</span>
+              </div>
+            )}
           </div>
 
           {/* 目標達成預估 */}
