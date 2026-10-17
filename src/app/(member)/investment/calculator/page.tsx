@@ -126,6 +126,8 @@ export default function InvestmentCalculatorPage() {
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
   const fmtQty = (n: number) => new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 4 }).format(n);
+  const fmtPrice = (n: number) =>
+    new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
   const fetchPlans = useCallback(async () => {
     setLoadingPlans(true);
@@ -595,7 +597,7 @@ export default function InvestmentCalculatorPage() {
               <span className="text-xs text-slate-400">
                 填了股票代號後，系統每天會自動抓最新收盤價來算「目前市值」（目前只支援台股上市股票）
                 {planDetail.currentPrice != null && planDetail.currentPriceUpdatedAt && (
-                  <> ・目前股價 {fmt(planDetail.currentPrice)}（{new Date(planDetail.currentPriceUpdatedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 更新）</>
+                  <> ・目前股價 {fmtPrice(planDetail.currentPrice)}（{new Date(planDetail.currentPriceUpdatedAt).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 更新）</>
                 )}
               </span>
             </div>
@@ -672,7 +674,7 @@ export default function InvestmentCalculatorPage() {
                   <div className="text-xl font-bold text-indigo-700 mt-1">
                     {fmt(last.holdingShares * planDetail.currentPrice + (isTwstock ? last.pendingDividendCash : last.cumulativeDividend))}
                   </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">以 {planDetail.stockCode} 最新股價 {fmt(planDetail.currentPrice)} 即時計算</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">以 {planDetail.stockCode} 最新股價 {fmtPrice(planDetail.currentPrice)} 即時計算</div>
                 </div>
               )}
             </div>
