@@ -57,6 +57,7 @@ interface PlanDetail {
   shareIncrement: number | null;
   startingAssetValue: number;
   startingAvgPrice: number | null;
+  feeNote: string | null;
   rows: PlanRow[];
 }
 
@@ -224,6 +225,18 @@ export default function InvestmentCalculatorPage() {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ startingAvgPrice: num }),
+    });
+  };
+
+  // 「累計手續費」卡片下方的小字說明，使用者可自行輸入，留空則顯示預設文字
+  const saveFeeNote = async (value: string) => {
+    if (!planDetail) return;
+    const note = value === "" ? null : value;
+    setPlanDetail({ ...planDetail, feeNote: note });
+    await authFetch(`/api/calculator-plans/${planDetail.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feeNote: note }),
     });
   };
 
@@ -513,7 +526,10 @@ export default function InvestmentCalculatorPage() {
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">累計手續費</div>
                 <div className="text-xl font-bold text-slate-500 mt-1">{fmt(last.cumulativeFee)}</div>
-                <div className="text-[11px] text-slate-400 mt-0.5">{isTwstock ? "不包含手續費" : "純紀錄，不影響任何計算"}</div>
+                <input key={`feeNote-${dataVersion}`} type="text" defaultValue={planDetail.feeNote ?? ""}
+                  placeholder={isTwstock ? "不包含手續費" : "純紀錄，不影響任何計算"}
+                  onBlur={(e) => saveFeeNote(e.target.value)}
+                  className="w-full mt-0.5 text-[11px] text-slate-400 placeholder:text-slate-400 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded px-1 -mx-1 bg-transparent" />
               </div>
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">推估總資產</div>

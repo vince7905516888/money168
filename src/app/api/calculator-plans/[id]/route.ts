@@ -27,7 +27,7 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const { id } = await params;
-  const { name, targetAmount, dividendFrequency, startingAssetValue, startingAvgPrice } = await req.json();
+  const { name, targetAmount, dividendFrequency, startingAssetValue, startingAvgPrice, feeNote } = await req.json();
 
   const existing = await prisma.calculatorPlan.findFirst({ where: { id, userId: session.user.id } });
   if (!existing) return NextResponse.json({ error: "找不到方案" }, { status: 404 });
@@ -45,6 +45,7 @@ export async function PUT(
       ...(dividendFrequency !== undefined ? { dividendFrequency } : {}),
       ...(startingAssetValue !== undefined && startingAssetValue !== "" ? { startingAssetValue: parseFloat(startingAssetValue) || 0 } : {}),
       ...(startingAvgPrice !== undefined ? { startingAvgPrice: startingAvgPrice === "" || startingAvgPrice === null ? null : parseFloat(startingAvgPrice) } : {}),
+      ...(feeNote !== undefined ? { feeNote: feeNote === "" ? null : feeNote } : {}),
     },
   });
 
