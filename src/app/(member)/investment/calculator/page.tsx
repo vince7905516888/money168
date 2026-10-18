@@ -64,6 +64,7 @@ interface PlanDetail {
   feeNote: string | null;
   allowOddLot: boolean;
   minPurchaseAmount: number;
+  purchaseStepAmount: number;
   stockCode: string | null;
   currentPrice: number | null;
   currentPriceUpdatedAt: string | null;
@@ -313,6 +314,18 @@ export default function InvestmentCalculatorPage() {
     });
   };
 
+  // FUND 專用：超過最低金額後，申購金額只能以這個單位遞增，0 代表沒有限制
+  const savePurchaseStepAmount = async (value: string) => {
+    if (!planDetail) return;
+    const num = parseFloat(value) || 0;
+    setPlanDetail({ ...planDetail, purchaseStepAmount: num });
+    await authFetch(`/api/calculator-plans/${planDetail.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ purchaseStepAmount: num }),
+    });
+  };
+
   // 本地先更新畫面（打字流暢），失去焦點時才存檔，避免每打一個字就打一次 API
   const updateLocalRow = (rowId: string, field: keyof PlanRow, value: string) => {
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, [field]: parseFloat(value) || 0 } : r)));
@@ -453,11 +466,17 @@ export default function InvestmentCalculatorPage() {
         } else if (r.price > 0) {
           if (mode === "FUND") {
             // 基金可以買到小數單位，不用像台股湊整張；但單筆申購通常有最低金額限制，
-            // 沒湊到這個金額基金公司不會受理，所以沒到門檻就繼續留到下個月累積
+            // 沒湊到這個金額基金公司不會受理，所以沒到門檻就繼續留到下個月累積。
+            // 超過最低金額之後，有些基金只能以固定單位遞增申購（例如最低4萬、之後只能多1000的倍數），
+            // 不是剩餘配息現金有多少就能照實際金額申購，多出來湊不滿一個遞增單位的零頭留到下個月
             const minPurchase = planDetail?.minPurchaseAmount ?? 0;
+            const step = planDetail?.purchaseStepAmount ?? 0;
             if (pendingDividendCash >= minPurchase) {
-              dividendShares = pendingDividendCash / r.price;
-              dividendSharesCost = pendingDividendCash;
+              const investAmount = step > 0
+                ? minPurchase + Math.floor((pendingDividendCash - minPurchase) / step) * step
+                : pendingDividendCash;
+              dividendShares = investAmount / r.price;
+              dividendSharesCost = investAmount;
             }
           } else {
             // 台股版：配息累積夠買 1000 股（1 張，或允許零股時 1 股）的金額才自動加碼，零頭留到下個月
@@ -517,7 +536,7 @@ export default function InvestmentCalculatorPage() {
       if (!foundTarget && target > 0 && assetValue >= target) foundTarget = row;
     }
     return { computed: list, targetRow: foundTarget };
-  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.customPaymentMonths, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice, planDetail?.allowOddLot, planDetail?.minPurchaseAmount]);
+  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.customPaymentMonths, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice, planDetail?.allowOddLot, planDetail?.minPurchaseAmount, planDetail?.purchaseStepAmount]);
 
   const last = computed[computed.length - 1];
   // 目前市值要用「現在這個月」實際持有的股數算，不是表格最後一列（表格可能已經延伸到未來月份）；
@@ -640,6 +659,16 @@ export default function InvestmentCalculatorPage() {
                   onBlur={(e) => saveMinPurchaseAmount(e.target.value)}
                   className="w-32 border border-slate-200 rounded-lg px-3.5 py-2 text-sm focus:border-indigo-400 transition-colors" />
                 <span className="text-xs text-slate-400">基金單筆申購通常有最低金額限制，剩餘未投入配息沒湊到這個金額就不會自動買，留到下個月繼續累積；留空或 0 代表沒有限制</span>
+              </div>
+            )}
+            {isFund && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="text-sm font-medium text-slate-700">配息再投入金額遞增單位（選填）</label>
+                <input key={`purchaseStep-${dataVersion}`} type="number" min="0" step="any" defaultValue={planDetail.purchaseStepAmount || ""}
+                  placeholder="例如：1000"
+                  onBlur={(e) => savePurchaseStepAmount(e.target.value)}
+                  className="w-32 border border-slate-200 rounded-lg px-3.5 py-2 text-sm focus:border-indigo-400 transition-colors" />
+                <span className="text-xs text-slate-400">超過最低金額之後，申購金額只能以這個單位遞增（例如最低 4 萬、之後只能多 1,000 的倍數），多出來湊不滿一個單位的零頭會留到下個月；留空或 0 代表沒有限制</span>
               </div>
             )}
             <div className="flex items-center gap-3 flex-wrap">

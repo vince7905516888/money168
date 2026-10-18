@@ -234,6 +234,7 @@ model CalculatorPlan {
   feeNote           String? // 「累計手續費」卡片下方的小字說明，使用者可自行輸入，留空則用預設文字
   allowOddLot       Boolean             @default(false) // TWSTOCK 專用：配息加碼是否允許零股（剩餘配息不夠買滿 1 張也能買），預設關閉（維持滿 1 張才加碼）
   minPurchaseAmount Float               @default(0) // FUND 專用：配息再投入買基金的單筆最低金額限制，剩餘未投入配息沒湊到這個金額就不會自動買、留到下個月繼續累積；0 代表沒有限制
+  purchaseStepAmount Float              @default(0) // FUND 專用：超過最低金額之後，申購金額只能以這個單位遞增（例如最低4萬、每次只能多1000的倍數），實際投入金額會無條件捨去到符合條件的最大金額，多出來的零頭留到下個月；0 代表沒有限制
   stockCode         String? // 股票代號（選填），填了之後背景排程會每天自動抓最新收盤價，用來算「目前市值」
   currentPrice      Float? // 最近一次抓到的股價（見 lib/calculator-price-refresh.ts）
   currentPriceUpdatedAt DateTime? // currentPrice 最後更新時間
