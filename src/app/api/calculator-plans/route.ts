@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   const customMonths = Array.isArray(customPaymentMonths)
     ? [...new Set(customPaymentMonths.map((n: unknown) => parseInt(String(n))).filter((n: number) => n >= 1 && n <= 12))]
     : [];
-  const planMode = mode === "TWSTOCK" ? "TWSTOCK" : "USSTOCK";
+  const planMode = mode === "TWSTOCK" ? "TWSTOCK" : mode === "FUND" ? "FUND" : "USSTOCK";
   const monthCount = Math.max(1, Math.min(600, parseInt(years) || 10) * 12);
   const priceVal = parseFloat(price) || 0;
   const dividendRate = parseFloat(dividendPerShare) || 0;

@@ -11,7 +11,8 @@ import { authFetch } from "@/lib/api-fetch";
 type DividendFrequency = "MONTHLY" | "QUARTERLY_1" | "QUARTERLY_2" | "QUARTERLY_3" | "CUSTOM";
 // USSTOCK：每月投入固定金額，股數隨價格換算，配息累積現金不自動買股
 // TWSTOCK：每月買進股數固定遞增，配息累積夠買 1 張（1000 股）的金額就自動加碼買股、零頭留到下個月
-type PlanMode = "USSTOCK" | "TWSTOCK";
+// FUND：每月投入固定金額（像 USSTOCK），但配息會自動滾入買更多單位，而且可以買到小數單位（不像台股要湊整張）
+type PlanMode = "USSTOCK" | "TWSTOCK" | "FUND";
 
 // 季配息三種常見週期：配息月份分別落在 1.4.7.10 / 2.5.8.11 / 3.6.9.12 月
 const QUARTERLY_MONTHS: Record<string, number[]> = {
@@ -80,7 +81,7 @@ interface ComputedRow extends PlanRow {
   isPaymentMonth: boolean;
   avgPrice: number; // 累計持股均價＝累計實際投入金額 ÷ 累計持股數
   cumulativeFee: number; // 累計手續費，純紀錄用，不影響任何計算
-  actualPrincipal: number; // TWSTOCK：實際累計投入本金＝只算自己掏錢買的部分（本月計劃買進股數×買進價格），不含配息加碼買的部分
+  actualPrincipal: number; // TWSTOCK／FUND：實際累計投入本金＝只算自己掏錢買的部分（本月計劃買進股數或投入金額），不含配息加碼買的部分
 }
 
 const EMPTY_CREATE_FORM = {
@@ -323,7 +324,7 @@ export default function InvestmentCalculatorPage() {
   // 不影響這一列本身跟之前的月份，用來反映「薪水變多/股價假設調整後，之後每個月都改用新數字」
   const applyForward = async (row: PlanRow, field: "investment" | "price" | "sharesToBuy" | "fee", value: number) => {
     if (!planDetail) return;
-    const fieldLabel = field === "investment" ? "每月投入金額" : field === "price" ? "買進價格" : field === "fee" ? "手續費" : "本月計劃買進股數";
+    const fieldLabel = field === "investment" ? "每月投入金額" : field === "price" ? (isFund ? "基金淨值" : "買進價格") : field === "fee" ? "手續費" : "本月計劃買進股數";
     if (!confirm(`確定要把 ${row.year} 年 ${row.month} 月之後的「${fieldLabel}」都改成 ${value}？`)) return;
     const res = await authFetch(`/api/calculator-plans/${planDetail.id}/bulk-update`, {
       method: "POST",
@@ -419,10 +420,11 @@ export default function InvestmentCalculatorPage() {
       let sharesBought: number;
       let dividendShares = 0;
       let dividendSharesCost = 0;
-      if (mode === "TWSTOCK") {
-        // 台股版：這個月固定計劃買進的股數（不隨價格變動），配息累積夠買 1000 股（1 張）的金額
-        // 才自動加碼、而且只能整張買，零頭留到下個月（還原原本「1 張」為單位的加碼邏輯）
-        const planned = r.sharesToBuy ?? 0;
+      if (mode === "TWSTOCK" || mode === "FUND") {
+        // 台股版：這個月固定計劃買進的股數（不隨價格變動）；基金版：這個月固定投入金額（扣手續費）÷ 淨值算出單位數
+        const planned = mode === "TWSTOCK"
+          ? (r.sharesToBuy ?? 0)
+          : (r.price > 0 ? Math.max(0, r.investment - r.fee) / r.price : 0);
         // 配息是隔一個月才實際入帳：上個月宣告的這個月才能動用，這個月剛宣告的要留到下個月
         pendingDividendCash += dividendInTransit;
         dividendInTransit = dividend;
@@ -431,14 +433,21 @@ export default function InvestmentCalculatorPage() {
           dividendSharesCost = r.dividendPurchaseOverride;
           dividendShares = r.price > 0 ? dividendSharesCost / r.price : 0;
         } else if (r.price > 0) {
-          const lotCost = r.price * dividendLotSize;
-          const lots = Math.floor(pendingDividendCash / lotCost);
-          dividendShares = lots * dividendLotSize;
-          dividendSharesCost = dividendShares * r.price;
+          if (mode === "FUND") {
+            // 基金可以買到小數單位，不用像台股湊整張，剩餘配息現金有多少就全部拿去買
+            dividendShares = pendingDividendCash / r.price;
+            dividendSharesCost = pendingDividendCash;
+          } else {
+            // 台股版：配息累積夠買 1000 股（1 張，或允許零股時 1 股）的金額才自動加碼，零頭留到下個月
+            const lotCost = r.price * dividendLotSize;
+            const lots = Math.floor(pendingDividendCash / lotCost);
+            dividendShares = lots * dividendLotSize;
+            dividendSharesCost = dividendShares * r.price;
+          }
         }
         pendingDividendCash -= dividendSharesCost;
         sharesBought = planned + dividendShares;
-        cumulativePrincipal += planned * r.price;
+        cumulativePrincipal += mode === "TWSTOCK" ? planned * r.price : r.investment;
       } else {
         // 美股版：每月投入固定金額（扣手續費）÷ 買進價格，配息不自動買股、單純累積現金
         sharesBought = r.price > 0 ? Math.max(0, r.investment - r.fee) / r.price : 0;
@@ -449,8 +458,8 @@ export default function InvestmentCalculatorPage() {
       const naturalHolding = holdingShares + sharesBought;
       holdingShares = r.holdingSharesOverride != null ? r.holdingSharesOverride : naturalHolding;
 
-      // 累計投入成本：台股版的配息加碼也是真金白銀買進股票，一樣算進投入成本
-      cumulativeInvestment += mode === "TWSTOCK" ? sharesBought * r.price : r.investment;
+      // 累計投入成本：台股版／基金版的配息加碼也是真金白銀買進股票（單位），一樣算進投入成本
+      cumulativeInvestment += (mode === "TWSTOCK" || mode === "FUND") ? sharesBought * r.price : r.investment;
       // 第一列可以手動指定「開始試算前既有持股的均價」當基準，之後月份接著這個基準往下算
       if (idx === 0 && startingAvgPrice != null) {
         cumulativeInvestment = startingAvgPrice * holdingShares;
@@ -463,7 +472,7 @@ export default function InvestmentCalculatorPage() {
       // ×這個月買進價格＋這個月剩餘未投入配息「比上個月新增的部分」－這個月手續費，逐月累加
       // （剩餘未投入配息是餘額不是這個月才多出來的錢，只能算差額，不能整包加，否則沒花掉的餘額會被逐月重複累加而虛增總資產）
       let assetValue: number;
-      if (mode === "TWSTOCK") {
+      if (mode === "TWSTOCK" || mode === "FUND") {
         if (idx === 0) {
           assetValue = startingAssetValue !== 0 ? startingAssetValue : (holdingShares * r.price + pendingDividendCash);
         } else {
@@ -496,9 +505,12 @@ export default function InvestmentCalculatorPage() {
   const currentMonth = now.getMonth() + 1;
   const currentMonthRow = computed.filter((r) => r.year < currentYear || (r.year === currentYear && r.month <= currentMonth)).pop() ?? last;
   const isTwstock = planDetail?.mode === "TWSTOCK";
-  // 累計投入本金：美股版是每月投入金額加總；台股版沒有「投入金額」這個欄位，
+  const isFund = planDetail?.mode === "FUND";
+  // 台股版／基金版都有配息自動再投入，共用同一套「累計投入本金含配息再投入」「剩餘未投入配息」等卡片
+  const showsReinvestMetrics = isTwstock || isFund;
+  // 累計投入本金：美股版是每月投入金額加總；台股版／基金版沒有「投入金額」這個欄位（或投入金額跟配息買的混在一起），
   // 改用最後一列的「持股均價 × 持股數」反推累計實際花掉的錢（含配息加碼買的部分）
-  const totalPrincipal = isTwstock
+  const totalPrincipal = showsReinvestMetrics
     ? (last ? last.avgPrice * last.holdingShares : 0)
     : rows.reduce((s, r) => s + r.investment, 0);
 
@@ -521,7 +533,7 @@ export default function InvestmentCalculatorPage() {
           <label className="text-sm font-medium text-slate-600">試算方案</label>
           <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white min-w-[200px]">
-            {plans.map((p) => <option key={p.id} value={p.id}>{p.name}（{p.mode === "TWSTOCK" ? "台股版" : "美股版"} · {p._count.rows} 個月）</option>)}
+            {plans.map((p) => <option key={p.id} value={p.id}>{p.name}（{p.mode === "TWSTOCK" ? "台股版" : p.mode === "FUND" ? "基金版" : "美股版"} · {p._count.rows} 個月）</option>)}
           </select>
           {planDetail && (
             <button onClick={handleDeletePlan} className="text-xs text-red-500 hover:underline">刪除此方案</button>
@@ -645,22 +657,22 @@ export default function InvestmentCalculatorPage() {
           {last && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">目前累計持股</div>
-                <div className="text-xl font-bold text-slate-900 mt-1">{fmtQty(last.holdingShares)} 股</div>
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">{isFund ? "目前累計單位數" : "目前累計持股"}</div>
+                <div className="text-xl font-bold text-slate-900 mt-1">{fmtQty(last.holdingShares)} {isFund ? "單位" : "股"}</div>
               </div>
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">累計投入本金</div>
                 <div className="text-xl font-bold text-slate-900 mt-1">{fmt(totalPrincipal)}</div>
-                {isTwstock && <div className="text-[11px] text-slate-400 mt-0.5">含配息再投入買的部分</div>}
+                {showsReinvestMetrics && <div className="text-[11px] text-slate-400 mt-0.5">含配息再投入買的部分</div>}
               </div>
-              {isTwstock && (
+              {showsReinvestMetrics && (
                 <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                   <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">實際累計投入本金</div>
                   <div className="text-xl font-bold text-slate-900 mt-1">{fmt(last.actualPrincipal)}</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">不含配息再投入買的部分</div>
                 </div>
               )}
-              {isTwstock && (
+              {showsReinvestMetrics && (
                 <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                   <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">累積配息金額</div>
                   <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(last.cumulativeDividend)}</div>
@@ -668,14 +680,14 @@ export default function InvestmentCalculatorPage() {
                 </div>
               )}
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-                <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">{isTwstock ? "剩餘未投入配息" : "累計配息現金"}</div>
-                <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(isTwstock ? last.pendingDividendCash : last.cumulativeDividend)}</div>
+                <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">{showsReinvestMetrics ? "剩餘未投入配息" : "累計配息現金"}</div>
+                <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(showsReinvestMetrics ? last.pendingDividendCash : last.cumulativeDividend)}</div>
               </div>
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">累計手續費</div>
                 <div className="text-xl font-bold text-slate-500 mt-1">{fmt(last.cumulativeFee)}</div>
                 <input key={`feeNote-${dataVersion}`} type="text" defaultValue={planDetail.feeNote ?? ""}
-                  placeholder={isTwstock ? "不包含手續費" : "純紀錄，不影響任何計算"}
+                  placeholder={showsReinvestMetrics ? "不包含手續費" : "純紀錄，不影響任何計算"}
                   onBlur={(e) => saveFeeNote(e.target.value)}
                   className="w-full mt-0.5 text-[11px] text-slate-400 placeholder:text-slate-400 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded px-1 -mx-1 bg-transparent" />
               </div>
@@ -686,7 +698,7 @@ export default function InvestmentCalculatorPage() {
               </div>
               {planDetail.stockCode && planDetail.currentPrice != null && (() => {
                 const marketValue = currentMonthRow.holdingShares * planDetail.currentPrice
-                  + (isTwstock ? currentMonthRow.pendingDividendCash : currentMonthRow.cumulativeDividend);
+                  + (showsReinvestMetrics ? currentMonthRow.pendingDividendCash : currentMonthRow.cumulativeDividend);
                 const costBasis = currentMonthRow.avgPrice * currentMonthRow.holdingShares;
                 const pnl = marketValue - costBasis;
                 const pnlPercent = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
@@ -696,7 +708,7 @@ export default function InvestmentCalculatorPage() {
                       <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">目前市值</div>
                       <div className="text-xl font-bold text-indigo-700 mt-1">{fmt(marketValue)}</div>
                       <div className="text-[11px] text-slate-400 mt-0.5">
-                        {currentMonthRow.year} 年 {currentMonthRow.month} 月持股 {fmtQty(currentMonthRow.holdingShares)} 股 × {planDetail.stockCode} 最新股價 {fmtPrice(planDetail.currentPrice)}
+                        {currentMonthRow.year} 年 {currentMonthRow.month} 月持{isFund ? "有" : "股"} {fmtQty(currentMonthRow.holdingShares)} {isFund ? "單位" : "股"} × {planDetail.stockCode} 最新{isFund ? "淨值" : "股價"} {fmtPrice(planDetail.currentPrice)}
                       </div>
                     </div>
                     <div className={`rounded-2xl p-5 border shadow-sm ${pnl >= 0 ? "bg-rose-50/40 border-rose-100" : "bg-emerald-50/40 border-emerald-100"}`}>
@@ -814,6 +826,139 @@ export default function InvestmentCalculatorPage() {
                           <input key={`${r.id}-${dataVersion}`} type="number" step="any"
                             defaultValue={r.dividendPurchaseOverride ?? ""} placeholder={r.dividendSharesCost > 0 ? fmtQty(r.dividendSharesCost) : "0"}
                             title="留空＝照「滿1張才加碼」公式算；填金額＝改成手動指定的配息購買金額，會連動換算配息加碼股數"
+                            onChange={(e) => updateLocalOverride(r.id, "dividendPurchaseOverride", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.dividendPurchaseOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
+                        <td className="px-1 py-1">
+                          {r.isPaymentMonth ? (
+                            <input key={`${r.id}-${dataVersion}`} type="number" step="any" defaultValue={r.dividendRate}
+                              onChange={(e) => updateLocalRow(r.id, "dividendRate", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                          ) : (
+                            <div className="w-16 text-right px-2 py-1 text-slate-300 text-sm" title="這個月不是配息月">—</div>
+                          )}
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-${dataVersion}`} type="number" step="any" min="0" max="100" defaultValue={r.afterTaxRate * 100}
+                            onChange={(e) => updateLocalRow(r.id, "afterTaxRate", String((parseFloat(e.target.value) || 0) / 100))}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className="w-14 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-${dataVersion}`} type="number" step="any"
+                            defaultValue={r.dividendOverride ?? ""} placeholder={fmtQty(r.dividend)}
+                            title="留空＝照公式自動算；填數字＝改成手動指定的真實配息金額"
+                            onChange={(e) => updateLocalOverride(r.id, "dividendOverride", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-emerald-300 ${r.dividendOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-amber-600 font-medium">{fmtQty(r.pendingDividendCash)}</td>
+                        <td className="px-1 py-1 text-right text-indigo-600 font-semibold">
+                          {i === 0 ? (
+                            <input type="number" step="any" defaultValue={planDetail.startingAssetValue}
+                              title="直接指定這一列(起始列)的推估總資產是多少，會取代公式算出來的值，不是疊加上去；填 0 代表不手動指定、照公式算"
+                              onBlur={(e) => saveStartingAssetValue(e.target.value)}
+                              className={`w-24 text-right px-2 py-1 border rounded text-sm font-semibold ${planDetail.startingAssetValue !== 0 ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                          ) : fmt(r.assetValue)}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <button onClick={() => handleDeleteRow(r.id)}
+                            className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 text-xs transition-opacity">刪除</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : isFund ? (
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead className="sticky top-0 bg-slate-50 z-10">
+                    <tr className="text-xs text-slate-500">
+                      <th className="px-3 py-2.5 text-left font-semibold">年份</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">月份</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">每月投入金額</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">持有單位數</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">持有均價</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">基金淨值</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">手續費</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">配息加碼單位數</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">配息購買金額</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">每單位配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">本期配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">剩餘未投入配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有單位數×淨值＋剩餘未投入配息）。第二列開始：上月推估總資產＋(本月投入單位數＋配息加碼單位數)×本月淨值＋本月剩餘未投入配息比上月新增的部分－本月手續費">上月總資產＋投入單位×淨值＋剩餘配息</span></th>
+                      <th className="px-3 py-2.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {computed.map((r, i) => (
+                      <tr key={r.id} className={`group hover:bg-slate-50 transition-colors ${targetRow === r ? "bg-emerald-50" : ""}`}>
+                        <td className="px-3 py-1.5 text-slate-700">{i === 0 || r.month === 1 ? r.year : ""}</td>
+                        <td className="px-3 py-1.5 text-slate-700">{r.month}</td>
+                        <td className="px-1 py-1">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <input key={`${r.id}-${dataVersion}`} type="number" step="any" defaultValue={r.investment}
+                              onChange={(e) => updateLocalRow(r.id, "investment", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-24 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                            <button type="button" title="把這個投入金額套用到之後所有月份"
+                              onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "investment", rows.find((x) => x.id === r.id)!.investment)}
+                              className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                          </div>
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-${dataVersion}`} type="number" step="any"
+                            defaultValue={r.holdingSharesOverride ?? ""} placeholder={fmtQty(r.holdingShares)}
+                            title="留空＝照公式自動算；填數字＝改成手動指定的真實單位數，下個月開始接著這個數字往下算"
+                            onChange={(e) => updateLocalOverride(r.id, "holdingSharesOverride", e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.holdingSharesOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
+                        <td className="px-1 py-1 text-right text-slate-500">
+                          {i === 0 ? (
+                            <input type="number" step="any" defaultValue={planDetail.startingAvgPrice ?? ""} placeholder={fmtQty(r.avgPrice)}
+                              title="留空＝從 0 開始照公式算；填數字＝開始試算前既有持有單位的均價，當作起始基準"
+                              onBlur={(e) => saveStartingAvgPrice(e.target.value)}
+                              className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${planDetail.startingAvgPrice != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                          ) : fmtQty(r.avgPrice)}
+                        </td>
+                        <td className="px-1 py-1">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <input key={`${r.id}-${dataVersion}`} type="number" step="any" defaultValue={r.price}
+                              onChange={(e) => updateLocalRow(r.id, "price", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-20 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                            <button type="button" title="把這個淨值套用到之後所有月份"
+                              onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "price", rows.find((x) => x.id === r.id)!.price)}
+                              className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                          </div>
+                        </td>
+                        <td className="px-1 py-1">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <input key={`${r.id}-${dataVersion}`} type="number" step="any" defaultValue={r.fee}
+                              title="第一列(起始列)不計算；第二列開始會從當月推估總資產裡扣除"
+                              onChange={(e) => updateLocalRow(r.id, "fee", e.target.value)}
+                              onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                              className="w-16 text-right px-2 py-1 border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded text-sm" />
+                            <button type="button" title="把這個手續費套用到之後所有月份"
+                              onClick={() => applyForward(rows.find((x) => x.id === r.id)!, "fee", rows.find((x) => x.id === r.id)!.fee)}
+                              className="opacity-0 group-hover:opacity-100 text-[10px] text-indigo-400 hover:text-indigo-600 px-1 transition-opacity">→後</button>
+                          </div>
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-${dataVersion}`} type="number" step="any"
+                            defaultValue={r.dividendPurchaseOverride != null ? r.dividendShares : ""} placeholder={r.dividendShares > 0 ? fmtQty(r.dividendShares) : "0"}
+                            title="留空＝配息現金有多少就全部拿去買多少單位（基金可以買小數單位，不用湊整張）；填數字＝改成手動指定的配息加碼單位數，會連動換算配息購買金額"
+                            onChange={(e) => updateDividendSharesOverride(r.id, e.target.value)}
+                            onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
+                            className={`w-20 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.dividendPurchaseOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input key={`${r.id}-${dataVersion}`} type="number" step="any"
+                            defaultValue={r.dividendPurchaseOverride ?? ""} placeholder={r.dividendSharesCost > 0 ? fmtQty(r.dividendSharesCost) : "0"}
+                            title="留空＝配息現金有多少就全部拿去買；填金額＝改成手動指定的配息購買金額，會連動換算配息加碼單位數"
                             onChange={(e) => updateLocalOverride(r.id, "dividendPurchaseOverride", e.target.value)}
                             onBlur={() => saveRow(rows.find((x) => x.id === r.id)!)}
                             className={`w-24 text-right px-2 py-1 border rounded text-sm placeholder:text-slate-400 ${r.dividendPurchaseOverride != null ? "border-amber-300 bg-amber-50" : "border-transparent hover:border-slate-200 focus:border-indigo-400"}`} />
@@ -1005,6 +1150,10 @@ export default function InvestmentCalculatorPage() {
                   <button type="button" onClick={() => setCreateForm({ ...createForm, mode: "TWSTOCK" })}
                     className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${createForm.mode === "TWSTOCK" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
                     台股版（固定每月遞增股數）
+                  </button>
+                  <button type="button" onClick={() => setCreateForm({ ...createForm, mode: "FUND" })}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${createForm.mode === "FUND" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                    基金版（固定每月投入金額，配息自動滾入）
                   </button>
                 </div>
               </div>
