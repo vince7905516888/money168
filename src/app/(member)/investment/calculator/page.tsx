@@ -367,18 +367,23 @@ export default function InvestmentCalculatorPage() {
 
   const handleAddRow = async () => {
     if (!planDetail) return;
+    const input = window.prompt("要延伸試算幾個月？", "1");
+    if (input === null) return; // 使用者取消
+    const count = Math.max(1, Math.min(600, parseInt(input) || 1));
     setAddingRow(true);
-    const res = await authFetch(`/api/calculator-plans/${planDetail.id}/rows`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    setAddingRow(false);
-    if (!res.ok) {
-      const err = await res.json().catch(() => null);
-      alert(err?.error || "新增失敗");
-      return;
+    for (let i = 0; i < count; i++) {
+      const res = await authFetch(`/api/calculator-plans/${planDetail.id}/rows`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        alert(err?.error || "新增失敗");
+        break;
+      }
     }
+    setAddingRow(false);
     fetchDetail(planDetail.id);
   };
 
