@@ -63,6 +63,7 @@ interface PlanDetail {
   startingAvgPrice: number | null;
   feeNote: string | null;
   allowOddLot: boolean;
+  minPurchaseAmount: number;
   stockCode: string | null;
   currentPrice: number | null;
   currentPriceUpdatedAt: string | null;
@@ -300,6 +301,18 @@ export default function InvestmentCalculatorPage() {
     });
   };
 
+  // FUND 專用：配息再投入買基金的單筆最低金額限制，0 代表沒有限制
+  const saveMinPurchaseAmount = async (value: string) => {
+    if (!planDetail) return;
+    const num = parseFloat(value) || 0;
+    setPlanDetail({ ...planDetail, minPurchaseAmount: num });
+    await authFetch(`/api/calculator-plans/${planDetail.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ minPurchaseAmount: num }),
+    });
+  };
+
   // 本地先更新畫面（打字流暢），失去焦點時才存檔，避免每打一個字就打一次 API
   const updateLocalRow = (rowId: string, field: keyof PlanRow, value: string) => {
     setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, [field]: parseFloat(value) || 0 } : r)));
@@ -434,9 +447,13 @@ export default function InvestmentCalculatorPage() {
           dividendShares = r.price > 0 ? dividendSharesCost / r.price : 0;
         } else if (r.price > 0) {
           if (mode === "FUND") {
-            // 基金可以買到小數單位，不用像台股湊整張，剩餘配息現金有多少就全部拿去買
-            dividendShares = pendingDividendCash / r.price;
-            dividendSharesCost = pendingDividendCash;
+            // 基金可以買到小數單位，不用像台股湊整張；但單筆申購通常有最低金額限制，
+            // 沒湊到這個金額基金公司不會受理，所以沒到門檻就繼續留到下個月累積
+            const minPurchase = planDetail?.minPurchaseAmount ?? 0;
+            if (pendingDividendCash >= minPurchase) {
+              dividendShares = pendingDividendCash / r.price;
+              dividendSharesCost = pendingDividendCash;
+            }
           } else {
             // 台股版：配息累積夠買 1000 股（1 張，或允許零股時 1 股）的金額才自動加碼，零頭留到下個月
             const lotCost = r.price * dividendLotSize;
@@ -495,7 +512,7 @@ export default function InvestmentCalculatorPage() {
       if (!foundTarget && target > 0 && assetValue >= target) foundTarget = row;
     }
     return { computed: list, targetRow: foundTarget };
-  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.customPaymentMonths, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice, planDetail?.allowOddLot]);
+  }, [rows, planDetail?.targetAmount, planDetail?.dividendFrequency, planDetail?.customPaymentMonths, planDetail?.mode, planDetail?.startingAssetValue, planDetail?.startingAvgPrice, planDetail?.allowOddLot, planDetail?.minPurchaseAmount]);
 
   const last = computed[computed.length - 1];
   // 目前市值要用「現在這個月」實際持有的股數算，不是表格最後一列（表格可能已經延伸到未來月份）；
@@ -608,6 +625,16 @@ export default function InvestmentCalculatorPage() {
                   配息加碼允許買零股
                 </label>
                 <span className="text-xs text-slate-400">預設關閉：剩餘未投入配息要湊到滿 1 張（1,000 股）才會自動加碼；打勾後剩餘配息不管多少，夠買幾股就買幾股</span>
+              </div>
+            )}
+            {isFund && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="text-sm font-medium text-slate-700">配息再投入單筆最低金額（選填）</label>
+                <input key={`minPurchase-${dataVersion}`} type="number" min="0" step="any" defaultValue={planDetail.minPurchaseAmount || ""}
+                  placeholder="例如：1000"
+                  onBlur={(e) => saveMinPurchaseAmount(e.target.value)}
+                  className="w-32 border border-slate-200 rounded-lg px-3.5 py-2 text-sm focus:border-indigo-400 transition-colors" />
+                <span className="text-xs text-slate-400">基金單筆申購通常有最低金額限制，剩餘未投入配息沒湊到這個金額就不會自動買，留到下個月繼續累積；留空或 0 代表沒有限制</span>
               </div>
             )}
             <div className="flex items-center gap-3 flex-wrap">
