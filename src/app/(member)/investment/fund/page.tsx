@@ -408,6 +408,7 @@ export default function FundPage() {
               const key = g.code || g.name;
               const navVal = parseFloat(navInputs[key] ?? "");
               const hasNav = !isNaN(navVal) && navVal > 0;
+              const avgPrice = g.units !== 0 ? g.amount / g.units : 0;
               const currentValue = hasNav ? g.units * navVal : 0;
               const gain = hasNav ? currentValue - g.amount : 0;
               const gainPct = hasNav && g.amount !== 0 ? (gain / g.amount) * 100 : 0;
@@ -433,6 +434,7 @@ export default function FundPage() {
                     </div>
                     <div className="flex items-center gap-4 shrink-0">
                       <span className="text-xs text-slate-400">{fmt2(g.units)} 單位</span>
+                      {g.units !== 0 && <span className="text-xs text-slate-400">均價 {fmt2(avgPrice)}</span>}
                       <span className="text-xs text-slate-400">{g.count} 筆</span>
                       <span className={`font-semibold ${g.amount >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(g.amount)}</span>
                     </div>
