@@ -427,7 +427,7 @@ export default function InvestmentCalculatorPage() {
     let pendingDividendCash = 0; // TWSTOCK 專用：已經入帳、可以動用去加碼的配息現金（含零頭）
     let dividendInTransit = 0; // TWSTOCK 專用：這個月剛宣告、還要等下個月才會實際入帳的配息
     let prevAssetValue = 0; // TWSTOCK 專用：上個月的推估總資產，逐月累加用
-    let prevPendingDividendCash = 0; // TWSTOCK 專用：上個月的剩餘未投入配息，用來算這個月「新增」的部分（避免同一筆餘額被逐月重複相加而虛增）
+    let prevPendingDividendCash = 0; // TWSTOCK 專用：上個月的預估剩餘未投入配息，用來算這個月「新增」的部分（避免同一筆餘額被逐月重複相加而虛增）
     let cumulativeFee = 0; // 累計手續費，純紀錄用，不影響任何計算
     const list: ComputedRow[] = [];
     const target = planDetail?.targetAmount ?? 0;
@@ -508,10 +508,10 @@ export default function InvestmentCalculatorPage() {
       }
       const avgPrice = holdingShares > 0 ? cumulativeInvestment / holdingShares : 0;
       // 第一列的「起始持有金額」是直接指定那一列的推估總資產是多少（取代公式算出來的值，不是疊加上去），
-      // 填 0 代表沒有手動指定、照公式用持有股數×價格＋剩餘未投入配息算。
+      // 填 0 代表沒有手動指定、照公式用持有股數×價格＋預估剩餘未投入配息算。
       // TWSTOCK 從第二列開始，推估總資產＝上個月推估總資產＋這個月（計劃買進股數＋配息加碼股數）
-      // ×這個月買進價格＋這個月剩餘未投入配息「比上個月新增的部分」－這個月手續費，逐月累加
-      // （剩餘未投入配息是餘額不是這個月才多出來的錢，只能算差額，不能整包加，否則沒花掉的餘額會被逐月重複累加而虛增總資產）
+      // ×這個月買進價格＋這個月預估剩餘未投入配息「比上個月新增的部分」－這個月手續費，逐月累加
+      // （預估剩餘未投入配息是餘額不是這個月才多出來的錢，只能算差額，不能整包加，否則沒花掉的餘額會被逐月重複累加而虛增總資產）
       let assetValue: number;
       if (mode === "TWSTOCK" || mode === "FUND") {
         if (idx === 0) {
@@ -547,7 +547,7 @@ export default function InvestmentCalculatorPage() {
   const currentMonthRow = computed.filter((r) => r.year < currentYear || (r.year === currentYear && r.month <= currentMonth)).pop() ?? last;
   const isTwstock = planDetail?.mode === "TWSTOCK";
   const isFund = planDetail?.mode === "FUND";
-  // 台股版／基金版都有配息自動再投入，共用同一套「累計投入本金含配息再投入」「剩餘未投入配息」等卡片
+  // 台股版／基金版都有配息自動再投入，共用同一套「累計投入本金含配息再投入」「預估剩餘未投入配息」等卡片
   const showsReinvestMetrics = isTwstock || isFund;
   // 累計投入本金：美股版是每月投入金額加總；台股版／基金版沒有「投入金額」這個欄位（或投入金額跟配息買的混在一起），
   // 改用最後一列的「持股均價 × 持股數」反推累計實際花掉的錢（含配息加碼買的部分）
@@ -648,7 +648,7 @@ export default function InvestmentCalculatorPage() {
                     className="w-4 h-4 accent-indigo-500" />
                   配息加碼允許買零股
                 </label>
-                <span className="text-xs text-slate-400">預設關閉：剩餘未投入配息要湊到滿 1 張（1,000 股）才會自動加碼；打勾後剩餘配息不管多少，夠買幾股就買幾股</span>
+                <span className="text-xs text-slate-400">預設關閉：預估剩餘未投入配息要湊到滿 1 張（1,000 股）才會自動加碼；打勾後剩餘配息不管多少，夠買幾股就買幾股</span>
               </div>
             )}
             {isFund && (
@@ -658,7 +658,7 @@ export default function InvestmentCalculatorPage() {
                   placeholder="例如：1000"
                   onBlur={(e) => saveMinPurchaseAmount(e.target.value)}
                   className="w-32 border border-slate-200 rounded-lg px-3.5 py-2 text-sm focus:border-indigo-400 transition-colors" />
-                <span className="text-xs text-slate-400">基金單筆申購通常有最低金額限制，剩餘未投入配息沒湊到這個金額就不會自動買，留到下個月繼續累積；留空或 0 代表沒有限制</span>
+                <span className="text-xs text-slate-400">基金單筆申購通常有最低金額限制，預估剩餘未投入配息沒湊到這個金額就不會自動買，留到下個月繼續累積；留空或 0 代表沒有限制</span>
               </div>
             )}
             {isFund && (
@@ -741,7 +741,7 @@ export default function InvestmentCalculatorPage() {
                 </div>
               )}
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
-                <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">{showsReinvestMetrics ? "剩餘未投入配息" : "累計配息現金"}</div>
+                <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">{showsReinvestMetrics ? "預估剩餘未投入配息" : "累計配息現金"}</div>
                 <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(showsReinvestMetrics ? last.pendingDividendCash : last.cumulativeDividend)}</div>
               </div>
               <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
@@ -815,8 +815,8 @@ export default function InvestmentCalculatorPage() {
                       <th className="px-3 py-2.5 text-right font-semibold">每股配息</th>
                       <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
                       <th className="px-3 py-2.5 text-right font-semibold">本期配息</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">剩餘未投入配息</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有股數×買進價格＋剩餘未投入配息）。第二列開始：上月推估總資產＋(本月計劃買進股數＋配息加碼股數)×本月買進價格＋本月剩餘未投入配息比上月新增的部分－本月手續費">上月總資產＋買進股數×價格＋剩餘配息</span></th>
+                      <th className="px-3 py-2.5 text-right font-semibold">預估剩餘未投入配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有股數×買進價格＋預估剩餘未投入配息）。第二列開始：上月推估總資產＋(本月計劃買進股數＋配息加碼股數)×本月買進價格＋本月預估剩餘未投入配息比上月新增的部分－本月手續費">上月總資產＋買進股數×價格＋剩餘配息</span></th>
                       <th className="px-3 py-2.5"></th>
                     </tr>
                   </thead>
@@ -948,8 +948,8 @@ export default function InvestmentCalculatorPage() {
                       <th className="px-3 py-2.5 text-right font-semibold">每單位配息</th>
                       <th className="px-3 py-2.5 text-right font-semibold">稅後可得%</th>
                       <th className="px-3 py-2.5 text-right font-semibold">本期配息</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">剩餘未投入配息</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有單位數×淨值＋剩餘未投入配息）。第二列開始：上月推估總資產＋(本月投入單位數＋配息加碼單位數)×本月淨值＋本月剩餘未投入配息比上月新增的部分－本月手續費">上月總資產＋投入單位×淨值＋剩餘配息</span></th>
+                      <th className="px-3 py-2.5 text-right font-semibold">預估剩餘未投入配息</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">推估總資產<span className="block font-normal normal-case text-[10px] text-slate-400" title="第一列：手動指定的起始值（沒填就用 持有單位數×淨值＋預估剩餘未投入配息）。第二列開始：上月推估總資產＋(本月投入單位數＋配息加碼單位數)×本月淨值＋本月預估剩餘未投入配息比上月新增的部分－本月手續費">上月總資產＋投入單位×淨值＋剩餘配息</span></th>
                       <th className="px-3 py-2.5"></th>
                     </tr>
                   </thead>
