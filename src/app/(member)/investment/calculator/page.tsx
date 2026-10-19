@@ -735,6 +735,13 @@ export default function InvestmentCalculatorPage() {
               )}
               {showsReinvestMetrics && (
                 <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">當前投入本金</div>
+                  <div className="text-xl font-bold text-slate-900 mt-1">{fmt(currentMonthRow.actualPrincipal)}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">計算到 {currentMonthRow.year} 年 {currentMonthRow.month} 月，不含配息再投入買的部分</div>
+                </div>
+              )}
+              {showsReinvestMetrics && (
+                <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
                   <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">累積配息金額</div>
                   <div className="text-xl font-bold text-emerald-600 mt-1">{fmt(last.cumulativeDividend)}</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">歷史累計總共領到的配息</div>
