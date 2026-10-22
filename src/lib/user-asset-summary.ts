@@ -33,7 +33,7 @@ interface InvestmentRow {
 }
 
 // 外匯建議匯率：跟前台一樣的時序加權平均成本法，沒有手動儲存匯率時的預設值
-function computeForexSuggestedRates(forexInvestments: InvestmentRow[]): Record<string, number> {
+export function computeForexSuggestedRates(forexInvestments: InvestmentRow[]): Record<string, number> {
   const byCurrency: Record<string, InvestmentRow[]> = {};
   for (const inv of forexInvestments) {
     if (!inv.currency) continue;

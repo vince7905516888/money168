@@ -10,6 +10,7 @@ interface DividendRecord {
   date: string;
   amount: number | null;
   quantity: number | null;
+  twdAmount: number;
   note: string | null;
 }
 
@@ -62,28 +63,36 @@ export default function DividendOverviewPage() {
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
   const fmtQty = (n: number) => new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 8 }).format(n);
 
-  const twdTotal = filtered
-    .filter((r) => r.source === "STOCK" || r.source === "FUND")
-    .reduce((s, r) => s + (r.amount ?? 0), 0);
+  const overallTotal = filtered.reduce((s, r) => s + r.twdAmount, 0);
 
-  const groupByCode = (source: DividendRecord["source"]) => {
-    const map = new Map<string, number>();
+  const bySourceTotal = useMemo(() => {
+    const map = new Map<DividendRecord["source"], number>();
+    for (const r of filtered) map.set(r.source, (map.get(r.source) ?? 0) + r.twdAmount);
+    return map;
+  }, [filtered]);
+
+  // 依投資標的彙整：同一檔股票/基金/幣種/幣別在這段期間配了多少，一律換算成台幣方便互相比較
+  interface HoldingRow { key: string; source: DividendRecord["source"]; name: string; code: string | null; twdAmount: number; originalQty: number | null; originalAmount: number | null }
+  const byHolding = useMemo(() => {
+    const map = new Map<string, HoldingRow>();
     for (const r of filtered) {
-      if (r.source !== source) continue;
-      const key = r.code || r.name;
-      map.set(key, (map.get(key) ?? 0) + (r.quantity ?? 0));
+      const key = `${r.source}|${r.code || r.name}`;
+      if (!map.has(key)) map.set(key, { key, source: r.source, name: r.name, code: r.code, twdAmount: 0, originalQty: null, originalAmount: null });
+      const row = map.get(key)!;
+      row.twdAmount += r.twdAmount;
+      if (r.quantity != null) row.originalQty = (row.originalQty ?? 0) + r.quantity;
+      if (r.amount != null) row.originalAmount = (row.originalAmount ?? 0) + r.amount;
     }
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
-  };
-  const cryptoByCode = useMemo(() => groupByCode("CRYPTO"), [filtered]);
-  const forexByCurrency = useMemo(() => groupByCode("FOREX"), [filtered]);
+    return Array.from(map.values()).sort((a, b) => b.twdAmount - a.twdAmount);
+  }, [filtered]);
 
   return (
-    <div className="w-full max-w-5xl">
+    <div className="w-full max-w-6xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">配息總攬</h1>
         <p className="text-slate-500 text-sm mt-1">
-          彙整股票／基金配息入帳（配息複利滾存）、虛擬貨幣配息與外匯利息收入，純記錄用途，不影響資產總攬的計算
+          彙整股票／基金配息入帳（配息複利滾存）、虛擬貨幣配息與外匯利息收入，一律換算成台幣方便比較。
+          虛擬貨幣用目前即時價格換算、外匯用目前儲存/建議匯率換算，並非配息當時的歷史價格。純記錄用途，不影響資產總攬的計算
         </p>
       </div>
 
@@ -118,42 +127,67 @@ export default function DividendOverviewPage() {
         <div className="text-slate-400 text-sm">載入中...</div>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-              <p className="text-xs text-slate-400 mb-1">股票＋基金配息入帳（此區間）</p>
-              <p className="text-xl font-bold text-emerald-600">{fmtTwd(twdTotal)}</p>
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-4">
+            <p className="text-xs text-slate-400 mb-1">
+              本期配息總額（{yearFilter ? `${yearFilter}年` : "全部年份"}{monthFilter ? `${monthFilter}月` : ""}，一律換算成台幣）
+            </p>
+            <p className="text-2xl font-bold text-emerald-600">{fmtTwd(overallTotal)}</p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {(["STOCK", "FUND", "CRYPTO", "FOREX"] as const)
+                .filter((s) => (bySourceTotal.get(s) ?? 0) !== 0)
+                .map((s) => (
+                  <span key={s} className={`text-xs px-2.5 py-1 rounded-full font-medium ${SOURCE_BADGE[s]}`}>
+                    {SOURCE_LABEL[s]} {fmtTwd(bySourceTotal.get(s) ?? 0)}
+                  </span>
+                ))}
             </div>
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-              <p className="text-xs text-slate-400 mb-2">虛擬貨幣配息（此區間，依幣種）</p>
-              {cryptoByCode.length === 0 ? (
-                <p className="text-sm text-slate-400">無</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {cryptoByCode.map(([code, qty]) => (
-                    <span key={code} className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 font-medium">
-                      {code} {fmtQty(qty)}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-              <p className="text-xs text-slate-400 mb-2">外匯利息收入（此區間，依幣別）</p>
-              {forexByCurrency.length === 0 ? (
-                <p className="text-sm text-slate-400">無</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {forexByCurrency.map(([currency, qty]) => (
-                    <span key={currency} className="text-xs px-2.5 py-1 rounded-full bg-cyan-50 text-cyan-700 font-medium">
-                      {currency} {fmtQty(qty)}
-                    </span>
-                  ))}
-                </div>
-              )}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+            <div className="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">依投資標的彙整（台幣）</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="text-left font-semibold px-5 py-3">類型</th>
+                    <th className="text-left font-semibold px-4 py-3">名稱</th>
+                    <th className="text-right font-semibold px-4 py-3">原始數量／金額</th>
+                    <th className="text-right font-semibold px-5 py-3">換算台幣</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {byHolding.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="text-center text-slate-400 py-10">
+                        這段期間沒有配息記錄
+                      </td>
+                    </tr>
+                  ) : (
+                    byHolding.map((h) => (
+                      <tr key={h.key} className="hover:bg-slate-50/60">
+                        <td className="px-5 py-3">
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${SOURCE_BADGE[h.source]}`}>
+                            {SOURCE_LABEL[h.source]}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-800">
+                          {h.name}
+                          {h.code ? <span className="text-slate-400">（{h.code}）</span> : null}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-500">
+                          {QUANTITY_SOURCES.includes(h.source) ? fmtQty(h.originalQty ?? 0) : fmtTwd(h.originalAmount ?? 0)}
+                        </td>
+                        <td className="px-5 py-3 text-right font-semibold text-emerald-600">{fmtTwd(h.twdAmount)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">逐筆記錄</div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-500">
@@ -161,14 +195,15 @@ export default function DividendOverviewPage() {
                     <th className="text-left font-semibold px-5 py-3">日期</th>
                     <th className="text-left font-semibold px-4 py-3">類型</th>
                     <th className="text-left font-semibold px-4 py-3">名稱</th>
-                    <th className="text-right font-semibold px-4 py-3">配息</th>
+                    <th className="text-right font-semibold px-4 py-3">原始數量／金額</th>
+                    <th className="text-right font-semibold px-4 py-3">換算台幣</th>
                     <th className="text-left font-semibold px-5 py-3">備註</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center text-slate-400 py-10">
+                      <td colSpan={6} className="text-center text-slate-400 py-10">
                         這段期間沒有配息記錄
                       </td>
                     </tr>
@@ -185,9 +220,10 @@ export default function DividendOverviewPage() {
                           {r.name}
                           {r.code ? <span className="text-slate-400">（{r.code}）</span> : null}
                         </td>
-                        <td className="px-4 py-3 text-right font-medium text-emerald-600">
+                        <td className="px-4 py-3 text-right text-slate-500">
                           {QUANTITY_SOURCES.includes(r.source) ? `+${fmtQty(r.quantity ?? 0)}` : fmtTwd(r.amount ?? 0)}
                         </td>
+                        <td className="px-4 py-3 text-right font-medium text-emerald-600">{fmtTwd(r.twdAmount)}</td>
                         <td className="px-5 py-3 text-slate-400">{r.note || "—"}</td>
                       </tr>
                     ))
