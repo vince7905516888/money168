@@ -13,6 +13,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "reports", label: "報表分析", href: "/reports", section: null },
   { key: "debts", label: "負債表", href: "/debts", section: null },
   { key: "investment.overview", label: "資產總攬", href: "/investment/overview", section: null },
+  { key: "investment.dividend-overview", label: "配息總攬", href: "/investment/dividend-overview", section: "投資" },
   { key: "investment.stock", label: "股票投資", href: "/investment/stock", section: "投資" },
   { key: "investment.usstock", label: "美股投資", href: "/investment/usstock", section: "投資" },
   { key: "investment.fund", label: "基金投資", href: "/investment/fund", section: "投資" },
