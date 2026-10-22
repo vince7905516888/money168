@@ -12,18 +12,28 @@ const SYSTEM_INSTRUCTION = `你是「MoneyFlow」記帳App裡的智能投資助�
 一般市場常識。你沒有即時行情資料，如果使用者問「現在」「今天」的股價/匯率/金價這類即時數字，
 不要憑空編造數字，提醒他們到App左側選單的「市場行情」查看即時K線圖。你的回答僅供知識參考，
 不構成個人化的投資建議；遇到「我該不該買/賣」這類需要承擔個人財務風險的具體決策問題，
-提醒使用者自行判斷或諮詢專業意見，不要直接下判斷。`;
+提醒使用者自行判斷或諮詢專業意見，不要直接下判斷。使用者有時會上傳圖片（例如K線圖截圖、
+報表截圖），你可以根據圖片內容回答，但一樣不構成個人化投資建議。`;
 
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_MESSAGE_LENGTH = 4000;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // base64 解碼後上限 4MB
+const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"]);
+
+interface ChatImage {
+  mimeType: string;
+  data: string; // base64，不含 data: 前綴
+}
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  image?: ChatImage;
 }
 
 interface GeminiPart {
   text?: string;
+  inlineData?: { mimeType: string; data: string };
 }
 
 export async function POST(req: NextRequest) {
@@ -39,10 +49,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "請輸入訊息" }, { status: 400 });
   }
 
-  const contents = messages.slice(-MAX_HISTORY_MESSAGES).map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: String(m.content ?? "").slice(0, MAX_MESSAGE_LENGTH) }],
-  }));
+  const contents = messages.slice(-MAX_HISTORY_MESSAGES).map((m) => {
+    const parts: GeminiPart[] = [];
+    const text = String(m.content ?? "").slice(0, MAX_MESSAGE_LENGTH);
+    if (text) parts.push({ text });
+    if (
+      m.image &&
+      ALLOWED_IMAGE_TYPES.has(m.image.mimeType) &&
+      Buffer.byteLength(m.image.data, "base64") <= MAX_IMAGE_BYTES
+    ) {
+      parts.push({ inlineData: { mimeType: m.image.mimeType, data: m.image.data } });
+    }
+    if (parts.length === 0) parts.push({ text: "" });
+    return { role: m.role === "assistant" ? "model" : "user", parts };
+  });
 
   try {
     const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
