@@ -190,6 +190,94 @@ export function emptyAssetSummary(): UserAssetSummary {
   };
 }
 
+// 智能助理用：列出使用者目前實際持有的商品明細（不只是總額），跟前面 computeUserAssetSummary
+// 用同一套持有量/成本演算法（computeHoldings、remainingHoldingsByExchange），數字才會一致。
+export interface StockHoldingDetail { code: string; name: string; quantity: number; avgPrice: number; cost: number }
+export interface UsstockHoldingDetail extends StockHoldingDetail { currency: string }
+export interface AmountHoldingDetail { code: string; name: string; quantity: number; cost: number }
+export interface FundHoldingDetail { name: string; amount: number; currency: string }
+export interface ForexHoldingDetail { currency: string; quantity: number }
+export interface ItemHoldingDetail { name: string; amount: number }
+
+export interface UserHoldingsDetail {
+  stock: StockHoldingDetail[];
+  usstock: UsstockHoldingDetail[];
+  fund: FundHoldingDetail[];
+  forex: ForexHoldingDetail[];
+  crypto: AmountHoldingDetail[];
+  gold: AmountHoldingDetail[];
+  realestate: ItemHoldingDetail[];
+  insurance: ItemHoldingDetail[];
+}
+
+export async function computeUserHoldingsDetail(userId: string): Promise<UserHoldingsDetail> {
+  const investments = await prisma.investment.findMany({ where: { userId } });
+  const byType = (t: string) => investments.filter((i) => i.type === t);
+  const toHoldingInput = (list: typeof investments) =>
+    list.map((i) => ({ ...i, action: i.action ?? "BUY", date: i.date ?? i.createdAt }));
+
+  const stock: StockHoldingDetail[] = computeHoldings(toHoldingInput(byType("STOCK"))).map((h) => ({
+    code: h.code,
+    name: h.name,
+    quantity: h.quantity,
+    avgPrice: h.avgPrice,
+    cost: h.cost,
+  }));
+
+  const usstockInvestments = byType("USSTOCK");
+  const usstock: UsstockHoldingDetail[] = [];
+  for (const cur of new Set(usstockInvestments.map((i) => i.currency || "USD"))) {
+    const subset = usstockInvestments.filter((i) => (i.currency || "USD") === cur);
+    for (const h of computeHoldings(toHoldingInput(subset))) {
+      usstock.push({ code: h.code, name: h.name, quantity: h.quantity, avgPrice: h.avgPrice, cost: h.cost, currency: cur });
+    }
+  }
+
+  const fundMap = new Map<string, FundHoldingDetail>();
+  for (const i of byType("FUND")) {
+    const label = i.name?.trim() || i.code?.trim() || "(未命名)";
+    const currency = i.currency || "TWD";
+    const key = `${label}|${currency}`;
+    if (!fundMap.has(key)) fundMap.set(key, { name: label, amount: 0, currency });
+    fundMap.get(key)!.amount += i.amount;
+  }
+  const fund = Array.from(fundMap.values()).filter((f) => Math.abs(f.amount) > 0.01);
+
+  const forexMap = new Map<string, number>();
+  for (const i of byType("FOREX")) {
+    if (!i.currency) continue;
+    forexMap.set(i.currency, (forexMap.get(i.currency) || 0) + (i.quantity || 0));
+  }
+  const forex: ForexHoldingDetail[] = Array.from(forexMap.entries())
+    .map(([currency, quantity]) => ({ currency, quantity }))
+    .filter((f) => Math.abs(f.quantity) > 0.01);
+
+  const mergeByCode = (rows: ReturnType<typeof remainingHoldingsByExchange>): AmountHoldingDetail[] => {
+    const map = new Map<string, AmountHoldingDetail>();
+    for (const h of rows) {
+      const key = h.code || h.name;
+      if (!map.has(key)) map.set(key, { code: h.code, name: h.name, quantity: 0, cost: 0 });
+      const g = map.get(key)!;
+      g.quantity += h.quantity;
+      g.cost += h.cost;
+    }
+    return Array.from(map.values());
+  };
+  const crypto = mergeByCode(remainingHoldingsByExchange(byType("CRYPTO")));
+  const gold = mergeByCode(remainingHoldingsByExchange(byType("GOLD")));
+
+  const realestate: ItemHoldingDetail[] = byType("REALESTATE").map((i) => ({
+    name: i.name?.trim() || i.note?.trim() || "(未命名)",
+    amount: i.amount,
+  }));
+  const insurance: ItemHoldingDetail[] = byType("INSURANCE").map((i) => ({
+    name: i.name?.trim() || i.note?.trim() || "(未命名)",
+    amount: i.amount,
+  }));
+
+  return { stock, usstock, fund, forex, crypto, gold, realestate, insurance };
+}
+
 export function sumAssetSummaries(list: UserAssetSummary[]): UserAssetSummary {
   return list.reduce((acc, s) => ({
     cashBalance: acc.cashBalance + s.cashBalance,
