@@ -15,10 +15,10 @@ interface Message {
 }
 
 const SUGGESTIONS = [
+  "幫我分析我目前的資產配置",
+  "我這個月花費正常嗎？",
+  "我的負債會不會太高？",
   "什麼是本益比？",
-  "定期定額適合什麼樣的投資人？",
-  "ETF 跟基金差在哪裡？",
-  "什麼情況適合用槓桿型ETF？",
 ];
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -105,7 +105,7 @@ export default function AssistantPage() {
     <div className="w-full max-w-7xl flex flex-col h-[75vh]">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">智能助理</h1>
-        <p className="text-slate-500 text-sm mt-1">投資相關知識問答，AI 回覆僅供參考，不構成個人化投資建議</p>
+        <p className="text-slate-500 text-sm mt-1">可結合你的資產/收支資料做分析，也能回答投資知識問答，AI 回覆僅供參考，不構成正式理財建議</p>
       </div>
 
       <div className="flex-1 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col min-h-0">
