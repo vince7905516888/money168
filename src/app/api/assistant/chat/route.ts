@@ -167,10 +167,29 @@ export async function POST(req: NextRequest) {
   if (!apiKey) return NextResponse.json({ error: "尚未設定 GEMINI_API_KEY" }, { status: 500 });
 
   const body = await req.json().catch(() => null);
-  const messages: ChatMessage[] = Array.isArray(body?.messages) ? body.messages : [];
-  if (messages.length === 0) {
-    return NextResponse.json({ error: "請輸入訊息" }, { status: 400 });
-  }
+  const conversationId: string | undefined = typeof body?.conversationId === "string" ? body.conversationId : undefined;
+  const content: string = typeof body?.content === "string" ? body.content : "";
+  const image: ChatImage | undefined =
+    body?.image && ALLOWED_IMAGE_TYPES.has(body.image.mimeType) && typeof body.image.data === "string"
+      ? { mimeType: body.image.mimeType, data: body.image.data }
+      : undefined;
+
+  if (!conversationId) return NextResponse.json({ error: "缺少對話ID" }, { status: 400 });
+  if (!content.trim() && !image) return NextResponse.json({ error: "請輸入訊息" }, { status: 400 });
+
+  const conversation = await prisma.assistantConversation.findFirst({
+    where: { id: conversationId, userId: session.user.id },
+    include: { messages: { orderBy: { createdAt: "asc" } } },
+  });
+  if (!conversation) return NextResponse.json({ error: "找不到對話" }, { status: 404 });
+
+  const history: ChatMessage[] = conversation.messages.map((m) => ({
+    role: m.role === "assistant" ? "assistant" : "user",
+    content: m.content,
+    image: m.imageMimeType && m.imageData ? { mimeType: m.imageMimeType, data: m.imageData } : undefined,
+  }));
+  const newMessage: ChatMessage = { role: "user", content: content.trim(), image };
+  const messages: ChatMessage[] = [...history, newMessage];
 
   const contents = messages.slice(-MAX_HISTORY_MESSAGES).map((m) => {
     const parts: GeminiPart[] = [];
@@ -235,7 +254,20 @@ export async function POST(req: NextRequest) {
         .catch((e) => console.error("token usage log failed:", e));
     }
 
-    return NextResponse.json({ reply });
+    // 對話記錄：使用者這輪的訊息跟AI回覆一起存，第一則訊息順便把對話標題改成內容摘要
+    const isFirstMessage = conversation.messages.length === 0;
+    const title = isFirstMessage ? (content.trim() ? content.trim().slice(0, 24) : "圖片提問") : conversation.title;
+    await prisma.$transaction([
+      prisma.assistantMessage.create({
+        data: { conversationId, role: "user", content: content.trim(), imageMimeType: image?.mimeType, imageData: image?.data },
+      }),
+      prisma.assistantMessage.create({
+        data: { conversationId, role: "assistant", content: reply },
+      }),
+      prisma.assistantConversation.update({ where: { id: conversationId }, data: { title } }),
+    ]);
+
+    return NextResponse.json({ reply, title });
   } catch (e) {
     console.error("Gemini fetch failed:", e);
     return NextResponse.json({ error: "連線 AI 服務失敗" }, { status: 502 });

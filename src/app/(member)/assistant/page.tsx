@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 interface ChatImage {
   mimeType: string;
@@ -12,6 +12,12 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   image?: ChatImage;
+}
+
+interface Conversation {
+  id: string;
+  title: string;
+  updatedAt: string;
 }
 
 const SUGGESTIONS = [
@@ -33,11 +39,33 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+interface RawMessage {
+  role: string;
+  content: string;
+  imageMimeType?: string | null;
+  imageData?: string | null;
+}
+
+function mapRawMessages(raw: RawMessage[]): Message[] {
+  return raw.map((m) => ({
+    role: m.role === "assistant" ? "assistant" : "user",
+    content: m.content,
+    image:
+      m.imageMimeType && m.imageData
+        ? { mimeType: m.imageMimeType, data: m.imageData, dataUrl: `data:${m.imageMimeType};base64,${m.imageData}` }
+        : undefined,
+  }));
+}
+
 export default function AssistantPage() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pendingImage, setPendingImage] = useState<ChatImage | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [switching, setSwitching] = useState(false);
   const [error, setError] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,6 +73,84 @@ export default function AssistantPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  const loadConversations = useCallback(async (): Promise<Conversation[]> => {
+    const res = await fetch("/api/assistant/conversations");
+    const data = await res.json();
+    const list: Conversation[] = data.conversations ?? [];
+    setConversations(list);
+    return list;
+  }, []);
+
+  const selectConversation = useCallback(async (id: string) => {
+    setSwitching(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/assistant/conversations/${id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "載入對話失敗");
+      setActiveId(id);
+      setMessages(mapRawMessages(data.conversation.messages ?? []));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "載入對話失敗");
+    } finally {
+      setSwitching(false);
+    }
+  }, []);
+
+  const createConversation = useCallback(async () => {
+    const res = await fetch("/api/assistant/conversations", { method: "POST" });
+    const data = await res.json();
+    const conv: Conversation = data.conversation;
+    setConversations((prev) => [conv, ...prev]);
+    setActiveId(conv.id);
+    setMessages([]);
+    return conv;
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await loadConversations();
+        if (list.length > 0) {
+          await selectConversation(list[0].id);
+        } else {
+          await createConversation();
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "初始化失敗");
+      } finally {
+        setInitializing(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleNewConversation = async () => {
+    if (loading || switching) return;
+    setError("");
+    try {
+      await createConversation();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "建立新對話失敗");
+    }
+  };
+
+  const handleDeleteConversation = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (loading || switching) return;
+    try {
+      await fetch(`/api/assistant/conversations/${id}`, { method: "DELETE" });
+      const remaining = conversations.filter((c) => c.id !== id);
+      setConversations(remaining);
+      if (id === activeId) {
+        if (remaining.length > 0) await selectConversation(remaining[0].id);
+        else await createConversation();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "刪除對話失敗");
+    }
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -66,10 +172,9 @@ export default function AssistantPage() {
 
   const send = async (text: string) => {
     const content = text.trim();
-    if ((!content && !pendingImage) || loading) return;
+    if ((!content && !pendingImage) || loading || !activeId) return;
     const userMessage: Message = { role: "user", content, image: pendingImage ?? undefined };
-    const next = [...messages, userMessage];
-    setMessages(next);
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setPendingImage(null);
     setError("");
@@ -79,16 +184,15 @@ export default function AssistantPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: next.map((m) => ({
-            role: m.role,
-            content: m.content,
-            image: m.image ? { mimeType: m.image.mimeType, data: m.image.data } : undefined,
-          })),
+          conversationId: activeId,
+          content,
+          image: userMessage.image ? { mimeType: userMessage.image.mimeType, data: userMessage.image.data } : undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "回應失敗");
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
+      loadConversations().catch(() => {});
     } catch (e) {
       setError(e instanceof Error ? e.message : "回應失敗");
     } finally {
@@ -102,112 +206,150 @@ export default function AssistantPage() {
   };
 
   return (
-    <div className="w-full max-w-7xl flex flex-col h-[75vh]">
+    <div className="w-full max-w-7xl flex flex-col h-[85vh]">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">智能助理</h1>
         <p className="text-slate-500 text-sm mt-1">可結合你的資產/收支資料做分析，也能回答投資知識問答，AI 回覆僅供參考，不構成正式理財建議</p>
       </div>
 
-      <div className="flex-1 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col min-h-0">
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center gap-4">
-              <div className="text-4xl">🤖</div>
-              <p className="text-slate-400 text-sm">你可以問我投資相關的問題，例如：</p>
-              <div className="flex flex-wrap justify-center gap-2 max-w-md">
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => send(s)}
-                    className="text-xs px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
-                    m.role === "user" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-800"
-                  }`}
+      <div className="flex-1 flex gap-4 min-h-0">
+        <aside className="w-60 shrink-0 bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-slate-100 shrink-0">
+            <button
+              type="button"
+              onClick={handleNewConversation}
+              disabled={loading || switching || initializing}
+              className="w-full flex items-center justify-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-3 py-2 rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >
+              <span className="text-base leading-none">＋</span> 新對話
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {conversations.map((c) => (
+              <div
+                key={c.id}
+                onClick={() => !switching && c.id !== activeId && selectConversation(c.id)}
+                className={`group relative flex items-center gap-1 rounded-xl px-3 py-2 text-sm cursor-pointer transition-colors ${
+                  c.id === activeId ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <span className="flex-1 truncate">{c.title}</span>
+                <button
+                  type="button"
+                  onClick={(e) => handleDeleteConversation(c.id, e)}
+                  title="刪除對話"
+                  className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 transition-opacity w-5 h-5 flex items-center justify-center shrink-0"
                 >
-                  {m.image && (
-                    <img
-                      src={m.image.dataUrl}
-                      alt="上傳的圖片"
-                      className="max-w-full max-h-64 rounded-lg mb-2 object-contain"
-                    />
-                  )}
-                  {m.content}
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <div className="flex-1 min-w-0 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            {initializing || switching ? (
+              <div className="h-full flex items-center justify-center text-slate-400 text-sm">載入中...</div>
+            ) : messages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center gap-4">
+                <div className="text-4xl">🤖</div>
+                <p className="text-slate-400 text-sm">你可以問我投資相關的問題，例如：</p>
+                <div className="flex flex-wrap justify-center gap-2 max-w-md">
+                  {SUGGESTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => send(s)}
+                      className="text-xs px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                    >
+                      {s}
+                    </button>
+                  ))}
                 </div>
               </div>
-            ))
-          )}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-slate-100 text-slate-400 rounded-2xl px-4 py-2.5 text-sm">思考中...</div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        {error && <div className="px-5 py-2 text-xs text-red-500 border-t border-red-50 bg-red-50">{error}</div>}
-
-        {pendingImage && (
-          <div className="px-4 pt-3 border-t border-slate-100 shrink-0">
-            <div className="relative inline-block">
-              <img src={pendingImage.dataUrl} alt="預覽圖片" className="h-20 rounded-lg border border-slate-200 object-cover" />
-              <button
-                type="button"
-                onClick={() => setPendingImage(null)}
-                title="移除圖片"
-                className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-slate-700 text-white text-xs leading-5 text-center hover:bg-slate-900"
-              >
-                ×
-              </button>
-            </div>
+            ) : (
+              messages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
+                      m.role === "user" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-800"
+                    }`}
+                  >
+                    {m.image && (
+                      <img
+                        src={m.image.dataUrl}
+                        alt="上傳的圖片"
+                        className="max-w-full max-h-64 rounded-lg mb-2 object-contain"
+                      />
+                    )}
+                    {m.content}
+                  </div>
+                </div>
+              ))
+            )}
+            {loading && (
+              <div className="flex justify-start">
+                <div className="bg-slate-100 text-slate-400 rounded-2xl px-4 py-2.5 text-sm">思考中...</div>
+              </div>
+            )}
+            <div ref={bottomRef} />
           </div>
-        )}
 
-        <form
-          onSubmit={handleSubmit}
-          className={`flex items-center gap-2 p-4 shrink-0 ${pendingImage ? "" : "border-t border-slate-100"}`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/heic,image/heif"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={loading}
-            title="上傳圖片"
-            className="shrink-0 w-10 h-10 flex items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors disabled:opacity-50"
+          {error && <div className="px-5 py-2 text-xs text-red-500 border-t border-red-50 bg-red-50">{error}</div>}
+
+          {pendingImage && (
+            <div className="px-4 pt-3 border-t border-slate-100 shrink-0">
+              <div className="relative inline-block">
+                <img src={pendingImage.dataUrl} alt="預覽圖片" className="h-20 rounded-lg border border-slate-200 object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setPendingImage(null)}
+                  title="移除圖片"
+                  className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-slate-700 text-white text-xs leading-5 text-center hover:bg-slate-900"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
+          <form
+            onSubmit={handleSubmit}
+            className={`flex items-center gap-2 p-4 shrink-0 ${pendingImage ? "" : "border-t border-slate-100"}`}
           >
-            📷
-          </button>
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="輸入投資相關問題..."
-            className="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-indigo-400 transition-colors"
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            disabled={loading || (!input.trim() && !pendingImage)}
-            className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
-          >
-            送出
-          </button>
-        </form>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/heic,image/heif"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading || initializing || switching}
+              title="上傳圖片"
+              className="shrink-0 w-10 h-10 flex items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors disabled:opacity-50"
+            >
+              📷
+            </button>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="輸入投資相關問題..."
+              className="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+              disabled={loading || initializing || switching}
+            />
+            <button
+              type="submit"
+              disabled={loading || initializing || switching || (!input.trim() && !pendingImage)}
+              className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >
+              送出
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

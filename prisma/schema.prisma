@@ -45,6 +45,7 @@ model User {
   tokenUsageLogs     TokenUsageLog[]
   martingaleStrategies UserMartingaleStrategy[]
   activityLogs       MemberActivityLog[]
+  assistantConversations AssistantConversation[]
 }
 
 model UserBank {
@@ -649,6 +650,33 @@ model TokenUsageLog {
 
   @@index([userId])
   @@index([createdAt])
+}
+
+// 智能助理對話記錄：一個會員可以開多個對話視窗，各自保留訊息歷史，
+// 下次回來可以接續看，不會互相混在一起。
+model AssistantConversation {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String             @default("新對話")
+  messages  AssistantMessage[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@index([userId])
+}
+
+model AssistantMessage {
+  id             String                @id @default(cuid())
+  conversationId String
+  conversation   AssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String // "user" | "assistant"
+  content        String
+  imageMimeType  String?
+  imageData      String? // base64，使用者上傳的圖片，回來看對話記錄時可以重新顯示
+  createdAt      DateTime              @default(now())
+
+  @@index([conversationId])
 }
 
 // 期交所三大法人期貨未平倉逐日存檔：每次台股頁被查詢時，把當天三大法人（自營商/投信/外資）
