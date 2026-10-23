@@ -11,15 +11,15 @@ export async function PUT(
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
   const { id } = await params;
-  const { type, name, code, amount, quantity, price, fee, date, note } = await req.json();
+  const { type, name, code, amount, currency, quantity, price, fee, date, note } = await req.json();
 
   const existing = await prisma.dividendEntry.findFirst({
     where: { id, userId: session.user.id },
   });
   if (!existing) return NextResponse.json({ error: "找不到記錄" }, { status: 404 });
 
-  if (type !== undefined && type !== "STOCK" && type !== "FUND") {
-    return NextResponse.json({ error: "類型僅限股票或基金" }, { status: 400 });
+  if (type !== undefined && type !== "STOCK" && type !== "FUND" && type !== "USSTOCK") {
+    return NextResponse.json({ error: "類型僅限股票、基金或美股" }, { status: 400 });
   }
 
   const updated = await prisma.dividendEntry.update({
@@ -29,6 +29,7 @@ export async function PUT(
       ...(name !== undefined ? { name } : {}),
       ...(code !== undefined ? { code: code || null } : {}),
       ...(amount !== undefined && amount !== "" ? { amount: parseFloat(amount) } : {}),
+      ...(currency !== undefined ? { currency: currency || null } : {}),
       ...(quantity !== undefined ? { quantity: quantity === "" || quantity === null ? null : parseFloat(quantity) } : {}),
       ...(price !== undefined ? { price: price === "" || price === null ? null : parseFloat(price) } : {}),
       ...(fee !== undefined ? { fee: fee === "" || fee === null ? null : parseFloat(fee) } : {}),

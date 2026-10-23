@@ -5,7 +5,7 @@ import { authFetch } from "@/lib/api-fetch";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
-type AssetType = "STOCK" | "FUND";
+type AssetType = "STOCK" | "FUND" | "USSTOCK";
 
 interface DividendEntry {
   id: string;
@@ -13,6 +13,7 @@ interface DividendEntry {
   name: string;
   code?: string;
   amount: number;
+  currency?: string;
   quantity?: number;
   price?: number;
   fee?: number;
@@ -21,7 +22,8 @@ interface DividendEntry {
   createdAt: string;
 }
 
-const TYPE_LABEL: Record<AssetType, string> = { STOCK: "股票", FUND: "基金" };
+const TYPE_LABEL: Record<AssetType, string> = { STOCK: "股票", FUND: "基金", USSTOCK: "美股" };
+const CURRENCIES = ["USD", "TWD", "HKD"];
 
 const PAGE_SIZE = 20;
 
@@ -30,6 +32,7 @@ const EMPTY_ADD_FORM = {
   flowType: "INCOME" as "INCOME" | "REINVEST",
   name: "",
   code: "",
+  currency: "TWD",
   date: new Date().toISOString().split("T")[0],
   amount: "",
   quantity: "",
@@ -46,7 +49,7 @@ export default function DividendReinvestPage() {
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<DividendEntry | null>(null);
-  const [editForm, setEditForm] = useState({ type: "STOCK" as AssetType, name: "", code: "", amount: "", quantity: "", price: "", fee: "", date: "", note: "" });
+  const [editForm, setEditForm] = useState({ type: "STOCK" as AssetType, name: "", code: "", amount: "", currency: "TWD", quantity: "", price: "", fee: "", date: "", note: "" });
   const [saving, setSaving] = useState(false);
 
   const [typeFilter, setTypeFilter] = useState<"" | AssetType>("");
@@ -65,26 +68,49 @@ export default function DividendReinvestPage() {
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
+  // 幣別不是台幣就不裝進 Intl 的 currency 格式（避免跟台幣符號混淆），直接標幣別代碼
+  const fmtCur = (n: number, currency: string) =>
+    currency === "TWD" ? fmt(n) : `${currency} ${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n)}`;
+  const entryCur = (e: DividendEntry) => e.currency || "TWD";
+
+  // 幣別不能直接加總（美股配息是美金、股票基金是台幣），所有總計都依幣別分開算
+  const sumByCurrency = (list: DividendEntry[]) =>
+    list.reduce((acc, e) => {
+      const cur = entryCur(e);
+      acc[cur] = (acc[cur] ?? 0) + e.amount;
+      return acc;
+    }, {} as Record<string, number>);
 
   // 剩餘未投入配息餘額：配息入帳為正、再買進為負，加總即為目前還沒拿去買更多股數/單位的配息
-  const total = entries.reduce((s, e) => s + e.amount, 0);
-  const totalIncome = entries.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0);
-  const totalReinvested = entries.filter((e) => e.amount < 0).reduce((s, e) => s + -e.amount, 0);
+  const totalByCurrency = sumByCurrency(entries);
+  const totalIncomeByCurrency = sumByCurrency(entries.filter((e) => e.amount > 0));
+  const totalReinvestedByCurrency = Object.fromEntries(
+    Object.entries(sumByCurrency(entries.filter((e) => e.amount < 0))).map(([cur, v]) => [cur, -v])
+  );
+  const currenciesInUse = Array.from(new Set(entries.map(entryCur))).sort((a, b) => (a === "TWD" ? -1 : b === "TWD" ? 1 : a.localeCompare(b)));
 
-  // 依類型（股票／基金）小計
+  // 依類型＋幣別小計
   const typeTotals = entries.reduce((acc, e) => {
-    acc[e.type] = (acc[e.type] || 0) + e.amount;
+    const key = `${e.type}__${entryCur(e)}`;
+    acc[key] = (acc[key] ?? 0) + e.amount;
     return acc;
   }, {} as Record<string, number>);
+  const typeTotalRows = Array.from(
+    new Set(entries.map((e) => `${e.type}__${entryCur(e)}`))
+  ).map((key) => {
+    const [type, currency] = key.split("__") as [AssetType, string];
+    return { type, currency, total: typeTotals[key] ?? 0 };
+  });
 
-  // 依個別股票／基金名稱小計，用來看每一檔各自還剩多少配息沒投入、累積滾存了多少股
+  // 依個別股票／基金／美股名稱小計，用來看每一檔各自還剩多少配息沒投入、累積滾存了多少股
   const nameTotals = entries.reduce((acc, e) => {
-    const key = `${e.type}__${e.name}`;
-    if (!acc[key]) acc[key] = { type: e.type, name: e.name, code: e.code, total: 0, quantity: 0 };
+    const cur = entryCur(e);
+    const key = `${e.type}__${e.name}__${cur}`;
+    if (!acc[key]) acc[key] = { type: e.type, name: e.name, code: e.code, currency: cur, total: 0, quantity: 0 };
     acc[key].total += e.amount;
     acc[key].quantity += e.quantity ?? 0;
     return acc;
-  }, {} as Record<string, { type: AssetType; name: string; code?: string; total: number; quantity: number }>);
+  }, {} as Record<string, { type: AssetType; name: string; code?: string; currency: string; total: number; quantity: number }>);
   const nameTotalList = Object.values(nameTotals).sort((a, b) => b.total - a.total);
   const fmtQty = (n: number) => new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 4 }).format(n);
 
@@ -117,6 +143,7 @@ export default function DividendReinvestPage() {
         type: addForm.type,
         name: addForm.name.trim(),
         code: addForm.code.trim(),
+        currency: addForm.type === "USSTOCK" ? addForm.currency : "TWD",
         date: addForm.date,
         amount: signedAmount,
         quantity: isReinvest ? addForm.quantity : "",
@@ -142,6 +169,7 @@ export default function DividendReinvestPage() {
       name: e.name,
       code: e.code ?? "",
       amount: String(e.amount),
+      currency: e.currency || "TWD",
       quantity: e.quantity != null ? String(e.quantity) : "",
       price: e.price != null ? String(e.price) : "",
       fee: e.fee != null ? String(e.fee) : "",
@@ -189,7 +217,7 @@ export default function DividendReinvestPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">配息複利滾存</h1>
-          <p className="text-slate-500 text-sm mt-1">記錄股票／基金配息入帳與再買進，追蹤還沒投入的配息餘額</p>
+          <p className="text-slate-500 text-sm mt-1">記錄股票／基金／美股配息入帳與再買進，追蹤還沒投入的配息餘額。幣別分開計算，不會互相加總</p>
         </div>
         <button onClick={openAdd}
           className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors">
@@ -197,19 +225,43 @@ export default function DividendReinvestPage() {
         </button>
       </div>
 
-      {/* Summary */}
+      {/* Summary：幣別分開顯示，不加總 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">剩餘未投入餘額</div>
-          <div className={`text-2xl font-bold mt-1 ${total >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(total)}</div>
+          {currenciesInUse.length === 0 ? (
+            <div className="text-2xl font-bold text-slate-900 mt-1">{fmt(0)}</div>
+          ) : (
+            currenciesInUse.map((cur) => (
+              <div key={cur} className={`text-lg font-bold mt-1 ${(totalByCurrency[cur] ?? 0) >= 0 ? "text-slate-900" : "text-red-500"}`}>
+                {fmtCur(totalByCurrency[cur] ?? 0, cur)}
+              </div>
+            ))
+          )}
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">累計配息入帳</div>
-          <div className="text-2xl font-bold text-emerald-600 mt-1">{fmt(totalIncome)}</div>
+          {currenciesInUse.length === 0 ? (
+            <div className="text-2xl font-bold text-emerald-600 mt-1">{fmt(0)}</div>
+          ) : (
+            currenciesInUse
+              .filter((cur) => (totalIncomeByCurrency[cur] ?? 0) !== 0)
+              .map((cur) => (
+                <div key={cur} className="text-lg font-bold text-emerald-600 mt-1">{fmtCur(totalIncomeByCurrency[cur] ?? 0, cur)}</div>
+              ))
+          )}
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-indigo-500 uppercase tracking-wider mb-1">累計再買進</div>
-          <div className="text-2xl font-bold text-indigo-600 mt-1">{fmt(totalReinvested)}</div>
+          {currenciesInUse.length === 0 ? (
+            <div className="text-2xl font-bold text-indigo-600 mt-1">{fmt(0)}</div>
+          ) : (
+            currenciesInUse
+              .filter((cur) => (totalReinvestedByCurrency[cur] ?? 0) !== 0)
+              .map((cur) => (
+                <div key={cur} className="text-lg font-bold text-indigo-600 mt-1">{fmtCur(totalReinvestedByCurrency[cur] ?? 0, cur)}</div>
+              ))
+          )}
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">記錄筆數</div>
@@ -217,20 +269,24 @@ export default function DividendReinvestPage() {
         </div>
       </div>
 
-      {/* 依股票／基金分類小計 */}
+      {/* 依股票／基金／美股分類小計 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">依類型小計</div>
           <div className="space-y-2">
-            {(["STOCK", "FUND"] as AssetType[]).map((t) => (
-              <div key={t} className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">{TYPE_LABEL[t]}</span>
-                <span className={`font-semibold ${(typeTotals[t] ?? 0) >= 0 ? "text-slate-900" : "text-red-500"}`}>
-                  {fmt(typeTotals[t] ?? 0)}
-                </span>
-              </div>
-            ))}
-            {entries.length === 0 && <div className="text-sm text-slate-400">尚無記錄</div>}
+            {typeTotalRows.length === 0 ? (
+              <div className="text-sm text-slate-400">尚無記錄</div>
+            ) : (
+              typeTotalRows.map(({ type, currency, total: t }) => (
+                <div key={`${type}__${currency}`} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">
+                    {TYPE_LABEL[type]}
+                    {currency !== "TWD" && <span className="text-[10px] text-slate-400 ml-1">({currency})</span>}
+                  </span>
+                  <span className={`font-semibold ${t >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmtCur(t, currency)}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
@@ -240,13 +296,13 @@ export default function DividendReinvestPage() {
               <div className="text-sm text-slate-400">尚無記錄</div>
             ) : (
               nameTotalList.map((n) => (
-                <div key={`${n.type}__${n.name}`} className="flex items-center justify-between text-sm">
+                <div key={`${n.type}__${n.name}__${n.currency}`} className="flex items-center justify-between text-sm">
                   <span className="text-slate-600">
                     <span className="text-[10px] text-slate-400 mr-1.5">{TYPE_LABEL[n.type]}</span>
                     {n.name}{n.code ? ` (${n.code})` : ""}
                     {n.quantity > 0 && <span className="text-[11px] text-indigo-500 ml-1.5">滾存 {fmtQty(n.quantity)} 股</span>}
                   </span>
-                  <span className={`font-semibold ${n.total >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(n.total)}</span>
+                  <span className={`font-semibold ${n.total >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmtCur(n.total, n.currency)}</span>
                 </div>
               ))
             )}
@@ -263,6 +319,7 @@ export default function DividendReinvestPage() {
             <option value="">全部類型</option>
             <option value="STOCK">股票</option>
             <option value="FUND">基金</option>
+            <option value="USSTOCK">美股</option>
           </select>
         </div>
         {loading ? (
@@ -294,13 +351,13 @@ export default function DividendReinvestPage() {
                     {new Date(e.date ?? e.createdAt).toLocaleDateString("zh-TW")}
                     {e.quantity ? ` · ${fmtQty(e.quantity)} 股` : ""}
                     {e.price ? ` · @${fmtQty(e.price)}` : ""}
-                    {e.fee ? ` · 手續費 ${fmt(e.fee)}` : ""}
+                    {e.fee ? ` · 手續費 ${fmtCur(e.fee, entryCur(e))}` : ""}
                     {e.note ? ` · ${e.note}` : ""}
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
                   <span className={`text-sm font-semibold ${e.amount >= 0 ? "text-emerald-600" : "text-indigo-600"}`}>
-                    {e.amount >= 0 ? "+" : "-"}{fmt(Math.abs(e.amount))}
+                    {e.amount >= 0 ? "+" : "-"}{fmtCur(Math.abs(e.amount), entryCur(e))}
                   </span>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => openEdit(e)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 text-xs transition-colors">編輯</button>
@@ -325,8 +382,9 @@ export default function DividendReinvestPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">類型</label>
                 <div className="flex gap-2">
-                  {(["STOCK", "FUND"] as AssetType[]).map((t) => (
-                    <button key={t} type="button" onClick={() => setAddForm({ ...addForm, type: t, name: "" })}
+                  {(["STOCK", "FUND", "USSTOCK"] as AssetType[]).map((t) => (
+                    <button key={t} type="button"
+                      onClick={() => setAddForm({ ...addForm, type: t, name: "", currency: t === "USSTOCK" ? "USD" : "TWD" })}
                       className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${addForm.type === t ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
                       {TYPE_LABEL[t]}
                     </button>
@@ -340,9 +398,19 @@ export default function DividendReinvestPage() {
                   value={addForm.name}
                   onChange={(v) => setAddForm({ ...addForm, name: v })}
                   options={namesForType(addForm.type)}
-                  placeholder="例如：台積電、元大高股息"
+                  placeholder={addForm.type === "USSTOCK" ? "例如：Apple、VOO" : "例如：台積電、元大高股息"}
                 />
               </div>
+
+              {addForm.type === "USSTOCK" && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">幣別</label>
+                  <select value={addForm.currency} onChange={(e) => setAddForm({ ...addForm, currency: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                    {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">代碼（選填）</label>
@@ -432,8 +500,9 @@ export default function DividendReinvestPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">類型</label>
                 <div className="flex gap-2">
-                  {(["STOCK", "FUND"] as AssetType[]).map((t) => (
-                    <button key={t} type="button" onClick={() => setEditForm({ ...editForm, type: t })}
+                  {(["STOCK", "FUND", "USSTOCK"] as AssetType[]).map((t) => (
+                    <button key={t} type="button"
+                      onClick={() => setEditForm({ ...editForm, type: t, currency: t === "USSTOCK" ? (editForm.currency === "TWD" ? "USD" : editForm.currency) : "TWD" })}
                       className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${editForm.type === t ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
                       {TYPE_LABEL[t]}
                     </button>
@@ -445,6 +514,15 @@ export default function DividendReinvestPage() {
                 <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                   className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
+              {editForm.type === "USSTOCK" && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">幣別</label>
+                  <select value={editForm.currency} onChange={(e) => setEditForm({ ...editForm, currency: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
+                    {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">代碼（選填）</label>
                 <input value={editForm.code} onChange={(e) => setEditForm({ ...editForm, code: e.target.value })}

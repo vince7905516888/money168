@@ -17,12 +17,12 @@ import { fetchCryptoTwdPrices } from "@/lib/crypto-prices";
 // 建議匯率（跟資產總攬同一套邏輯）。
 export interface DividendOverviewRecord {
   id: string;
-  source: "STOCK" | "FUND" | "CRYPTO" | "FOREX" | "BANK";
+  source: "STOCK" | "FUND" | "USSTOCK" | "CRYPTO" | "FOREX" | "BANK";
   name: string;
   code: string | null; // 虛擬貨幣：幣種代碼；外匯：幣別；銀行：銀行名稱
   date: string;
-  amount: number | null; // 股票／基金／銀行(台幣)：配息或利息入帳金額（台幣）
-  quantity: number | null; // 虛擬貨幣：配息收到的幣數；外匯／銀行(非台幣)：利息收到的外幣金額
+  amount: number | null; // 已經是台幣的金額（股票／基金／台幣銀行利息）
+  quantity: number | null; // 需要換算的原幣金額（虛擬貨幣幣數、外幣美股/銀行利息）
   twdAmount: number; // 統一換算的台幣金額，方便跨幣別比較加總
   note: string | null;
 }
@@ -30,6 +30,7 @@ export interface DividendOverviewRecord {
 const SOURCE_LABEL: Record<DividendOverviewRecord["source"], string> = {
   STOCK: "股票",
   FUND: "基金",
+  USSTOCK: "美股",
   CRYPTO: "虛擬貨幣",
   FOREX: "外匯",
   BANK: "銀行",
@@ -66,17 +67,20 @@ export async function GET() {
   };
 
   const records: DividendOverviewRecord[] = [
-    ...dividendEntries.map((e) => ({
-      id: e.id,
-      source: e.type as "STOCK" | "FUND",
-      name: e.name,
-      code: e.code,
-      date: e.date.toISOString(),
-      amount: e.amount,
-      quantity: null,
-      twdAmount: e.amount,
-      note: e.note,
-    })),
+    ...dividendEntries.map((e) => {
+      const isTwd = !e.currency || e.currency === "TWD";
+      return {
+        id: e.id,
+        source: e.type as "STOCK" | "FUND" | "USSTOCK",
+        name: isTwd ? e.name : `${e.name} (${e.currency})`,
+        code: e.code,
+        date: e.date.toISOString(),
+        amount: isTwd ? e.amount : null,
+        quantity: isTwd ? null : e.amount,
+        twdAmount: isTwd ? e.amount : e.amount * rateFor(e.currency),
+        note: e.note,
+      };
+    }),
     ...cryptoDividends.map((i) => {
       const code = (i.code || i.name || "").toUpperCase();
       const price = cryptoPrices[code] ?? 0;

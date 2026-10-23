@@ -206,6 +206,7 @@ model DividendEntry {
   name      String
   code      String?
   amount    Float
+  currency  String? // 美股配息用，股票/基金維持原本預設台幣（null＝台幣）
   quantity  Float? // 再買進當下買進的股數／單位數（選填），加總可看配息滾存累積了多少股
   price     Float? // 再買進當下的成交價（選填）
   fee       Float? // 再買進的手續費（選填）

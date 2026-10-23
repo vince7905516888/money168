@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 interface DividendRecord {
   id: string;
-  source: "STOCK" | "FUND" | "CRYPTO" | "FOREX" | "BANK";
+  source: "STOCK" | "FUND" | "USSTOCK" | "CRYPTO" | "FOREX" | "BANK";
   name: string;
   code: string | null;
   date: string;
@@ -17,6 +17,7 @@ interface DividendRecord {
 const SOURCE_LABEL: Record<DividendRecord["source"], string> = {
   STOCK: "股票",
   FUND: "基金",
+  USSTOCK: "美股",
   CRYPTO: "虛擬貨幣",
   FOREX: "外匯",
   BANK: "銀行",
@@ -25,6 +26,7 @@ const SOURCE_LABEL: Record<DividendRecord["source"], string> = {
 const SOURCE_BADGE: Record<DividendRecord["source"], string> = {
   STOCK: "bg-emerald-100 text-emerald-700",
   FUND: "bg-sky-100 text-sky-700",
+  USSTOCK: "bg-rose-100 text-rose-700",
   CRYPTO: "bg-amber-100 text-amber-700",
   FOREX: "bg-cyan-100 text-cyan-700",
   BANK: "bg-indigo-100 text-indigo-700",
@@ -133,7 +135,7 @@ export default function DividendOverviewPage() {
             </p>
             <p className="text-2xl font-bold text-emerald-600">{fmtTwd(overallTotal)}</p>
             <div className="flex flex-wrap gap-2 mt-3">
-              {(["STOCK", "FUND", "CRYPTO", "FOREX", "BANK"] as const)
+              {(["STOCK", "FUND", "USSTOCK", "CRYPTO", "FOREX", "BANK"] as const)
                 .filter((s) => (bySourceTotal.get(s) ?? 0) !== 0)
                 .map((s) => (
                   <span key={s} className={`text-xs px-2.5 py-1 rounded-full font-medium ${SOURCE_BADGE[s]}`}>
