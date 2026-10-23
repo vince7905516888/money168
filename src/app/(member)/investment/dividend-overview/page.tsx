@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 interface DividendRecord {
   id: string;
-  source: "STOCK" | "FUND" | "CRYPTO" | "FOREX";
+  source: "STOCK" | "FUND" | "CRYPTO" | "FOREX" | "BANK";
   name: string;
   code: string | null;
   date: string;
@@ -14,13 +14,12 @@ interface DividendRecord {
   note: string | null;
 }
 
-const QUANTITY_SOURCES: DividendRecord["source"][] = ["CRYPTO", "FOREX"];
-
 const SOURCE_LABEL: Record<DividendRecord["source"], string> = {
   STOCK: "股票",
   FUND: "基金",
   CRYPTO: "虛擬貨幣",
   FOREX: "外匯",
+  BANK: "銀行",
 };
 
 const SOURCE_BADGE: Record<DividendRecord["source"], string> = {
@@ -28,6 +27,7 @@ const SOURCE_BADGE: Record<DividendRecord["source"], string> = {
   FUND: "bg-sky-100 text-sky-700",
   CRYPTO: "bg-amber-100 text-amber-700",
   FOREX: "bg-cyan-100 text-cyan-700",
+  BANK: "bg-indigo-100 text-indigo-700",
 };
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -91,8 +91,8 @@ export default function DividendOverviewPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">配息總攬</h1>
         <p className="text-slate-500 text-sm mt-1">
-          彙整股票／基金配息入帳（配息複利滾存）、虛擬貨幣配息與外匯利息收入，一律換算成台幣方便比較。
-          虛擬貨幣用目前即時價格換算、外匯用目前儲存/建議匯率換算，並非配息當時的歷史價格。純記錄用途，不影響資產總攬的計算
+          彙整股票／基金配息入帳（配息複利滾存）、虛擬貨幣配息、外匯利息與銀行利息收入，一律換算成台幣方便比較。
+          虛擬貨幣用目前即時價格換算、外匯與銀行外幣用目前儲存/建議匯率換算，並非配息當時的歷史價格。純記錄用途，不影響資產總攬的計算
         </p>
       </div>
 
@@ -133,7 +133,7 @@ export default function DividendOverviewPage() {
             </p>
             <p className="text-2xl font-bold text-emerald-600">{fmtTwd(overallTotal)}</p>
             <div className="flex flex-wrap gap-2 mt-3">
-              {(["STOCK", "FUND", "CRYPTO", "FOREX"] as const)
+              {(["STOCK", "FUND", "CRYPTO", "FOREX", "BANK"] as const)
                 .filter((s) => (bySourceTotal.get(s) ?? 0) !== 0)
                 .map((s) => (
                   <span key={s} className={`text-xs px-2.5 py-1 rounded-full font-medium ${SOURCE_BADGE[s]}`}>
@@ -175,7 +175,7 @@ export default function DividendOverviewPage() {
                           {h.code ? <span className="text-slate-400">（{h.code}）</span> : null}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-500">
-                          {QUANTITY_SOURCES.includes(h.source) ? fmtQty(h.originalQty ?? 0) : fmtTwd(h.originalAmount ?? 0)}
+                          {h.originalQty != null ? fmtQty(h.originalQty) : fmtTwd(h.originalAmount ?? 0)}
                         </td>
                         <td className="px-5 py-3 text-right font-semibold text-emerald-600">{fmtTwd(h.twdAmount)}</td>
                       </tr>
@@ -221,7 +221,7 @@ export default function DividendOverviewPage() {
                           {r.code ? <span className="text-slate-400">（{r.code}）</span> : null}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-500">
-                          {QUANTITY_SOURCES.includes(r.source) ? `+${fmtQty(r.quantity ?? 0)}` : fmtTwd(r.amount ?? 0)}
+                          {r.quantity != null ? `+${fmtQty(r.quantity)}` : fmtTwd(r.amount ?? 0)}
                         </td>
                         <td className="px-4 py-3 text-right font-medium text-emerald-600">{fmtTwd(r.twdAmount)}</td>
                         <td className="px-5 py-3 text-slate-400">{r.note || "—"}</td>

@@ -8,19 +8,21 @@ import { fetchCryptoTwdPrices } from "@/lib/crypto-prices";
 // 配息總攬：彙整全站各欄目實際記錄的「配息」——股票／基金配息入帳（DividendEntry，排除
 // 再買進負數列）、虛擬貨幣配息／質押收益（Investment type=CRYPTO 的配息慣例，見
 // isCryptoDividend）、外匯利息收入（Investment type=FOREX 且 name="利息收入"，外匯頁面
-// 沒有「配息」這個詞但概念等同於配息），依日期彙整成單一清單，純讀取用的紀錄頁面，
-// 不影響其他頁面的資產計算。每筆都換算一個台幣金額（twdAmount）方便跨幣別比較加總：
-// 股票／基金視為已經是台幣（DividendEntry 沒有幣別欄位）；虛擬貨幣用目前即時台幣價格換算
-// （跟資產總攬的配息市值算法一致，非當時歷史價格）；外匯用已儲存匯率、沒有則用時序加權
-// 平均建議匯率（跟資產總攬同一套邏輯）。
+// 沒有「配息」這個詞但概念等同於配息）、銀行資金管理的利息收入（Transaction source=BANK、
+// type=INCOME、標題包含「利息」——銀行資金管理頁面的分類固定是「銀行」，真正描述這筆是不是
+// 利息要看使用者自己填的標題），依日期彙整成單一清單，純讀取用的紀錄頁面，不影響其他頁面
+// 的資產計算。每筆都換算一個台幣金額（twdAmount）方便跨幣別比較加總：股票／基金視為已經是
+// 台幣（DividendEntry 沒有幣別欄位）；虛擬貨幣用目前即時台幣價格換算（跟資產總攬的配息市值
+// 算法一致，非當時歷史價格）；外匯、銀行利息用已儲存匯率，外匯沒存過時再退回時序加權平均
+// 建議匯率（跟資產總攬同一套邏輯）。
 export interface DividendOverviewRecord {
   id: string;
-  source: "STOCK" | "FUND" | "CRYPTO" | "FOREX";
+  source: "STOCK" | "FUND" | "CRYPTO" | "FOREX" | "BANK";
   name: string;
-  code: string | null; // 虛擬貨幣：幣種代碼；外匯：幣別
+  code: string | null; // 虛擬貨幣：幣種代碼；外匯：幣別；銀行：銀行名稱
   date: string;
-  amount: number | null; // 股票／基金：配息入帳金額（台幣）
-  quantity: number | null; // 虛擬貨幣：配息收到的幣數；外匯：利息收到的外幣金額
+  amount: number | null; // 股票／基金／銀行(台幣)：配息或利息入帳金額（台幣）
+  quantity: number | null; // 虛擬貨幣：配息收到的幣數；外匯／銀行(非台幣)：利息收到的外幣金額
   twdAmount: number; // 統一換算的台幣金額，方便跨幣別比較加總
   note: string | null;
 }
@@ -30,17 +32,21 @@ const SOURCE_LABEL: Record<DividendOverviewRecord["source"], string> = {
   FUND: "基金",
   CRYPTO: "虛擬貨幣",
   FOREX: "外匯",
+  BANK: "銀行",
 };
 
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "未登入" }, { status: 401 });
 
-  const [dividendEntries, cryptoInvestments, forexInvestments, savedRates] = await Promise.all([
+  const [dividendEntries, cryptoInvestments, forexInvestments, savedRates, bankInterest] = await Promise.all([
     prisma.dividendEntry.findMany({ where: { userId: session.user.id, amount: { gt: 0 } } }),
     prisma.investment.findMany({ where: { userId: session.user.id, type: "CRYPTO" } }),
     prisma.investment.findMany({ where: { userId: session.user.id, type: "FOREX" } }),
     prisma.userExchangeRate.findMany({ where: { userId: session.user.id } }),
+    prisma.transaction.findMany({
+      where: { userId: session.user.id, source: "BANK", type: "INCOME", title: { contains: "利息" } },
+    }),
   ]);
 
   const cryptoDividends = cryptoInvestments.filter(isCryptoDividend);
@@ -97,6 +103,22 @@ export async function GET() {
       twdAmount: (i.quantity ?? 0) * rateFor(i.currency),
       note: i.note,
     })),
+    ...bankInterest.map((t) => {
+      // 銀行資金管理存銀行名稱的慣例：note 開頭是 "${銀行名稱} · ..."
+      const bankName = t.note?.split(" · ")[0]?.trim() || null;
+      const isTwd = !t.currency || t.currency === "TWD";
+      return {
+        id: t.id,
+        source: "BANK" as const,
+        name: t.title,
+        code: bankName,
+        date: t.date.toISOString(),
+        amount: isTwd ? t.amount : null,
+        quantity: isTwd ? null : t.amount,
+        twdAmount: isTwd ? t.amount : t.amount * rateFor(t.currency),
+        note: t.note,
+      };
+    }),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const years = Array.from(new Set(records.map((r) => new Date(r.date).getFullYear()))).sort((a, b) => b - a);
