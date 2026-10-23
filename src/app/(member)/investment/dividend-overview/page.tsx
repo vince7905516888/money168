@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Pagination from "@/components/ui/Pagination";
 
 interface DividendRecord {
   id: string;
@@ -33,6 +34,7 @@ const SOURCE_BADGE: Record<DividendRecord["source"], string> = {
 };
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+const PAGE_SIZE = 20;
 
 export default function DividendOverviewPage() {
   const [records, setRecords] = useState<DividendRecord[]>([]);
@@ -40,6 +42,7 @@ export default function DividendOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [yearFilter, setYearFilter] = useState<string>("");
   const [monthFilter, setMonthFilter] = useState<string>("");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     (async () => {
@@ -88,6 +91,10 @@ export default function DividendOverviewPage() {
     return Array.from(map.values()).sort((a, b) => b.twdAmount - a.twdAmount);
   }, [filtered]);
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedFiltered = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   return (
     <div className="w-full max-w-6xl">
       <div className="mb-6">
@@ -101,7 +108,7 @@ export default function DividendOverviewPage() {
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <select
           value={yearFilter}
-          onChange={(e) => setYearFilter(e.target.value)}
+          onChange={(e) => { setYearFilter(e.target.value); setPage(1); }}
           className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-indigo-400 transition-colors bg-white"
         >
           <option value="">全部年份</option>
@@ -113,7 +120,7 @@ export default function DividendOverviewPage() {
         </select>
         <select
           value={monthFilter}
-          onChange={(e) => setMonthFilter(e.target.value)}
+          onChange={(e) => { setMonthFilter(e.target.value); setPage(1); }}
           className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-indigo-400 transition-colors bg-white"
         >
           <option value="">全部月份</option>
@@ -210,7 +217,7 @@ export default function DividendOverviewPage() {
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((r) => (
+                    pagedFiltered.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-50/60">
                         <td className="px-5 py-3 text-slate-600">{new Date(r.date).toLocaleDateString("zh-TW")}</td>
                         <td className="px-4 py-3">
@@ -233,6 +240,7 @@ export default function DividendOverviewPage() {
                 </tbody>
               </table>
             </div>
+            <Pagination page={currentPage} pageCount={pageCount} totalCount={filtered.length} onPageChange={setPage} />
           </div>
         </>
       )}
