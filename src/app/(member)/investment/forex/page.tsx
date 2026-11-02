@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { getTodayTW } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
@@ -56,7 +57,7 @@ const CURRENCIES = ["USD", "JPY", "EUR", "GBP", "AUD", "CNY", "HKD", "CAD", "NZD
 const PAGE_SIZE = 20;
 
 const EMPTY_ADD_FORM = {
-  date: new Date().toISOString().split("T")[0],
+  date: "",
   flowType: "BUY" as FlowType,
   bankName: "",
   currency: "USD",
@@ -73,7 +74,7 @@ export default function ForexPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
+  const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Investment | null>(null);
@@ -238,7 +239,7 @@ export default function ForexPage() {
   }
 
   const resetAddForm = () => {
-    setAddForm(EMPTY_ADD_FORM);
+    setAddForm({ ...EMPTY_ADD_FORM, date: getTodayTW() });
     setAddBankInput("");
     setAddBankOpen(false);
   };

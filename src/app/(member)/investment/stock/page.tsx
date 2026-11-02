@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import { computeStockLedger, type SaleResult } from "@/lib/stock-holdings";
+import { getTodayTW } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
@@ -48,7 +49,7 @@ const EMPTY_ADD_FORM = {
   mode: "TRADE" as "TRADE" | "COST_ADJUST",
   name: "",
   code: "",
-  date: new Date().toISOString().split("T")[0],
+  date: "",
   action: "BUY" as "BUY" | "SELL",
   broker: "",
   quantity: "",
@@ -93,7 +94,7 @@ export default function StockPage() {
   const [calibForm, setCalibForm] = useState({ quantity: "", cost: "", note: "" });
   const [calibSaving, setCalibSaving] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
+  const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Investment | null>(null);
@@ -242,7 +243,7 @@ export default function StockPage() {
   const subtotal = addForm.adjustAmount !== "" ? (parseFloat(addForm.adjustAmount) || 0) : calcSubtotal;
 
   const resetAddForm = () => {
-    setAddForm((f) => ({ ...EMPTY_ADD_FORM, feeRate: f.feeRate }));
+    setAddForm((f) => ({ ...EMPTY_ADD_FORM, date: getTodayTW(), feeRate: f.feeRate }));
     setAddBrokerInput("");
     setAddBrokerOpen(false);
   };

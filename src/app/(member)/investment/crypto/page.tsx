@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { getTodayTW } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 import { remainingHoldingsByAmount, suspenseOpenCost, isCryptoDividend } from "@/lib/stock-holdings";
@@ -91,7 +92,7 @@ const EMPTY_ADD_FORM = {
   creditToTwd: false,
   name: "",
   code: "",
-  date: new Date().toISOString().split("T")[0],
+  date: "",
   action: "BUY" as "BUY" | "SELL",
   broker: "",
   quantity: "",
@@ -105,7 +106,7 @@ export default function CryptoPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
+  const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("DATE_DESC");
   const [exchangeFilter, setExchangeFilter] = useState("");
@@ -392,7 +393,7 @@ export default function CryptoPage() {
   const subtotal = addForm.override !== "" ? (parseFloat(addForm.override) || 0) : calcSubtotal;
 
   const resetAddForm = () => {
-    setAddForm(EMPTY_ADD_FORM);
+    setAddForm({ ...EMPTY_ADD_FORM, date: getTodayTW() });
     setAddExchangeInput("");
     setAddExchangeOpen(false);
   };

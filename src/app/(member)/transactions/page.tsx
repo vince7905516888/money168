@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { getTodayTW } from "@/lib/date";
 import PickerWithAdd from "@/components/ui/PickerWithAdd";
 import TransferSide, { type PaymentMethod } from "@/components/finance/TransferSide";
 import Pagination from "@/components/ui/Pagination";
@@ -57,7 +58,7 @@ const EMPTY_FORM = {
   title: "",
   amount: "",
   type: "EXPENSE" as "INCOME" | "EXPENSE" | "TRANSFER",
-  date: new Date().toISOString().split("T")[0],
+  date: "",
   note: "",
   categoryId: "",
   currency: "TWD",
@@ -113,7 +114,7 @@ export default function TransactionsPage() {
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [currencyTotals, setCurrencyTotals] = useState<Record<string, { income: number; expense: number }>>({});
   const [showList, setShowList] = useState(true);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(() => ({ ...EMPTY_FORM, date: getTodayTW() }));
   const [transfer, setTransfer] = useState(EMPTY_TRANSFER);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("");
   const [paymentDetail, setPaymentDetail] = useState("");
@@ -169,7 +170,7 @@ export default function TransactionsPage() {
   useEffect(() => { setPage(1); }, [filter]);
 
   const resetForm = () => {
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, date: getTodayTW() });
     setTransfer(EMPTY_TRANSFER);
     setPaymentMethod("");
     setPaymentDetail("");

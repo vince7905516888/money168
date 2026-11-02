@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { getTodayTW } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
@@ -37,7 +38,7 @@ const PAGE_SIZE = 20;
 const EMPTY_ADD_FORM = {
   category: "",
   flowType: "INCREASE" as "INCREASE" | "DECREASE",
-  date: new Date().toISOString().split("T")[0],
+  date: "",
   amount: "",
   bankName: "",
   note: "",
@@ -47,7 +48,7 @@ export default function DebtsPage() {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
+  const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Debt | null>(null);
@@ -144,7 +145,7 @@ export default function DebtsPage() {
   const signedAmount = isDecrease ? -amountInput : amountInput;
 
   const resetAddForm = () => {
-    setAddForm(EMPTY_ADD_FORM);
+    setAddForm({ ...EMPTY_ADD_FORM, date: getTodayTW() });
     setAddCategoryInput("");
     setAddCategoryOpen(false);
     setAddBankInput("");

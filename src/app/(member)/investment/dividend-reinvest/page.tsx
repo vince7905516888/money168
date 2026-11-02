@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { getTodayTW } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
@@ -33,7 +34,7 @@ const EMPTY_ADD_FORM = {
   name: "",
   code: "",
   currency: "TWD",
-  date: new Date().toISOString().split("T")[0],
+  date: "",
   amount: "",
   quantity: "",
   price: "",
@@ -45,7 +46,7 @@ export default function DividendReinvestPage() {
   const [entries, setEntries] = useState<DividendEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
+  const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<DividendEntry | null>(null);
@@ -122,7 +123,7 @@ export default function DividendReinvestPage() {
   const isReinvest = addForm.flowType === "REINVEST";
   const signedAmount = isReinvest ? -amountInput : amountInput;
 
-  const resetAddForm = () => setAddForm({ ...EMPTY_ADD_FORM, date: new Date().toISOString().split("T")[0] });
+  const resetAddForm = () => setAddForm({ ...EMPTY_ADD_FORM, date: getTodayTW() });
   const openAdd = () => { resetAddForm(); setShowAddModal(true); };
 
   const handleAdd = async (e: React.FormEvent) => {

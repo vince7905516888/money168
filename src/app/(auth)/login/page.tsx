@@ -160,9 +160,14 @@ export default function LoginPage() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            密碼
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-sm font-medium text-slate-700">
+              密碼
+            </label>
+            <Link href="/forgot-password" className="text-xs text-indigo-600 font-medium hover:underline">
+              忘記密碼？
+            </Link>
+          </div>
           <input
             type="password"
             required

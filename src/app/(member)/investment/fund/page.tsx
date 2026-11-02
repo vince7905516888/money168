@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { getTodayTW } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
@@ -53,7 +54,7 @@ type FundFlowType = "INCOME" | "EXPENSE";
 
 const EMPTY_ADD_FORM = {
   flowType: "INCOME" as FundFlowType,
-  date: new Date().toISOString().split("T")[0],
+  date: "",
   bankName: "",
   currency: "TWD",
   currencyOther: "",
@@ -69,7 +70,7 @@ export default function FundPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
+  const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Investment | null>(null);
@@ -261,7 +262,7 @@ export default function FundPage() {
   const isExpense = addForm.flowType === "EXPENSE";
 
   const resetAddForm = () => {
-    setAddForm(EMPTY_ADD_FORM);
+    setAddForm({ ...EMPTY_ADD_FORM, date: getTodayTW() });
     setAddBankInput("");
     setAddBankOpen(false);
   };

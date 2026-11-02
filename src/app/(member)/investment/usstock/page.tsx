@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import { computeHoldings } from "@/lib/stock-holdings";
+import { getTodayTW } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
@@ -45,7 +46,7 @@ const EMPTY_ADD_FORM = {
   mode: "TRADE" as "TRADE" | "COST_ADJUST",
   name: "",
   code: "",
-  date: new Date().toISOString().split("T")[0],
+  date: "",
   action: "BUY" as "BUY" | "SELL",
   broker: "",
   currency: "USD",
@@ -64,7 +65,7 @@ export default function UsStockPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
+  const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Investment | null>(null);
@@ -163,7 +164,7 @@ export default function UsStockPage() {
   const pagedInvestments = investments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const resetAddForm = () => {
-    setAddForm(EMPTY_ADD_FORM);
+    setAddForm({ ...EMPTY_ADD_FORM, date: getTodayTW() });
     setAddBrokerInput("");
     setAddBrokerOpen(false);
   };

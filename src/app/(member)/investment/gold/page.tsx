@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { getTodayTW } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
@@ -39,7 +40,7 @@ const PAGE_SIZE = 20;
 const EMPTY_ADD_FORM = {
   name: "",
   code: "",
-  date: new Date().toISOString().split("T")[0],
+  date: "",
   action: "BUY" as "BUY" | "SELL",
   bankName: "",
   quantity: "",
@@ -54,7 +55,7 @@ export default function GoldPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
+  const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Investment | null>(null);
@@ -137,7 +138,7 @@ export default function GoldPage() {
   const subtotal = addForm.override !== "" ? (parseFloat(addForm.override) || 0) : calcSubtotal;
 
   const resetAddForm = () => {
-    setAddForm(EMPTY_ADD_FORM);
+    setAddForm({ ...EMPTY_ADD_FORM, date: getTodayTW() });
     setAddBankInput("");
     setAddBankOpen(false);
   };
