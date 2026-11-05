@@ -29,14 +29,40 @@ export interface FuturesPositionsResult {
 
 const num = (s: string | undefined) => (s ? parseInt(s.replace(/,/g, ""), 10) : 0);
 
+// 這支 OpenAPI 同一個網址，依來源（可能是IP或快取節點）有時回傳JSON、有時回傳CSV
+// （欄位內容一樣，只是格式不同），兩種都要能解析，否則遇到CSV那次res.json()會丟例外
+// 被外層catch吃掉變成「無資料」，造成排程空轉、資料停更。
+function parseRows(text: string): RawRow[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[")) {
+    return JSON.parse(trimmed);
+  }
+  const [, ...dataLines] = trimmed.split(/\r?\n/).filter(Boolean);
+  return dataLines.map((line) => {
+    const c = line.split(",");
+    return {
+      Date: c[0],
+      ContractCode: c[1],
+      Item: c[2],
+      "OpenInterest(Long)": c[9],
+      "OpenInterest(Short)": c[11],
+      "OpenInterest(Net)": c[13],
+    };
+  });
+}
+
 export async function fetchFuturesPositions(): Promise<FuturesPositionsResult | null> {
   try {
     const res = await fetch(TAIFEX_URL, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; MoneyFlowApp/1.0)" },
       cache: "no-store",
     });
-    if (!res.ok) return null;
-    const rows: RawRow[] = await res.json();
+    if (!res.ok) {
+      console.error("[taifex] API 回應非200:", res.status);
+      return null;
+    }
+    const rows: RawRow[] = parseRows(await res.text());
     if (!rows || rows.length === 0) return null;
 
     const rocDate = rows[0].Date; // YYYYMMDD 西元格式（跟T86一樣，非民國年）
@@ -66,7 +92,8 @@ export async function fetchFuturesPositions(): Promise<FuturesPositionsResult | 
     }
 
     return { date, positions };
-  } catch {
+  } catch (e) {
+    console.error("[taifex] fetchFuturesPositions 失敗:", e);
     return null;
   }
 }
