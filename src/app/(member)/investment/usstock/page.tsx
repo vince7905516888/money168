@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import { computeHoldings } from "@/lib/stock-holdings";
-import { getTodayTW } from "@/lib/date";
+import { getTodayTW, monthRange } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
@@ -66,6 +66,7 @@ export default function UsStockPage() {
   const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [statsMonth, setStatsMonth] = useState("");
+  const [holdingsMonth, setHoldingsMonth] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
@@ -151,6 +152,31 @@ export default function UsStockPage() {
       cost: computeHoldings(investments.filter((i) => (i.currency || "USD") === currency)).reduce((s, h) => s + h.cost, 0),
     }))
     .filter((t) => Math.abs(t.cost) > 0.0001);
+
+  // 持股狀況依月份顯示：選過去月份看那個月底累計持有的部位，選當月則看到今天為止
+  // （月份選單涵蓋最早一筆交易到本月，沒交易的月份也能選，因為持股是累計的）
+  const todayStr = getTodayTW();
+  const currentMonthStr = todayStr.slice(0, 7);
+  const holdingsMonthOptions = (investments.length === 0
+    ? [currentMonthStr]
+    : monthRange(investments.map((i) => (i.date ?? i.createdAt).slice(0, 7)).sort()[0], currentMonthStr)
+  ).reverse();
+  const effectiveHoldingsMonth = holdingsMonth || currentMonthStr;
+  const isCurrentHoldingsMonth = effectiveHoldingsMonth === currentMonthStr;
+  const investmentsUpToHoldingsMonth = investments.filter((i) => {
+    const d = (i.date ?? i.createdAt).slice(0, 10);
+    return isCurrentHoldingsMonth ? d <= todayStr : d.slice(0, 7) <= effectiveHoldingsMonth;
+  });
+  // 當月直接沿用上面已經算好的 holdings/holdingSubtotals（跟成本調整表單選單共用同一份資料，
+  // 避免同一頁對當下持股算出兩種不同結果）；只有選過去月份才需要另外算歷史快照
+  const holdingsForMonth = isCurrentHoldingsMonth ? holdings : computeHoldings(investmentsUpToHoldingsMonth);
+  const holdingSubtotalsForMonth = isCurrentHoldingsMonth ? holdingSubtotals
+    : [...new Set(investmentsUpToHoldingsMonth.map((i) => i.currency || "USD"))]
+        .map((currency) => ({
+          currency,
+          cost: computeHoldings(investmentsUpToHoldingsMonth.filter((i) => (i.currency || "USD") === currency)).reduce((s, h) => s + h.cost, 0),
+        }))
+        .filter((t) => Math.abs(t.cost) > 0.0001);
 
   // ---- 新增表單：即時試算 ----
   const quantity = parseFloat(addForm.quantity) || 0;
@@ -439,11 +465,18 @@ export default function UsStockPage() {
 
       {/* 持股狀況 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
-        <div className="px-6 py-4 border-b border-slate-50">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-50">
           <h2 className="font-semibold text-slate-900">持股狀況</h2>
+          <select value={effectiveHoldingsMonth} onChange={(e) => setHoldingsMonth(e.target.value)}
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+            {holdingsMonthOptions.map((m) => {
+              const [y, mo] = m.split("-");
+              return <option key={m} value={m}>{y} 年 {parseInt(mo)} 月{m === currentMonthStr ? "（至今）" : "底"}</option>;
+            })}
+          </select>
         </div>
-        {holdings.length === 0 ? (
-          <div className="py-10 text-center text-slate-400 text-sm">目前沒有持股</div>
+        {holdingsForMonth.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-sm">{isCurrentHoldingsMonth ? "目前沒有持股" : "這個月份沒有持股"}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -457,7 +490,7 @@ export default function UsStockPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {holdings.map((h) => (
+                {holdingsForMonth.map((h) => (
                   <tr key={h.key} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-3 font-medium text-slate-800">{h.name}</td>
                     <td className="px-6 py-3 text-slate-500 font-mono text-xs">{h.code}</td>
@@ -468,7 +501,7 @@ export default function UsStockPage() {
                 ))}
               </tbody>
               <tfoot>
-                {holdingSubtotals.map((t) => (
+                {holdingSubtotalsForMonth.map((t) => (
                   <tr key={t.currency} className="border-t border-slate-100 bg-slate-50">
                     <td colSpan={3} className="px-6 py-3 font-semibold text-slate-800">小計（{t.currency}）</td>
                     <td className="px-6 py-3 text-right font-bold text-slate-900">{fmtCur(t.cost, t.currency)}</td>

@@ -4,3 +4,17 @@
 export function getTodayTW() {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
 }
+
+// 連續月份清單（含頭尾，"YYYY-MM" 格式，由舊到新），給「依月份顯示持股狀況」這類月份選單用，
+// 確保沒有交易的月份也能選到（持股是累計到當月，不是只看當月有沒有異動）
+export function monthRange(startMonth: string, endMonth: string): string[] {
+  const result: string[] = [];
+  let [y, m] = startMonth.split("-").map(Number);
+  const [endY, endM] = endMonth.split("-").map(Number);
+  while (y < endY || (y === endY && m <= endM)) {
+    result.push(`${y}-${String(m).padStart(2, "0")}`);
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return result;
+}

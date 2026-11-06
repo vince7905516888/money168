@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import { computeStockLedger, type SaleResult } from "@/lib/stock-holdings";
-import { getTodayTW } from "@/lib/date";
+import { getTodayTW, monthRange } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
 
@@ -84,6 +84,7 @@ export default function StockPage() {
   const [page, setPage] = useState(1);
   const [realizedOpen, setRealizedOpen] = useState(false);
   const [statsMonth, setStatsMonth] = useState("");
+  const [holdingsMonth, setHoldingsMonth] = useState("");
   // 買賣同步到銀行資金管理：交割銀行（記住上次選的）與交割日（預設成交日 + 2 個工作天，可改）
   const [bankNames, setBankNames] = useState<string[]>([]);
   const [bankCategoryIds, setBankCategoryIds] = useState<{ INCOME?: string; EXPENSE?: string }>({});
@@ -186,6 +187,24 @@ export default function StockPage() {
   const pnlColor = (n: number) => (n >= 0 ? "text-red-500" : "text-emerald-600");
   // 持股成本：目前仍持有部位的投入成本（含成本調整），跟資產總攬的股票投資同一個數字
   const netInvested = holdings.reduce((s, h) => s + h.cost, 0);
+  // 持股狀況依月份顯示：選過去月份看那個月底累計持有的部位，選當月則看到今天為止
+  // （月份選單涵蓋最早一筆交易到本月，沒交易的月份也能選，因為持股是累計的）
+  const todayStr = getTodayTW();
+  const currentMonthStr = todayStr.slice(0, 7);
+  const holdingsMonthOptions = (investments.length === 0
+    ? [currentMonthStr]
+    : monthRange(investments.map((i) => (i.date ?? i.createdAt).slice(0, 7)).sort()[0], currentMonthStr)
+  ).reverse();
+  const effectiveHoldingsMonth = holdingsMonth || currentMonthStr;
+  const isCurrentHoldingsMonth = effectiveHoldingsMonth === currentMonthStr;
+  // 當月直接沿用上面已經算好的 holdings（跟校正功能共用同一份資料，避免同一頁對當下持股
+  // 算出兩種不同結果）；只有選過去月份才需要另外算歷史快照，且歷史快照不提供校正（只看過去）
+  const holdingsForMonth = isCurrentHoldingsMonth ? holdings : computeStockLedger(
+    investments.filter((i) => {
+      const d = (i.date ?? i.createdAt).slice(0, 10);
+      return d.slice(0, 7) <= effectiveHoldingsMonth;
+    })
+  ).holdings;
   // 月份買進統計：依「成交日期」所在月份分組，只列有買進記錄的月份可選
   const buyMonthOptions = Array.from(
     new Set(investments.filter((i) => i.action === "BUY").map((i) => (i.date ?? i.createdAt).slice(0, 7)))
@@ -515,11 +534,18 @@ export default function StockPage() {
 
       {/* 持股狀況 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
-        <div className="px-6 py-4 border-b border-slate-50">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-50">
           <h2 className="font-semibold text-slate-900">持股狀況</h2>
+          <select value={effectiveHoldingsMonth} onChange={(e) => setHoldingsMonth(e.target.value)}
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+            {holdingsMonthOptions.map((m) => {
+              const [y, mo] = m.split("-");
+              return <option key={m} value={m}>{y} 年 {parseInt(mo)} 月{m === currentMonthStr ? "（至今）" : "底"}</option>;
+            })}
+          </select>
         </div>
-        {holdings.length === 0 ? (
-          <div className="py-10 text-center text-slate-400 text-sm">目前沒有持股</div>
+        {holdingsForMonth.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-sm">{isCurrentHoldingsMonth ? "目前沒有持股" : "這個月份沒有持股"}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -534,7 +560,7 @@ export default function StockPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {holdings.map((h) => (
+                {holdingsForMonth.map((h) => (
                   <tr key={h.key} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-3 font-medium text-slate-800">{h.name}</td>
                     <td className="px-6 py-3 text-slate-500 font-mono text-xs">{h.code}</td>
@@ -542,8 +568,10 @@ export default function StockPage() {
                     <td className="px-6 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
                     <td className="px-6 py-3 text-right text-slate-700">{h.avgPrice.toFixed(2)}</td>
                     <td className="px-4 py-3 text-right">
-                      <button type="button" onClick={() => openCalibrate(h)}
-                        className="text-xs font-semibold text-violet-600 border border-violet-200 rounded-lg px-2.5 py-1 hover:bg-violet-50">校正</button>
+                      {isCurrentHoldingsMonth && (
+                        <button type="button" onClick={() => openCalibrate(h)}
+                          className="text-xs font-semibold text-violet-600 border border-violet-200 rounded-lg px-2.5 py-1 hover:bg-violet-50">校正</button>
+                      )}
                     </td>
                   </tr>
                 ))}
