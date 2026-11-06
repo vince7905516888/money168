@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import { getTodayTW } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
@@ -54,6 +54,7 @@ export default function GoldPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
@@ -110,12 +111,15 @@ export default function GoldPage() {
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
 
+  // 商品分類鍵值：優先用代碼判斷，沒代碼就用名稱，統一給分組統計跟篩選下拉選單共用
+  const categoryKey = (i: Investment) => i.code?.trim() || i.name?.trim() || "(未命名)";
+
   // 依名稱分組統計：同一個名稱（優先用代碼判斷，trim 後比對）的買賣筆數、累計淨額與淨重量；
   // 賣出的重量要扣減（跟金額的淨投入邏輯一致），這樣平均每公克價格才是「目前淨持有部位」的均價
   const nameGroups = investments.reduce((acc, i) => {
     const name = i.name?.trim() || "(未命名)";
     const code = i.code?.trim() || undefined;
-    const key = code || name;
+    const key = categoryKey(i);
     if (!acc[key]) acc[key] = { name, code, count: 0, amount: 0, units: 0 };
     acc[key].count += 1;
     acc[key].amount += i.amount;
@@ -124,9 +128,22 @@ export default function GoldPage() {
   }, {} as Record<string, { name: string; code?: string; count: number; amount: number; units: number }>);
   const nameGroupList = Object.values(nameGroups);
 
-  const pageCount = Math.max(1, Math.ceil(investments.length / PAGE_SIZE));
+  // 投資記錄列表：依交易日期新到舊排序（同一天再比建立時間），並套用商品類別篩選
+  const sortedFilteredInvestments = useMemo(() => {
+    const filtered = categoryFilter === "ALL"
+      ? investments
+      : investments.filter((i) => categoryKey(i) === categoryFilter);
+    return [...filtered].sort((a, b) => {
+      const dateDiff = new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [investments, categoryFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(sortedFilteredInvestments.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const pagedInvestments = investments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pagedInvestments = sortedFilteredInvestments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   // ---- 新增表單：即時試算 ----
   const quantity = parseFloat(addForm.quantity) || 0;
@@ -284,8 +301,22 @@ export default function GoldPage() {
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-50">
+        <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between gap-3 flex-wrap">
           <h2 className="font-semibold text-slate-900">投資記錄</h2>
+          {nameGroupList.length > 1 && (
+            <select
+              value={categoryFilter}
+              onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
+              className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-600 focus:border-indigo-400 transition-colors"
+            >
+              <option value="ALL">全部商品</option>
+              {nameGroupList.map((g) => (
+                <option key={g.code || g.name} value={g.code || g.name}>
+                  {g.name}{g.code ? `（${g.code}）` : ""}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
@@ -293,6 +324,10 @@ export default function GoldPage() {
           <div className="py-16 text-center">
             <p className="text-slate-400 text-sm mb-3">還沒有黃金投資記錄</p>
             <button onClick={openAdd} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆記錄</button>
+          </div>
+        ) : sortedFilteredInvestments.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-slate-400 text-sm">這個商品類別沒有符合的記錄</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -333,8 +368,8 @@ export default function GoldPage() {
             ))}
           </div>
         )}
-        {!loading && (
-          <Pagination page={currentPage} pageCount={pageCount} totalCount={investments.length} onPageChange={setPage} />
+        {!loading && sortedFilteredInvestments.length > 0 && (
+          <Pagination page={currentPage} pageCount={pageCount} totalCount={sortedFilteredInvestments.length} onPageChange={setPage} />
         )}
       </div>
 
