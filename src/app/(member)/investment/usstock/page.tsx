@@ -65,6 +65,7 @@ export default function UsStockPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState("ALL");
+  const [statsMonth, setStatsMonth] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState(() => ({ ...EMPTY_ADD_FORM, date: getTodayTW() }));
   const [addSaving, setAddSaving] = useState(false);
@@ -159,6 +160,27 @@ export default function UsStockPage() {
   const calcSubtotal = addForm.action === "BUY" ? principal + fee : principal - fee;
   // 調帳金額：實際扣款/入帳金額可能因匯率或券商計費方式跟試算有落差，填了就以此為準
   const subtotal = addForm.adjustAmount !== "" ? (parseFloat(addForm.adjustAmount) || 0) : calcSubtotal;
+
+  // 月份買進統計：依「成交日期」所在月份分組，只列有買進記錄的月份可選；美股有多幣別，
+  // 同一檔股票的幣別理論上固定，用該檔第一筆買進記錄的幣別來格式化金額
+  const buyMonthOptions = Array.from(
+    new Set(investments.filter((i) => i.action === "BUY").map((i) => (i.date ?? i.createdAt).slice(0, 7)))
+  ).sort().reverse();
+  const effectiveStatsMonth = statsMonth || buyMonthOptions[0] || "";
+  const monthlyBuyStats = (() => {
+    const map = new Map<string, { key: string; name: string; code: string; currency: string; quantity: number; principal: number; fee: number }>();
+    for (const inv of investments) {
+      if (inv.action !== "BUY") continue;
+      if ((inv.date ?? inv.createdAt).slice(0, 7) !== effectiveStatsMonth) continue;
+      const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
+      if (!map.has(key)) map.set(key, { key, name: inv.name || "(未命名)", code: inv.code || "—", currency: inv.currency || "USD", quantity: 0, principal: 0, fee: 0 });
+      const g = map.get(key)!;
+      g.quantity += inv.quantity ?? 0;
+      g.principal += (inv.quantity ?? 0) * (inv.price ?? 0);
+      g.fee += inv.fee ?? 0;
+    }
+    return [...map.values()].sort((a, b) => (b.principal + b.fee) - (a.principal + a.fee));
+  })();
 
   // 個股分類鍵值：優先用代碼判斷，沒代碼就用名稱，給篩選下拉選單用
   const categoryKey = (i: Investment) => i.code?.trim() || i.name?.trim() || "(未命名)";
@@ -359,6 +381,61 @@ export default function UsStockPage() {
         )}
         <p className="text-[11px] text-slate-400">換算台幣的總金額改在「資產總攬」頁統一處理</p>
       </div>
+
+      {/* 月份買進統計 */}
+      {buyMonthOptions.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-50">
+            <h2 className="font-semibold text-slate-900">月份買進統計</h2>
+            <select value={effectiveStatsMonth} onChange={(e) => setStatsMonth(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+              {buyMonthOptions.map((m) => {
+                const [y, mo] = m.split("-");
+                return <option key={m} value={m}>{y} 年 {parseInt(mo)} 月</option>;
+              })}
+            </select>
+          </div>
+          {monthlyBuyStats.length === 0 ? (
+            <div className="py-10 text-center text-slate-400 text-sm">這個月沒有買進記錄</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-400 border-b border-slate-50">
+                    <th className="px-6 py-2.5 text-left font-medium">個股</th>
+                    <th className="px-4 py-2.5 text-right font-medium">總股數</th>
+                    <th className="px-4 py-2.5 text-right font-medium">成交金額</th>
+                    <th className="px-4 py-2.5 text-right font-medium">手續費</th>
+                    <th className="px-4 py-2.5 text-right font-medium">總價格（含手續費）</th>
+                    <th className="px-4 py-2.5 text-right font-medium">均價（不含手續費）</th>
+                    <th className="px-6 py-2.5 text-right font-medium">均價（含手續費）</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {monthlyBuyStats.map((g) => (
+                    <tr key={g.key}>
+                      <td className="px-6 py-3">
+                        <span className="text-sm font-medium text-slate-800">{g.name}</span>
+                        {g.code !== "—" && <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{g.code}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">{g.quantity.toLocaleString("en-US")}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{fmtCur(g.principal, g.currency)}</td>
+                      <td className="px-4 py-3 text-right text-slate-500">{fmtCur(g.fee, g.currency)}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{fmtCur(g.principal + g.fee, g.currency)}</td>
+                      <td className="px-4 py-3 text-right text-slate-500">
+                        {g.quantity > 0 ? fmtCur(g.principal / g.quantity, g.currency) : "—"}
+                      </td>
+                      <td className="px-6 py-3 text-right font-semibold text-slate-900">
+                        {g.quantity > 0 ? fmtCur((g.principal + g.fee) / g.quantity, g.currency) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 持股狀況 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
