@@ -88,6 +88,7 @@ export default function ForexPage() {
 
   const [page, setPage] = useState(1);
   const [filterType, setFilterType] = useState<FlowType | "">("");
+  const [filterBank, setFilterBank] = useState("");
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -341,9 +342,15 @@ export default function ForexPage() {
     const byDate = new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime();
     return byDate !== 0 ? byDate : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
-  const filteredInvestments = filterType
-    ? sortedInvestments.filter((inv) => flowMeta(inv.name).key === filterType)
-    : sortedInvestments;
+  // 銀行別篩選選單：從實際記錄裡出現過的銀行別取不重複清單，依筆畫/字母排序
+  const bankFilterOptions = Array.from(
+    new Set(investments.map((i) => i.bankName?.trim()).filter((b): b is string => !!b))
+  ).sort((a, b) => a.localeCompare(b, "zh-TW"));
+  const filteredInvestments = sortedInvestments.filter((inv) => {
+    if (filterType && flowMeta(inv.name).key !== filterType) return false;
+    if (filterBank && (inv.bankName || "") !== filterBank) return false;
+    return true;
+  });
   const pageCount = Math.max(1, Math.ceil(filteredInvestments.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const pagedInvestments = filteredInvestments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -480,23 +487,35 @@ export default function ForexPage() {
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between gap-3">
+        <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between gap-3 flex-wrap">
           <h2 className="font-semibold text-slate-900">兌換記錄</h2>
-          <select value={filterType}
-            onChange={(e) => { setFilterType(e.target.value as FlowType | ""); setPage(1); }}
-            className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
-            <option value="">全部類型</option>
-            <optgroup label="支出">
-              {EXPENSE_TYPES.map((key) => (
-                <option key={key} value={key}>{FLOW_OPTIONS.find((f) => f.key === key)!.label}</option>
-              ))}
-            </optgroup>
-            <optgroup label="收入">
-              {INCOME_TYPES.map((key) => (
-                <option key={key} value={key}>{FLOW_OPTIONS.find((f) => f.key === key)!.label}</option>
-              ))}
-            </optgroup>
-          </select>
+          <div className="flex items-center gap-2">
+            {bankFilterOptions.length > 1 && (
+              <select value={filterBank}
+                onChange={(e) => { setFilterBank(e.target.value); setPage(1); }}
+                className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+                <option value="">全部銀行</option>
+                {bankFilterOptions.map((bank) => (
+                  <option key={bank} value={bank}>{bank}</option>
+                ))}
+              </select>
+            )}
+            <select value={filterType}
+              onChange={(e) => { setFilterType(e.target.value as FlowType | ""); setPage(1); }}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+              <option value="">全部類型</option>
+              <optgroup label="支出">
+                {EXPENSE_TYPES.map((key) => (
+                  <option key={key} value={key}>{FLOW_OPTIONS.find((f) => f.key === key)!.label}</option>
+                ))}
+              </optgroup>
+              <optgroup label="收入">
+                {INCOME_TYPES.map((key) => (
+                  <option key={key} value={key}>{FLOW_OPTIONS.find((f) => f.key === key)!.label}</option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
         </div>
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
