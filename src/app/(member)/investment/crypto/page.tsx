@@ -258,6 +258,19 @@ export default function CryptoPage() {
     exchangesByCode.get(h.code)!.push({ exchange: h.exchange, quantity: h.quantity });
   }
   const marketMissing = holdings.filter((h) => marketValueOf(h) == null).length;
+  // 轉移幣種選單：用「依交易所分開算完再加總」的方式彙總每個幣種的總持有量與成本，不能直接用全域
+  // holdings（跟上面 marketTotal／netInvested 同樣的理由，holdings 把全部交易所的買賣混在同一個
+  // 時間序列算，數量可能被誤清掉，導致只在單一交易所有持有的幣種在選單裡數量不對、甚至整個消失）
+  const transferableCoins = (() => {
+    const map = new Map<string, { key: string; code: string; name: string; quantity: number; cost: number }>();
+    for (const h of exchangeHoldings) {
+      if (!map.has(h.code)) map.set(h.code, { key: h.code, code: h.code, name: h.name, quantity: 0, cost: 0 });
+      const g = map.get(h.code)!;
+      g.quantity += h.quantity;
+      g.cost += h.cost;
+    }
+    return [...map.values()].filter((h) => h.quantity > 1e-9).sort((a, b) => b.cost - a.cost);
+  })();
   // 持有成本：目前持有部位的投入成本，跟資產總攬的虛擬貨幣同一個數字
   // 暫計帳（待賺回）：從 USDT 扣除、尚未回補的部分，持有成本與合計都把它算進去
   const suspenseCost = suspenseOpenCost(suspenseEntries);
@@ -357,7 +370,7 @@ export default function CryptoPage() {
   const swapToUsdt = swapToCode === USDT_CODE && usdtUnitCost > 0;
   const swapInCost = swapToUsdt ? Math.max(0, swapNet) * usdtUnitCost : swapCost;
   // 轉移試算：轉出交易所的持有數量、手續費（以幣計）、轉入數量、搬過去的成本（以全體平均成本計）
-  const transferHolding = holdings.find((h) => h.code === addForm.transferCode);
+  const transferHolding = transferableCoins.find((h) => h.code === addForm.transferCode);
   const transferSources = exchangesByCode.get(addForm.transferCode) ?? [];
   const transferSourceQty = transferSources.find((e) => e.exchange === addForm.transferFrom)?.quantity ?? 0;
   const transferFee = parseFloat(addForm.transferFee) || 0;
@@ -1612,7 +1625,7 @@ export default function CryptoPage() {
                       onChange={(e) => setAddForm({ ...addForm, transferCode: e.target.value, transferFrom: "" })}
                       className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors">
                       <option value="">請選擇要轉移的幣種</option>
-                      {holdings.map((h) => (
+                      {transferableCoins.map((h) => (
                         <option key={h.key} value={h.code}>{h.code === TWD_CODE ? "台幣" : h.name}（{h.code}）· 共 {fmtQty(h.quantity)}</option>
                       ))}
                     </select>
