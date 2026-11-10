@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { authFetch } from "@/lib/api-fetch";
 import { computeStockLedger, type SaleResult } from "@/lib/stock-holdings";
 import { getTodayTW, monthRange } from "@/lib/date";
@@ -107,6 +107,30 @@ export default function StockPage() {
   const [addBrokerOpen, setAddBrokerOpen] = useState(false);
   const [addBrokerLoading, setAddBrokerLoading] = useState(false);
 
+  // 未實現損益：目前持股的即時股價，跟「投資策略」頁「當前」欄位共用同一套抓價邏輯
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+  const [pricesLoading, setPricesLoading] = useState(false);
+  const [priceUpdatedAt, setPriceUpdatedAt] = useState<string | null>(null);
+  const pricesFetchedRef = useRef(false);
+  const handleRefreshPrices = useCallback(async (codes: string[]) => {
+    if (codes.length === 0) return;
+    setPricesLoading(true);
+    try {
+      const res = await authFetch("/api/investments/stock-live-prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ codes }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLivePrices((prev) => ({ ...prev, ...data.prices }));
+        setPriceUpdatedAt(new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }));
+      }
+    } finally {
+      setPricesLoading(false);
+    }
+  }, []);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     const [invRes, feeRes, brokerRes, bankRes, catRes] = await Promise.all([
@@ -162,6 +186,13 @@ export default function StockPage() {
   const sellCount = investments.filter((i) => i.action === "SELL").length;
   // 先進先出：賣出從最早買進的那批開始扣，sales 是每筆賣出的成本與已實現損益
   const { holdings, sales } = computeStockLedger(investments);
+  // 進頁面載入完持股後自動抓一次即時股價（只抓一次，避免每次重新整理都打外部API），
+  // 之後可以用「重新整理股價」按鈕手動再抓
+  useEffect(() => {
+    if (loading || pricesFetchedRef.current || holdings.length === 0) return;
+    pricesFetchedRef.current = true;
+    handleRefreshPrices(holdings.map((h) => h.code).filter((c) => c && c !== "—"));
+  }, [loading, holdings, handleRefreshPrices]);
   const realizedPnl = [...sales.values()].reduce((s, x) => s + x.pnl, 0);
   const signedFmt = (n: number) => `${n > 0 ? "+" : ""}${fmt(n)}`;
   // 已實現損益明細：依股票分組，每次賣出列出當次股數、賣價與先進先出扣掉的成本；
@@ -211,6 +242,21 @@ export default function StockPage() {
       return d.slice(0, 7) <= effectiveHoldingsMonth;
     })
   ).holdings;
+  // 未實現損益：目前持有部位若用即時股價全部賣出的估計盈虧，公式跟「新增記錄」賣出試算、
+  // 「投資策略」頁一致（市值 − 投入成本 − 賣出手續費 − 證券交易稅），抓不到報價的那檔先跳過不計入
+  const unrealizedFeeRate = (parseFloat(addForm.feeRate) || 0) / 100;
+  const unrealizedDiscount = parseFloat(addForm.discount) || 1;
+  const unrealizedTaxRate = (parseFloat(addForm.taxRate) || 0) / 100;
+  const unrealizedFor = (h: { quantity: number; cost: number; code: string }) => {
+    const price = livePrices[h.code];
+    if (!price) return null;
+    const marketValue = h.quantity * price;
+    const sellFee = marketValue * unrealizedFeeRate * unrealizedDiscount;
+    const tax = marketValue * unrealizedTaxRate;
+    return marketValue - h.cost - sellFee - tax;
+  };
+  const unrealizedTotal = holdingsForMonth.reduce((s, h) => s + (unrealizedFor(h) ?? 0), 0);
+  const unrealizedMissing = holdingsForMonth.some((h) => unrealizedFor(h) == null);
   // 月份買進統計：依「成交日期」所在月份分組，只列有買進記錄的月份可選
   const buyMonthOptions = Array.from(
     new Set(investments.filter((i) => i.action === "BUY").map((i) => (i.date ?? i.createdAt).slice(0, 7)))
@@ -462,7 +508,7 @@ export default function StockPage() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">持股成本</div>
           <div className={`text-2xl font-bold mt-1 ${netInvested >= 0 ? "text-slate-900" : "text-red-500"}`}>{fmt(netInvested)}</div>
@@ -472,6 +518,17 @@ export default function StockPage() {
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">已實現損益</div>
           <div className={`text-2xl font-bold mt-1 ${realizedPnl >= 0 ? "text-red-500" : "text-emerald-600"}`}>{signedFmt(realizedPnl)}</div>
           <div className="text-xs text-slate-400 mt-0.5">所有賣出累計（先進先出）</div>
+        </div>
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">未實現損益</div>
+          {holdings.length === 0 ? (
+            <div className="text-2xl font-bold mt-1 text-slate-300">—</div>
+          ) : (
+            <div className={`text-2xl font-bold mt-1 ${unrealizedTotal >= 0 ? "text-red-500" : "text-emerald-600"}`}>{signedFmt(unrealizedTotal)}</div>
+          )}
+          <div className="text-xs text-slate-400 mt-0.5">
+            {pricesLoading ? "報價更新中…" : unrealizedMissing ? "部分個股抓不到報價，未計入" : priceUpdatedAt ? `股價更新於 ${priceUpdatedAt}` : "目前持股以即時股價估算"}
+          </div>
         </div>
         <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
           <div className="text-xs font-semibold text-emerald-500 uppercase tracking-wider mb-1">買進筆數</div>
@@ -540,15 +597,23 @@ export default function StockPage() {
 
       {/* 持股狀況 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-50">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50 flex-wrap">
           <h2 className="font-semibold text-slate-900">持股狀況</h2>
-          <select value={effectiveHoldingsMonth} onChange={(e) => setHoldingsMonth(e.target.value)}
-            className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
-            {holdingsMonthOptions.map((m) => {
-              const [y, mo] = m.split("-");
-              return <option key={m} value={m}>{y} 年 {parseInt(mo)} 月{m === currentMonthStr ? "（至今）" : "底"}</option>;
-            })}
-          </select>
+          <div className="flex items-center gap-2">
+            <button type="button"
+              onClick={() => handleRefreshPrices(holdingsForMonth.map((h) => h.code).filter((c) => c && c !== "—"))}
+              disabled={pricesLoading || holdingsForMonth.length === 0}
+              className="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1.5 hover:bg-indigo-50 disabled:opacity-50 transition-colors">
+              {pricesLoading ? "更新中…" : "重新整理股價"}
+            </button>
+            <select value={effectiveHoldingsMonth} onChange={(e) => setHoldingsMonth(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+              {holdingsMonthOptions.map((m) => {
+                const [y, mo] = m.split("-");
+                return <option key={m} value={m}>{y} 年 {parseInt(mo)} 月{m === currentMonthStr ? "（至今）" : "底"}</option>;
+              })}
+            </select>
+          </div>
         </div>
         {holdingsForMonth.length === 0 ? (
           <div className="py-10 text-center text-slate-400 text-sm">{isCurrentHoldingsMonth ? "目前沒有持股" : "這個月份沒有持股"}</div>
@@ -562,25 +627,35 @@ export default function StockPage() {
                   <th className="text-right font-semibold px-6 py-3">合計股數</th>
                   <th className="text-right font-semibold px-6 py-3">投資總額</th>
                   <th className="text-right font-semibold px-6 py-3">平均每股價格</th>
+                  <th className="text-right font-semibold px-6 py-3">現價</th>
+                  <th className="text-right font-semibold px-6 py-3">未實現損益</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {holdingsForMonth.map((h) => (
-                  <tr key={h.key} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-3 font-medium text-slate-800">{h.name}</td>
-                    <td className="px-6 py-3 text-slate-500 font-mono text-xs">{h.code}</td>
-                    <td className="px-6 py-3 text-right text-slate-700">{h.quantity.toLocaleString("zh-TW")}</td>
-                    <td className="px-6 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
-                    <td className="px-6 py-3 text-right text-slate-700">{h.avgPrice.toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right">
-                      {isCurrentHoldingsMonth && (
-                        <button type="button" onClick={() => openCalibrate(h)}
-                          className="text-xs font-semibold text-violet-600 border border-violet-200 rounded-lg px-2.5 py-1 hover:bg-violet-50">校正</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {holdingsForMonth.map((h) => {
+                  const price = livePrices[h.code];
+                  const unrealized = unrealizedFor(h);
+                  return (
+                    <tr key={h.key} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-3 font-medium text-slate-800">{h.name}</td>
+                      <td className="px-6 py-3 text-slate-500 font-mono text-xs">{h.code}</td>
+                      <td className="px-6 py-3 text-right text-slate-700">{h.quantity.toLocaleString("zh-TW")}</td>
+                      <td className="px-6 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
+                      <td className="px-6 py-3 text-right text-slate-700">{h.avgPrice.toFixed(2)}</td>
+                      <td className="px-6 py-3 text-right text-slate-500">{price ? price.toFixed(2) : "—"}</td>
+                      <td className={`px-6 py-3 text-right font-semibold ${unrealized == null ? "text-slate-300" : unrealized >= 0 ? "text-red-500" : "text-emerald-600"}`}>
+                        {unrealized == null ? "—" : signedFmt(unrealized)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {isCurrentHoldingsMonth && (
+                          <button type="button" onClick={() => openCalibrate(h)}
+                            className="text-xs font-semibold text-violet-600 border border-violet-200 rounded-lg px-2.5 py-1 hover:bg-violet-50">校正</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
