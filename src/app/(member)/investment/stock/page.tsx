@@ -38,6 +38,10 @@ interface UserBroker {
 
 const PAGE_SIZE = 20;
 
+// 同一檔股票「買低賣高」降成本的賣出：股數/成本照常從FIFO扣減，但不算進已實現損益統計
+// （靠備註開頭辨識，跟其他特殊記錄類型用同一套做法，不用額外改資料庫欄位）
+const NO_REALIZE_NOTE = "降成本（不列入已實現損益）";
+
 const DEFAULT_BROKERS = [
   "元大證券", "富邦證券", "國泰證券", "凱基證券", "群益證券",
   "統一證券", "永豐金證券", "兆豐證券", "中國信託證券", "玉山證券",
@@ -64,6 +68,7 @@ const EMPTY_ADD_FORM = {
   costAdjustQuantity: "",
   costAdjustSource: "",
   note: "",
+  noRealize: false,
 };
 
 // 台股交割日：成交日 + 2 個工作天（跳過週六、週日；國定假日請自行調整）
@@ -194,7 +199,13 @@ export default function StockPage() {
     pricesFetchedRef.current = true;
     handleRefreshPrices(holdings.map((h) => h.code).filter((c) => c && c !== "—"));
   }, [loading, holdings, handleRefreshPrices]);
-  const realizedPnl = [...sales.values()].reduce((s, x) => s + x.pnl, 0);
+  // 「買低賣高降成本」的賣出：股數/成本正常從FIFO扣減，但不計入已實現損益統計
+  const isNoRealizeRecord = (i: Investment) => !!i.note?.startsWith(NO_REALIZE_NOTE);
+  const realizedPnl = investments.reduce((s, inv) => {
+    if (isNoRealizeRecord(inv)) return s;
+    const sale = sales.get(inv.id);
+    return sale ? s + sale.pnl : s;
+  }, 0);
   const signedFmt = (n: number) => `${n > 0 ? "+" : ""}${fmt(n)}`;
   // 已實現損益明細：依股票分組，每次賣出列出當次股數、賣價與先進先出扣掉的成本；
   // 只保留目前仍持有的股票（已經全部出清、不再持有的標的不需要留著歷史明細，避免清單越積越長）
@@ -202,6 +213,7 @@ export default function StockPage() {
     const heldKeys = new Set(holdings.map((h) => h.key));
     const map = new Map<string, { key: string; name: string; code: string; qty: number; pnl: number; adjustedPnl: number; rows: { inv: Investment; sale: SaleResult }[] }>();
     for (const inv of investments) {
+      if (isNoRealizeRecord(inv)) continue;
       const sale = sales.get(inv.id);
       if (!sale) continue;
       const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
@@ -390,7 +402,9 @@ export default function StockPage() {
         fee,
         tax,
         amount: addForm.action === "SELL" ? -subtotal : subtotal,
-        note: addForm.note,
+        note: addForm.action === "SELL" && addForm.noRealize
+          ? `${NO_REALIZE_NOTE}${addForm.note ? `：${addForm.note}` : ""}`
+          : addForm.note,
       }),
     });
     // 同步到銀行資金管理：買進記銀行支出、賣出記銀行收入（格式同手動記帳：分類「銀行」、備註放銀行名稱）
@@ -816,7 +830,7 @@ export default function StockPage() {
                     </div>
                     {(() => {
                       const sale = sales.get(inv.id);
-                      if (!sale) return null;
+                      if (!sale || isNoRealizeRecord(inv)) return null;
                       const adjusted = Math.abs(sale.adjustedPnl - sale.pnl) >= 1;
                       return (
                         <div className="text-xs mt-0.5 text-slate-500">
@@ -1094,6 +1108,16 @@ export default function StockPage() {
                           className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
                         <p className="text-[11px] text-slate-400 mt-1">實際扣款常因四捨五入跟試算有落差，可以直接輸入實際證券交易稅金額覆蓋試算</p>
                       </div>
+                      <label className="flex items-start gap-2 text-sm bg-slate-50 rounded-lg px-3.5 py-2.5 cursor-pointer">
+                        <input type="checkbox" checked={addForm.noRealize}
+                          onChange={(e) => setAddForm({ ...addForm, noRealize: e.target.checked })}
+                          className="mt-0.5" />
+                        <span>
+                          <span className="font-medium text-slate-700">降低持有成本，不列入已實現損益</span>
+                          <br />
+                          <span className="text-[11px] text-slate-400">適合同一檔股票「買低賣高」調降均價的操作：股數與成本照常從先進先出扣減，但這筆不會算進「已實現損益明細」與總計</span>
+                        </span>
+                      </label>
                     </>
                   )}
                 </>
