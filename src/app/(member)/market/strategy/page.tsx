@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { authFetch } from "@/lib/api-fetch";
+import { computeHoldings, type HoldingInput } from "@/lib/stock-holdings";
 
 interface StrategyRow {
   id: string;
@@ -224,16 +225,17 @@ export default function StrategyPage() {
     const commission = fees.find((f) => f.key === "stock_commission");
     if (commission) setFeeRate(commission.rate / 100);
 
-    // 依「市場:代碼」加總「股票投資」/「美股投資」/「虛擬貨幣」頁同一標的所有交易紀錄的實際
-    // 扣款金額（amount 已含手續費/稅/人工調帳），讓「總額」跟投資頁「淨投入金額」逐碼加總起來
-    // 完全一致，不用重新估算；用市場前綴分開累加，避免不同市場代碼剛好相同時互相加錯。
+    // 依「市場:代碼」用 FIFO 算出目前仍持有部位的實際投入成本（含成本調整），比照「股票投資」／
+    // 「美股投資」／「虛擬貨幣」頁與 sync-holdings 的算法；不能直接加總全部交易紀錄的 amount——
+    // 如果這個代碼曾經全部賣出又重新買進（例如先出清獲利了結，之後重新進場），賣出金額（已內含
+    // 已實現損益）會整個混進「目前成本」，讓新倉位的未實現損益被過去已實現的損益污染，算出離譜
+    // 的報酬率（曾實際發生：00631L 出清獲利後重新買進，報酬率因此被墊高了兩倍多）。
     const netMap: Record<string, number> = {};
-    const addToNetMap = (assetType: "STOCK" | "USSTOCK" | "CRYPTO", list: { code?: string | null; amount: number }[]) => {
-      for (const inv of list) {
-        const code = assetType === "CRYPTO" ? inv.code?.trim().toUpperCase() : inv.code?.trim();
-        if (!code) continue;
-        const key = `${assetType}:${code}`;
-        netMap[key] = (netMap[key] ?? 0) + inv.amount;
+    const addToNetMap = (assetType: "STOCK" | "USSTOCK" | "CRYPTO", list: HoldingInput[]) => {
+      for (const h of computeHoldings(list)) {
+        if (!h.code || h.code === "—") continue;
+        const code = assetType === "CRYPTO" ? h.code.trim().toUpperCase() : h.code.trim();
+        netMap[`${assetType}:${code}`] = h.cost;
       }
     };
     addToNetMap("STOCK", Array.isArray(stockInvData) ? stockInvData : []);
@@ -652,9 +654,9 @@ export default function StrategyPage() {
       </div>
 
       <p className="text-xs text-slate-400 mt-3">
-        總額 = 同代碼在「股票投資」／「美股投資」／「虛擬貨幣」頁所有交易紀錄的實際扣款金額加總（含手續費/稅/人工調帳），
-        逐碼加總會完全等於對應投資頁「淨投入金額」；找不到對應交易紀錄的列才退回用股數×均價估算；
-        報酬率 = 盈虧 ÷ 總額。<br />
+        總額 = 同代碼在「股票投資」／「美股投資」／「虛擬貨幣」頁目前仍持有部位的實際投入成本（FIFO，含手續費/稅/人工調帳，
+        跟對應投資頁「持有狀況」同一套算法），曾經出清又重新買進的不會把先前已實現的損益混進來；
+        找不到對應交易紀錄的列才退回用股數×均價估算；報酬率 = 盈虧 ÷ 總額。<br />
         🇹🇼 台股盈虧 = (股數 × 當前) − 總額 − 賣出手續費 − 證券交易稅（賣出方向課徵0.3%），
         手續費 = 成交金額 × {(feeRate * 100).toFixed(4)}% × 折扣（1 = 無折扣，0.6 = 6折）；
         🇺🇸 美股、🪙 虛擬貨幣都沒有證券交易稅、手續費模式也各不相同沒有統一費率，
