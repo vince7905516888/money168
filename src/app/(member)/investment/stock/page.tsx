@@ -83,6 +83,7 @@ export default function StockPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [realizedOpen, setRealizedOpen] = useState(false);
+  const [unrealizedOpen, setUnrealizedOpen] = useState(false);
   const [statsMonth, setStatsMonth] = useState("");
   const [holdingsMonth, setHoldingsMonth] = useState("");
   // 買賣同步到銀行資金管理：交割銀行（記住上次選的）與交割日（預設成交日 + 2 個工作天，可改）
@@ -597,23 +598,15 @@ export default function StockPage() {
 
       {/* 持股狀況 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50 flex-wrap">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-50">
           <h2 className="font-semibold text-slate-900">持股狀況</h2>
-          <div className="flex items-center gap-2">
-            <button type="button"
-              onClick={() => handleRefreshPrices(holdingsForMonth.map((h) => h.code).filter((c) => c && c !== "—"))}
-              disabled={pricesLoading || holdingsForMonth.length === 0}
-              className="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1.5 hover:bg-indigo-50 disabled:opacity-50 transition-colors">
-              {pricesLoading ? "更新中…" : "重新整理股價"}
-            </button>
-            <select value={effectiveHoldingsMonth} onChange={(e) => setHoldingsMonth(e.target.value)}
-              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
-              {holdingsMonthOptions.map((m) => {
-                const [y, mo] = m.split("-");
-                return <option key={m} value={m}>{y} 年 {parseInt(mo)} 月{m === currentMonthStr ? "（至今）" : "底"}</option>;
-              })}
-            </select>
-          </div>
+          <select value={effectiveHoldingsMonth} onChange={(e) => setHoldingsMonth(e.target.value)}
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+            {holdingsMonthOptions.map((m) => {
+              const [y, mo] = m.split("-");
+              return <option key={m} value={m}>{y} 年 {parseInt(mo)} 月{m === currentMonthStr ? "（至今）" : "底"}</option>;
+            })}
+          </select>
         </div>
         {holdingsForMonth.length === 0 ? (
           <div className="py-10 text-center text-slate-400 text-sm">{isCurrentHoldingsMonth ? "目前沒有持股" : "這個月份沒有持股"}</div>
@@ -627,40 +620,98 @@ export default function StockPage() {
                   <th className="text-right font-semibold px-6 py-3">合計股數</th>
                   <th className="text-right font-semibold px-6 py-3">投資總額</th>
                   <th className="text-right font-semibold px-6 py-3">平均每股價格</th>
-                  <th className="text-right font-semibold px-6 py-3">現價</th>
-                  <th className="text-right font-semibold px-6 py-3">未實現損益</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {holdingsForMonth.map((h) => {
-                  const price = livePrices[h.code];
-                  const unrealized = unrealizedFor(h);
-                  return (
-                    <tr key={h.key} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-3 font-medium text-slate-800">{h.name}</td>
-                      <td className="px-6 py-3 text-slate-500 font-mono text-xs">{h.code}</td>
-                      <td className="px-6 py-3 text-right text-slate-700">{h.quantity.toLocaleString("zh-TW")}</td>
-                      <td className="px-6 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
-                      <td className="px-6 py-3 text-right text-slate-700">{h.avgPrice.toFixed(2)}</td>
-                      <td className="px-6 py-3 text-right text-slate-500">{price ? price.toFixed(2) : "—"}</td>
-                      <td className={`px-6 py-3 text-right font-semibold ${unrealized == null ? "text-slate-300" : unrealized >= 0 ? "text-red-500" : "text-emerald-600"}`}>
-                        {unrealized == null ? "—" : signedFmt(unrealized)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {isCurrentHoldingsMonth && (
-                          <button type="button" onClick={() => openCalibrate(h)}
-                            className="text-xs font-semibold text-violet-600 border border-violet-200 rounded-lg px-2.5 py-1 hover:bg-violet-50">校正</button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {holdingsForMonth.map((h) => (
+                  <tr key={h.key} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-3 font-medium text-slate-800">{h.name}</td>
+                    <td className="px-6 py-3 text-slate-500 font-mono text-xs">{h.code}</td>
+                    <td className="px-6 py-3 text-right text-slate-700">{h.quantity.toLocaleString("zh-TW")}</td>
+                    <td className="px-6 py-3 text-right text-slate-700">{fmt(h.cost)}</td>
+                    <td className="px-6 py-3 text-right text-slate-700">{h.avgPrice.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {isCurrentHoldingsMonth && (
+                        <button type="button" onClick={() => openCalibrate(h)}
+                          className="text-xs font-semibold text-violet-600 border border-violet-200 rounded-lg px-2.5 py-1 hover:bg-violet-50">校正</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      {/* 未實現損益明細 */}
+      {holdingsForMonth.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-8">
+          <div className={`w-full flex items-center justify-between gap-4 px-6 py-4 ${unrealizedOpen ? "border-b border-slate-50" : ""}`}>
+            <button type="button" onClick={() => setUnrealizedOpen((o) => !o)} aria-expanded={unrealizedOpen}
+              className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
+              <h2 className="font-semibold text-slate-900">未實現損益明細</h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                依即時股價估算目前持股的帳面盈虧（市值－成本－賣出手續費－證交稅）
+                {!pricesLoading && priceUpdatedAt && ` · 股價更新於 ${priceUpdatedAt}`}
+              </p>
+            </button>
+            <div className="flex items-center gap-3 shrink-0">
+              <button type="button"
+                onClick={() => handleRefreshPrices(holdingsForMonth.map((h) => h.code).filter((c) => c && c !== "—"))}
+                disabled={pricesLoading}
+                className="text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg px-2.5 py-1.5 hover:bg-indigo-50 disabled:opacity-50 transition-colors">
+                {pricesLoading ? "更新中…" : "重新整理股價"}
+              </button>
+              <span className={`text-sm font-bold ${pnlColor(unrealizedTotal)}`}>{signedFmt(unrealizedTotal)}</span>
+              <button type="button" onClick={() => setUnrealizedOpen((o) => !o)}
+                className="text-xs text-indigo-600 font-medium hover:underline">
+                {unrealizedOpen ? "收合 ▲" : "展開 ▼"}
+              </button>
+            </div>
+          </div>
+          {unrealizedOpen && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm whitespace-nowrap">
+                <thead>
+                  <tr className="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-50">
+                    <th className="text-left font-semibold px-6 py-3">股票</th>
+                    <th className="text-right font-semibold px-4 py-3">持有股數</th>
+                    <th className="text-right font-semibold px-4 py-3">成本均價</th>
+                    <th className="text-right font-semibold px-4 py-3">現價</th>
+                    <th className="text-right font-semibold px-4 py-3">市值</th>
+                    <th className="text-right font-semibold px-4 py-3">成本</th>
+                    <th className="text-right font-semibold px-6 py-3">損益</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {holdingsForMonth.map((h) => {
+                    const price = livePrices[h.code];
+                    const unrealized = unrealizedFor(h);
+                    return (
+                      <tr key={h.key} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-2.5 font-semibold text-slate-800">
+                          {h.name}
+                          <span className="ml-2 text-xs text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">{h.code}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{h.quantity.toLocaleString("zh-TW")}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{h.avgPrice.toFixed(2)}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-500">{price ? price.toFixed(2) : "—"}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{price ? fmt(h.quantity * price) : "—"}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-700">{fmt(h.cost)}</td>
+                        <td className={`px-6 py-2.5 text-right font-bold ${unrealized == null ? "text-slate-300" : pnlColor(unrealized)}`}>
+                          {unrealized == null ? "—" : signedFmt(unrealized)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 已實現損益明細 */}
       {realizedGroups.length > 0 && (
