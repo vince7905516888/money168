@@ -164,13 +164,16 @@ export default function StockPage() {
   const { holdings, sales } = computeStockLedger(investments);
   const realizedPnl = [...sales.values()].reduce((s, x) => s + x.pnl, 0);
   const signedFmt = (n: number) => `${n > 0 ? "+" : ""}${fmt(n)}`;
-  // 已實現損益明細：依股票分組，每次賣出列出當次股數、賣價與先進先出扣掉的成本
+  // 已實現損益明細：依股票分組，每次賣出列出當次股數、賣價與先進先出扣掉的成本；
+  // 只保留目前仍持有的股票（已經全部出清、不再持有的標的不需要留著歷史明細，避免清單越積越長）
   const realizedGroups = (() => {
+    const heldKeys = new Set(holdings.map((h) => h.key));
     const map = new Map<string, { key: string; name: string; code: string; qty: number; pnl: number; adjustedPnl: number; rows: { inv: Investment; sale: SaleResult }[] }>();
     for (const inv of investments) {
       const sale = sales.get(inv.id);
       if (!sale) continue;
       const key = inv.code?.trim() || inv.name?.trim() || "(未命名)";
+      if (!heldKeys.has(key)) continue;
       if (!map.has(key)) map.set(key, { key, name: inv.name || "(未命名)", code: inv.code || "—", qty: 0, pnl: 0, adjustedPnl: 0, rows: [] });
       const g = map.get(key)!;
       g.qty += inv.quantity ?? 0;
@@ -184,6 +187,9 @@ export default function StockPage() {
     // 最近有賣出的股票排在前面
     return groups.sort((a, b) => time(b.rows[0].inv) - time(a.rows[0].inv));
   })();
+  // 明細只列目前持有的股票，這裡的小計要跟著只算這些，才會跟下面實際列出的加總對得起來
+  // （跟 Summary 卡片「所有賣出累計」的 realizedPnl 是不同的數字，那張卡刻意算全部，含已出清的）
+  const realizedPnlHeld = realizedGroups.reduce((s, g) => s + g.pnl, 0);
   const pnlColor = (n: number) => (n >= 0 ? "text-red-500" : "text-emerald-600");
   // 持股成本：目前仍持有部位的投入成本（含成本調整），跟資產總攬的股票投資同一個數字
   const netInvested = holdings.reduce((s, h) => s + h.cost, 0);
@@ -588,10 +594,10 @@ export default function StockPage() {
             className={`w-full flex items-center justify-between gap-4 px-6 py-4 text-left hover:bg-slate-50 transition-colors ${realizedOpen ? "border-b border-slate-50" : ""}`}>
             <div>
               <h2 className="font-semibold text-slate-900">已實現損益明細</h2>
-              <p className="text-xs text-slate-400 mt-0.5">每次賣出依先進先出扣除最早買進的批次計算成本</p>
+              <p className="text-xs text-slate-400 mt-0.5">每次賣出依先進先出扣除最早買進的批次計算成本，只列目前仍持有的股票</p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <span className={`text-sm font-bold ${pnlColor(realizedPnl)}`}>{signedFmt(realizedPnl)}</span>
+              <span className={`text-sm font-bold ${pnlColor(realizedPnlHeld)}`}>{signedFmt(realizedPnlHeld)}</span>
               <span className="text-xs text-indigo-600 font-medium">{realizedOpen ? "收合 ▲" : "展開 ▼"}</span>
             </div>
           </button>
