@@ -105,7 +105,7 @@ export default function StockPage() {
   const [addSaving, setAddSaving] = useState(false);
 
   const [editing, setEditing] = useState<Investment | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", code: "", date: "", action: "BUY" as "BUY" | "SELL", broker: "", quantity: "", note: "" });
+  const [editForm, setEditForm] = useState({ name: "", code: "", date: "", action: "BUY" as "BUY" | "SELL", broker: "", quantity: "", note: "", noRealize: false });
   const [saving, setSaving] = useState(false);
 
   const [userBrokers, setUserBrokers] = useState<UserBroker[]>([]);
@@ -434,8 +434,16 @@ export default function StockPage() {
     fetchAll();
   };
 
+  // 把「降低持有成本，不列入已實現損益」的備註標記去掉，編輯表單只顯示使用者自己填的那段
+  const stripNoRealizeNote = (note: string) => {
+    if (!note.startsWith(NO_REALIZE_NOTE)) return note;
+    const rest = note.slice(NO_REALIZE_NOTE.length);
+    return rest.startsWith("：") ? rest.slice(1) : rest;
+  };
+
   const openEdit = (inv: Investment) => {
     setEditing(inv);
+    const rawNote = inv.note ?? "";
     setEditForm({
       name: inv.name ?? "",
       code: inv.code ?? "",
@@ -443,7 +451,8 @@ export default function StockPage() {
       action: inv.action,
       broker: inv.broker ?? "",
       quantity: inv.quantity ? String(inv.quantity) : "",
-      note: inv.note ?? "",
+      note: stripNoRealizeNote(rawNote),
+      noRealize: isNoRealizeRecord(inv),
     });
   };
 
@@ -451,10 +460,13 @@ export default function StockPage() {
     e.preventDefault();
     if (!editing) return;
     setSaving(true);
+    const finalNote = editForm.action === "SELL" && editForm.noRealize
+      ? `${NO_REALIZE_NOTE}${editForm.note ? `：${editForm.note}` : ""}`
+      : editForm.note;
     const res = await authFetch(`/api/investments/${editing.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(editForm),
+      body: JSON.stringify({ ...editForm, note: finalNote }),
     });
     setSaving(false);
     if (!res.ok) {
@@ -1259,6 +1271,18 @@ export default function StockPage() {
                 <input value={editForm.note} onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
                   placeholder="備註..." className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors" />
               </div>
+              {editForm.action === "SELL" && (
+                <label className="flex items-start gap-2 text-sm bg-slate-50 rounded-lg px-3.5 py-2.5 cursor-pointer">
+                  <input type="checkbox" checked={editForm.noRealize}
+                    onChange={(e) => setEditForm({ ...editForm, noRealize: e.target.checked })}
+                    className="mt-0.5" />
+                  <span>
+                    <span className="font-medium text-slate-700">降低持有成本，不列入已實現損益</span>
+                    <br />
+                    <span className="text-[11px] text-slate-400">這筆不會算進「已實現損益明細」與總計</span>
+                  </span>
+                </label>
+              )}
               <p className="text-[11px] text-slate-400">金額、手續費、交易稅如需調整，請刪除後重新新增以確保試算正確</p>
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setEditing(null)}
