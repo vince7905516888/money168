@@ -66,6 +66,7 @@ export default function DebtsPage() {
   const [addBankLoading, setAddBankLoading] = useState(false);
 
   const [page, setPage] = useState(1);
+  const [filterCategory, setFilterCategory] = useState("");
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -228,9 +229,12 @@ export default function DebtsPage() {
     const byDate = new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime();
     return byDate !== 0 ? byDate : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
-  const pageCount = Math.max(1, Math.ceil(sortedDebts.length / PAGE_SIZE));
+  // 分類篩選選單：從實際記錄裡出現過的分類取不重複清單，依筆畫/字母排序
+  const categoryFilterOptions = Array.from(new Set(debts.map((d) => d.category))).sort((a, b) => a.localeCompare(b, "zh-TW"));
+  const filteredDebts = filterCategory ? sortedDebts.filter((d) => d.category === filterCategory) : sortedDebts;
+  const pageCount = Math.max(1, Math.ceil(filteredDebts.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const pagedDebts = sortedDebts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pagedDebts = filteredDebts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
     <div className="w-full max-w-7xl">
@@ -274,8 +278,18 @@ export default function DebtsPage() {
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-50">
+        <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between gap-3 flex-wrap">
           <h2 className="font-semibold text-slate-900">負債記錄</h2>
+          {categoryFilterOptions.length > 1 && (
+            <select value={filterCategory}
+              onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+              <option value="">全部分類</option>
+              {categoryFilterOptions.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
         </div>
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
@@ -283,6 +297,10 @@ export default function DebtsPage() {
           <div className="py-16 text-center">
             <p className="text-slate-400 text-sm mb-3">還沒有負債記錄</p>
             <button onClick={openAdd} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆記錄</button>
+          </div>
+        ) : filteredDebts.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-slate-400 text-sm">沒有符合篩選條件的記錄</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -314,8 +332,8 @@ export default function DebtsPage() {
             ))}
           </div>
         )}
-        {!loading && (
-          <Pagination page={currentPage} pageCount={pageCount} totalCount={debts.length} onPageChange={setPage} />
+        {!loading && filteredDebts.length > 0 && (
+          <Pagination page={currentPage} pageCount={pageCount} totalCount={filteredDebts.length} onPageChange={setPage} />
         )}
       </div>
 
