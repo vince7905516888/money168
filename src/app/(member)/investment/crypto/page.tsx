@@ -111,6 +111,7 @@ export default function CryptoPage() {
   const [sortKey, setSortKey] = useState<SortKey>("DATE_DESC");
   const [exchangeFilter, setExchangeFilter] = useState("");
   const [codeFilter, setCodeFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [page, setPage] = useState(1);
   const [holdingsOpen, setHoldingsOpen] = useState(false);
   // 即時台幣價格（key 為大寫代碼），每次進入頁面重新抓取
@@ -317,9 +318,15 @@ export default function CryptoPage() {
   const recordExchanges = Array.from(new Set(investments.map((i) => i.broker?.trim() || UNSPECIFIED_EXCHANGE))).sort((a, b) => a.localeCompare(b, "zh-TW"));
   // 幣別篩選選單：從實際記錄裡出現過的代碼取不重複清單，依字母排序
   const recordCodes = Array.from(new Set(investments.map((i) => i.code?.trim()).filter((c): c is string => !!c))).sort((a, b) => a.localeCompare(b));
+  // 類別篩選選單：用跟記錄列表同一套 recordLabel() 分類（買進/賣出/配息/轉入轉出/兌換換入換出/調帳…），
+  // 固定順序排列、只列出實際出現過的類別
+  const RECORD_TYPE_ORDER = ["買進", "賣出", "配息", "台幣入帳", "台幣扣款", "轉入", "轉出", "兌換換入", "兌換換出", "調帳", "暫計帳扣除", "暫計帳回補"];
+  const presentRecordTypes = new Set(investments.map((i) => recordLabel(i).text));
+  const recordTypes = RECORD_TYPE_ORDER.filter((t) => presentRecordTypes.has(t));
   const filteredInvestments = investments.filter((i) => {
     if (exchangeFilter && (i.broker?.trim() || UNSPECIFIED_EXCHANGE) !== exchangeFilter) return false;
     if (codeFilter && i.code?.trim() !== codeFilter) return false;
+    if (typeFilter && recordLabel(i).text !== typeFilter) return false;
     return true;
   });
 
@@ -1327,6 +1334,11 @@ export default function CryptoPage() {
         <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-50">
           <h2 className="font-semibold text-slate-900">投資記錄</h2>
           <div className="flex items-center gap-2">
+            <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }} aria-label="類別篩選"
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 focus:border-indigo-400 transition-colors">
+              <option value="">全部類別</option>
+              {recordTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
             <select value={codeFilter} onChange={(e) => { setCodeFilter(e.target.value); setPage(1); }} aria-label="幣別篩選"
               className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 focus:border-indigo-400 transition-colors">
               <option value="">全部幣別</option>
@@ -1353,7 +1365,7 @@ export default function CryptoPage() {
         ) : sortedInvestments.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-slate-400 text-sm mb-3">沒有符合篩選條件的記錄</p>
-            <button onClick={() => { setExchangeFilter(""); setCodeFilter(""); setPage(1); }} className="text-sm text-indigo-600 font-medium hover:underline">清除篩選</button>
+            <button onClick={() => { setExchangeFilter(""); setCodeFilter(""); setTypeFilter(""); setPage(1); }} className="text-sm text-indigo-600 font-medium hover:underline">清除篩選</button>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
