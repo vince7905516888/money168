@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { authFetch } from "@/lib/api-fetch";
-import { computeStockLedger, type SaleResult } from "@/lib/stock-holdings";
+import { computeStockLedger, NO_REALIZE_NOTE, type SaleResult } from "@/lib/stock-holdings";
 import { getTodayTW, monthRange } from "@/lib/date";
 import Combobox from "@/components/ui/Combobox";
 import Pagination from "@/components/ui/Pagination";
@@ -37,10 +37,6 @@ interface UserBroker {
 }
 
 const PAGE_SIZE = 20;
-
-// 同一檔股票「買低賣高」降成本的賣出：股數/成本照常從FIFO扣減，但不算進已實現損益統計
-// （靠備註開頭辨識，跟其他特殊記錄類型用同一套做法，不用額外改資料庫欄位）
-const NO_REALIZE_NOTE = "降成本（不列入已實現損益）";
 
 const DEFAULT_BROKERS = [
   "元大證券", "富邦證券", "國泰證券", "凱基證券", "群益證券",
@@ -1127,7 +1123,7 @@ export default function StockPage() {
                         <span>
                           <span className="font-medium text-slate-700">降低持有成本，不列入已實現損益</span>
                           <br />
-                          <span className="text-[11px] text-slate-400">適合同一檔股票「買低賣高」調降均價的操作：股數與成本照常從先進先出扣減，但這筆不會算進「已實現損益明細」與總計</span>
+                          <span className="text-[11px] text-slate-400">適合同一檔股票「買低賣高」調降均價的操作：股數照常扣減，但這筆的損益會加回/扣掉剩餘持股的成本抵銷掉（持有成本不受影響），也不會算進「已實現損益明細」與總計</span>
                         </span>
                       </label>
                     </>

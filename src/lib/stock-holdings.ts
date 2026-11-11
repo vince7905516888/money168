@@ -1,3 +1,8 @@
+// 同一檔股票「買低賣高」降成本的賣出：股數照常從FIFO扣減，但這筆的損益不列入已實現損益統計，
+// 也不影響「持有成本」——靠在這筆賣出的攤平後損益等額加回/扣掉剩餘持股的成本抵銷掉
+// （跟既有的「成本調整」用同一套 adjCost/pendingAdj 分攤機制，只是來源換成賣出自己的損益）
+export const NO_REALIZE_NOTE = "降成本（不列入已實現損益）";
+
 export interface HoldingInput {
   note?: string | null;
   id?: string;
@@ -107,7 +112,19 @@ export function computeStockLedger(investments: HoldingInput[]): { holdings: Hol
       }
       // 賣出金額存成負數（賣出淨額）；沒有金額時用股數×股價估算
       const proceeds = inv.amount ? Math.abs(inv.amount) : inv.quantity * inv.price;
-      if (inv.id) sales.set(inv.id, { proceeds, cost, pnl: proceeds - cost, adjustedCost, adjustedPnl: proceeds - adjustedCost });
+      const adjustedPnl = proceeds - adjustedCost;
+      if (inv.id) sales.set(inv.id, { proceeds, cost, pnl: proceeds - cost, adjustedCost, adjustedPnl });
+      // 不列入已實現損益：把這筆的攤平後損益等額加回（虧損）或扣掉（獲利）剩餘持股的成本，
+      // 讓「持有成本」維持在賣出前的水準，不會因為這次刻意不計入損益的操作被動增減
+      if (inv.note?.startsWith(NO_REALIZE_NOTE) && adjustedPnl !== 0) {
+        const compensate = -adjustedPnl;
+        const totalQty = g.lots.reduce((s, l) => s + l.qty, 0);
+        if (totalQty > 0) {
+          for (const l of g.lots) l.adjCost += compensate * (l.qty / totalQty);
+        } else {
+          g.pendingAdj += compensate;
+        }
+      }
     }
   }
 
