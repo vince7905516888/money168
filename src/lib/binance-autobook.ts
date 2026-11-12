@@ -105,7 +105,13 @@ export async function runBinanceAutoBook(
       push({ ref: `bn:div:${d.tranId ?? d.id}`, time: d.divTime, kind: "reward", data: { asset: d.asset, amount: d.amount, label: `資產分紅「${d.enInfo || "分紅／空投"}」編號 ${d.tranId ?? d.id}` } });
     }
   }
-  // 股票代幣：相鄰兩次同步的 EQ_ 股數變化
+  // 股票代幣：相鄰兩次同步的 EQ_ 股數變化。股票代幣有結算延遲——USDC 扣款常常發生在股數
+  // 真正入帳的前一個（甚至前幾個）同步區間，所以不能只看「股數異動那個區間」自己的 USDC
+  // 淨支出，否則扣款區間沒有股數異動會被直接略過、股數異動區間又找不到扣款，兩邊兜不起來，
+  // 誤判成沒花錢，退回用歷史均價估算（曾實際發生：股數隔天才入帳，估價跟實際成交價差了18元）。
+  // 做法：每個區間不論有沒有股數異動都先算 USDC 淨支出，累加到待分配池，等到真的有股數異動
+  // 的區間才把累積的池子整個分配出去、歸零重新累積，這樣延遲個幾輪同步也能正確對上。
+  let carryUsdcSpent = 0;
   for (let i = 1; i < snaps.length; i++) {
     const prev = snaps[i - 1], cur = snaps[i];
     const pb = prev.balances as Record<string, { total: number }>, cb = cur.balances as Record<string, { total: number }>;
@@ -115,8 +121,7 @@ export async function runBinanceAutoBook(
       const d = Math.round(((cb[code]?.total ?? 0) - (pb[code]?.total ?? 0)) * 1e8) / 1e8;
       if (d !== 0) deltas[code] = d;
     }
-    if (Object.keys(deltas).length === 0) continue;
-    // 這段期間 USDC 的淨花費＝前次餘額＋閃兌換入－閃兌換出－本次餘額
+    // 這段期間 USDC 的淨花費＝前次餘額＋閃兌換入－閃兌換出－本次餘額，不論這段有沒有股數異動都要算
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const convs = (((cur.raw ?? {}) as any).convert?.list ?? []).filter(
       (c: { createTime: number; orderStatus: string }) => c.orderStatus === "SUCCESS" && c.createTime > prev.fetchedAt.getTime() && c.createTime <= cur.fetchedAt.getTime()
@@ -126,8 +131,10 @@ export async function runBinanceAutoBook(
       if (c.toAsset === "USDC") usdcIn += num(c.toAmount);
       if (c.fromAsset === "USDC") usdcIn -= num(c.fromAmount);
     }
-    const usdcSpent = (pb.USDC?.total ?? 0) + usdcIn - (cb.USDC?.total ?? 0);
-    push({ ref: `bn:eq:${cur.id}`, time: cur.fetchedAt.getTime(), kind: "eq", data: { deltas, usdcSpent } });
+    carryUsdcSpent += (pb.USDC?.total ?? 0) + usdcIn - (cb.USDC?.total ?? 0);
+    if (Object.keys(deltas).length === 0) continue;
+    push({ ref: `bn:eq:${cur.id}`, time: cur.fetchedAt.getTime(), kind: "eq", data: { deltas, usdcSpent: carryUsdcSpent } });
+    carryUsdcSpent = 0;
   }
   if (events.size === 0) return { created: 0 };
 
