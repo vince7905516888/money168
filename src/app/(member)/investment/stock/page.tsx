@@ -184,6 +184,9 @@ export default function StockPage() {
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", maximumFractionDigits: 0 }).format(n);
+  // 均價固定算到小數點後兩位（第三位四捨五入），不像其他金額欄位四捨五入到整數
+  const fmtAvg = (n: number) =>
+    new Intl.NumberFormat("zh-TW", { style: "currency", currency: "TWD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
   const buyCount = investments.filter((i) => i.action === "BUY").length;
   const sellCount = investments.filter((i) => i.action === "SELL").length;
@@ -615,10 +618,10 @@ export default function StockPage() {
                       <td className="px-4 py-3 text-right text-slate-500">{fmt(g.fee)}</td>
                       <td className="px-4 py-3 text-right text-slate-700">{fmt(g.principal + g.fee)}</td>
                       <td className="px-4 py-3 text-right text-slate-500">
-                        {g.quantity > 0 ? fmt(g.principal / g.quantity) : "—"}
+                        {g.quantity > 0 ? fmtAvg(g.principal / g.quantity) : "—"}
                       </td>
                       <td className="px-6 py-3 text-right font-semibold text-slate-900">
-                        {g.quantity > 0 ? fmt((g.principal + g.fee) / g.quantity) : "—"}
+                        {g.quantity > 0 ? fmtAvg((g.principal + g.fee) / g.quantity) : "—"}
                       </td>
                     </tr>
                   ))}
