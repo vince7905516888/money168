@@ -83,6 +83,7 @@ export default function StockPage() {
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [stockFilter, setStockFilter] = useState("");
   const [realizedOpen, setRealizedOpen] = useState(false);
   const [unrealizedOpen, setUnrealizedOpen] = useState(false);
   const [statsMonth, setStatsMonth] = useState("");
@@ -291,9 +292,19 @@ export default function StockPage() {
     const byDate = new Date(b.date ?? b.createdAt).getTime() - new Date(a.date ?? a.createdAt).getTime();
     return byDate !== 0 ? byDate : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
-  const pageCount = Math.max(1, Math.ceil(sortedInvestments.length / PAGE_SIZE));
+  // 股票名稱篩選選單：從實際記錄裡出現過的股票取不重複清單（優先用代碼判斷），依筆畫排序
+  const stockKey = (i: Investment) => i.code?.trim() || i.name?.trim() || "(未命名)";
+  const stockFilterOptions = Array.from(
+    investments.reduce((m, i) => {
+      const key = stockKey(i);
+      if (!m.has(key)) m.set(key, { key, name: i.name?.trim() || "(未命名)", code: i.code?.trim() });
+      return m;
+    }, new Map<string, { key: string; name: string; code?: string }>()).values()
+  ).sort((a, b) => a.name.localeCompare(b.name, "zh-TW"));
+  const filteredInvestments = stockFilter ? sortedInvestments.filter((i) => stockKey(i) === stockFilter) : sortedInvestments;
+  const pageCount = Math.max(1, Math.ceil(filteredInvestments.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const pagedInvestments = sortedInvestments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pagedInvestments = filteredInvestments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   // 成本調整可選的「獲利來源股票」：所有出現過紀錄的股票（含已全數賣出的），排除被調整的那檔
   const sourceStocks = Array.from(
     investments.reduce((m, i) => {
@@ -801,8 +812,18 @@ export default function StockPage() {
 
       {/* List */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-50">
+        <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between gap-3 flex-wrap">
           <h2 className="font-semibold text-slate-900">投資記錄</h2>
+          {stockFilterOptions.length > 1 && (
+            <select value={stockFilter}
+              onChange={(e) => { setStockFilter(e.target.value); setPage(1); }}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
+              <option value="">全部股票</option>
+              {stockFilterOptions.map((s) => (
+                <option key={s.key} value={s.key}>{s.name}{s.code ? `（${s.code}）` : ""}</option>
+              ))}
+            </select>
+          )}
         </div>
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-sm">載入中...</div>
@@ -810,6 +831,10 @@ export default function StockPage() {
           <div className="py-16 text-center">
             <p className="text-slate-400 text-sm mb-3">還沒有股票投資記錄</p>
             <button onClick={openAdd} className="text-sm text-indigo-600 font-medium hover:underline">新增第一筆記錄</button>
+          </div>
+        ) : filteredInvestments.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-slate-400 text-sm">這檔股票沒有符合的記錄</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-50">
@@ -868,8 +893,8 @@ export default function StockPage() {
             ))}
           </div>
         )}
-        {!loading && (
-          <Pagination page={currentPage} pageCount={pageCount} totalCount={sortedInvestments.length} onPageChange={setPage} />
+        {!loading && filteredInvestments.length > 0 && (
+          <Pagination page={currentPage} pageCount={pageCount} totalCount={filteredInvestments.length} onPageChange={setPage} />
         )}
       </div>
 
