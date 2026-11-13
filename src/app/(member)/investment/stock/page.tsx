@@ -304,6 +304,10 @@ export default function StockPage() {
       return m;
     }, new Map<string, { key: string; name: string; code?: string }>()).values()
   ).sort((a, b) => a.name.localeCompare(b.name, "zh-TW"));
+  // 篩選選單依「目前持有」／「未持有」分組，持有的排前面，方便快速找到還在抱的股票
+  const heldStockKeys = new Set(holdings.map((h) => h.key));
+  const heldStockOptions = stockFilterOptions.filter((s) => heldStockKeys.has(s.key));
+  const unheldStockOptions = stockFilterOptions.filter((s) => !heldStockKeys.has(s.key));
   const filteredInvestments = stockFilter ? sortedInvestments.filter((i) => stockKey(i) === stockFilter) : sortedInvestments;
   const pageCount = Math.max(1, Math.ceil(filteredInvestments.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -822,9 +826,20 @@ export default function StockPage() {
               onChange={(e) => { setStockFilter(e.target.value); setPage(1); }}
               className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-white focus:border-indigo-400 transition-colors">
               <option value="">全部股票</option>
-              {stockFilterOptions.map((s) => (
-                <option key={s.key} value={s.key}>{s.name}{s.code ? `（${s.code}）` : ""}</option>
-              ))}
+              {heldStockOptions.length > 0 && (
+                <optgroup label="目前持有">
+                  {heldStockOptions.map((s) => (
+                    <option key={s.key} value={s.key}>{s.name}{s.code ? `（${s.code}）` : ""}</option>
+                  ))}
+                </optgroup>
+              )}
+              {unheldStockOptions.length > 0 && (
+                <optgroup label="未持有">
+                  {unheldStockOptions.map((s) => (
+                    <option key={s.key} value={s.key}>{s.name}{s.code ? `（${s.code}）` : ""}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           )}
         </div>
