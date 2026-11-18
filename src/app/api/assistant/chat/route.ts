@@ -303,8 +303,12 @@ export async function POST(req: NextRequest) {
     }
 
     // 對話記錄：使用者這輪的訊息跟AI回覆一起存，第一則訊息順便把對話標題改成內容摘要
+    // 只有還是預設標題「新對話」時才自動帶入第一句話當標題，使用者如果在傳第一句話之前
+    // 就手動改過標題，這裡不能覆蓋掉
     const isFirstMessage = conversation.messages.length === 0;
-    const title = isFirstMessage ? (content.trim() ? content.trim().slice(0, 24) : "圖片提問") : conversation.title;
+    const title = isFirstMessage && conversation.title === "新對話"
+      ? (content.trim() ? content.trim().slice(0, 24) : "圖片提問")
+      : conversation.title;
     await prisma.$transaction([
       prisma.assistantMessage.create({
         data: { conversationId, role: "user", content: content.trim(), imageMimeType: image?.mimeType, imageData: image?.data },

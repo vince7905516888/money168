@@ -193,6 +193,44 @@ export default function AssistantPage() {
     }
   };
 
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameInput, setRenameInput] = useState("");
+
+  const startRename = (c: Conversation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(c.id);
+    setRenameInput(c.title);
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameInput("");
+  };
+
+  const commitRename = async (id: string) => {
+    const title = renameInput.trim();
+    const current = conversations.find((c) => c.id === id);
+    if (!title || title === current?.title) {
+      cancelRename();
+      return;
+    }
+    try {
+      const res = await fetch(`/api/assistant/conversations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, title: data.conversation.title } : c)));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "重新命名失敗");
+    } finally {
+      cancelRename();
+    }
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -269,12 +307,35 @@ export default function AssistantPage() {
             {conversations.map((c) => (
               <div
                 key={c.id}
-                onClick={() => !switching && c.id !== activeId && selectConversation(c.id)}
+                onClick={() => renamingId !== c.id && !switching && c.id !== activeId && selectConversation(c.id)}
                 className={`group relative flex items-center gap-1 rounded-xl px-3 py-2 text-sm cursor-pointer transition-colors ${
                   c.id === activeId ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                <span className="flex-1 truncate">{c.title}</span>
+                {renamingId === c.id ? (
+                  <input
+                    autoFocus
+                    value={renameInput}
+                    onChange={(e) => setRenameInput(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={() => commitRename(c.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); commitRename(c.id); }
+                      else if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+                    }}
+                    className="flex-1 min-w-0 bg-white border border-indigo-300 rounded-lg px-1.5 py-0.5 text-sm focus:outline-none"
+                  />
+                ) : (
+                  <span className="flex-1 truncate">{c.title}</span>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => startRename(c, e)}
+                  title="重新命名"
+                  className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-600 transition-opacity w-5 h-5 flex items-center justify-center shrink-0"
+                >
+                  ✎
+                </button>
                 <button
                   type="button"
                   onClick={(e) => handleDeleteConversation(c.id, e)}
