@@ -23,12 +23,12 @@ const SYSTEM_INSTRUCTION = `你是「MoneyFlow」記帳App裡的智能投資助�
 系統會附上【加碼策略範本】，是使用者在App「市場情報／策略」頁設定的馬丁格爾式分批加碼
 比例方案（例如「E. 六次防禦」代表第1~6次加碼的股數權重比為1:1:2:4:8:16）。使用者問到加碼
 股數、金額、比例時，優先用這些方案的實際比例計算，不要自己亂猜比例。
-但加碼「價位」使用者是看個股的壓力/支撐線與均線位置來判斷，不是用固定跌幅百分比往下排，
-你沒有即時K線/技術指標資料，不知道目前的支撐壓力與均線實際位置在哪，所以不要自己假設
-百分比跌幅去編價位。遇到使用者問某次加碼的「價位」，先反問使用者目前觀察到的下一個支撐
-價位或均線位置（或請使用者到「市場行情」頁查看後告訴你），有了使用者提供的參考價位後再
-幫忙套用方案比例算出對應的股數/金額；只有股數、金額、比例這類跟方案直接相關、不牽涉抓
-價位的部分，才可以主動直接算給使用者，不用每次都反問。
+系統還會附上【個股實際加碼批次價位】，是使用者為自己關注的個股，在同一頁依照壓力支撐線
+與均線位置，親手訂出來的第1~6批實際加碼價位（跟畫面上「市場情報/策略」頁看到的數字完全
+同步）。使用者問某檔股票的加碼價格時，優先直接用這裡已經存好的批次價位回答，不要反問、
+也不要自己瞎猜；只有在那檔股票完全不在清單裡、或問的那一批價位還沒設定時，才反問使用者
+目前觀察到的下一個支撐價位或均線位置是多少（或請使用者先到「市場情報/策略」頁填好），絕
+對不要自己假設百分比跌幅去編價位。
 回答牽涉多個數字（例如分次加碼的股數、價位、比例）時，統整成 markdown 表格呈現，不要用一大
 段文字條列，方便使用者在App裡直接看表格。`;
 
@@ -54,7 +54,7 @@ async function buildUserContext(userId: string): Promise<string> {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const [summary, holdings, monthTx, debts, martingaleTemplates, userMartingales] = await Promise.all([
+  const [summary, holdings, monthTx, debts, martingaleTemplates, userMartingales, strategyEntries] = await Promise.all([
     computeUserAssetSummary(userId),
     computeUserHoldingsDetail(userId),
     prisma.transaction.findMany({
@@ -64,6 +64,7 @@ async function buildUserContext(userId: string): Promise<string> {
     prisma.debt.findMany({ where: { userId } }),
     prisma.martingaleStrategy.findMany(),
     prisma.userMartingaleStrategy.findMany({ where: { userId } }),
+    prisma.investmentStrategyEntry.findMany({ where: { userId }, orderBy: { order: "asc" } }),
   ]);
 
   let income = 0;
@@ -138,6 +139,28 @@ async function buildUserContext(userId: string): Promise<string> {
     .map((s) => `${s.name}：${s.ratios.join(":")}${s.note ? `（${s.note}）` : ""}`)
     .join("\n") || "（使用者尚未設定任何加碼策略範本）";
 
+  // 使用者自己在「市場情報/策略」頁為個股存好的實際加碼批次價位（batch1~6，他依支撐/均線
+  // 自行判斷訂出來的真實價位，不是套公式算的），有存的話直接拿來回答，跟畫面上數字才會同步
+  const STRATEGY_ENTRY_LIMIT = 30;
+  const strategyEntryList = strategyEntries
+    .slice(0, STRATEGY_ENTRY_LIMIT)
+    .map((e) => {
+      const label = e.stockName || e.stockCode || "(未命名)";
+      const currency = e.assetType === "USSTOCK" ? "USD" : "TWD";
+      const batches = [e.batch1, e.batch2, e.batch3, e.batch4, e.batch5, e.batch6]
+        .map((b, i) => (b != null ? `第${i + 1}批${fmtNum(b)}` : null))
+        .filter(Boolean)
+        .join("、") || "尚未設定批次價位";
+      const targets = [e.futureLow && `低${e.futureLow}`, e.futureMid && `中${e.futureMid}`, e.futureHigh && `高${e.futureHigh}`]
+        .filter(Boolean)
+        .join("/");
+      return `${label}${e.stockCode ? `(${e.stockCode})` : ""}${e.plan ? ` [${e.plan}]` : ""}（幣別${currency}）：目前股價${e.currentPrice != null ? fmtNum(e.currentPrice) : "未填"}、持有${e.shares != null ? fmtNum(e.shares, 0) : "—"}股、均價${e.avgPrice != null ? fmtNum(e.avgPrice) : "—"}，加碼批次價位：${batches}${targets ? `，未來目標價：${targets}` : ""}`;
+    })
+    .join("\n") || "（使用者尚未在策略頁為任何股票設定加碼批次價位）";
+  const strategyEntryNote = strategyEntries.length > STRATEGY_ENTRY_LIMIT
+    ? `\n（僅列出前${STRATEGY_ENTRY_LIMIT}檔，共${strategyEntries.length}檔，使用者問到沒列出的股票時提醒他到策略頁查看完整清單）`
+    : "";
+
   return `【使用者目前資產與收支資料，由系統自動帶入的真實數字，回答時可直接引用】
 淨資產：NT$${fmtTwd(summary.netWorth)}
 資產總計：NT$${fmtTwd(summary.positiveAssetsTotal)}（現金 NT$${fmtTwd(summary.cashBalance)}、銀行 NT$${fmtTwd(summary.bankTotal)}、股票 NT$${fmtTwd(summary.stockTotal)}、美股(折台幣) NT$${fmtTwd(summary.usstockTwdTotal)}、基金(折台幣) NT$${fmtTwd(summary.fundTwdTotal)}、外匯(折台幣) NT$${fmtTwd(summary.forexTwdTotal)}、虛擬貨幣 NT$${fmtTwd(summary.cryptoTotal)}、黃金 NT$${fmtTwd(summary.goldTotal)}、不動產 NT$${fmtTwd(summary.realestateTotal)}、保險 NT$${fmtTwd(summary.insuranceTotal)}）
@@ -156,7 +179,11 @@ async function buildUserContext(userId: string): Promise<string> {
 保險：${insuranceList}
 
 【加碼策略範本（名稱:比例，使用者可能用「A方案」「E方案」這種代號提問）】
-${strategyList}`;
+${strategyList}
+
+【個股實際加碼批次價位，使用者在「市場情報/策略」頁依支撐/均線自己訂的真實價位，回答加碼
+價格時以這裡的數字為準，不要自己編】
+${strategyEntryList}${strategyEntryNote}`;
 }
 
 const MAX_HISTORY_MESSAGES = 20;
