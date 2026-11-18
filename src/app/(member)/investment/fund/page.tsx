@@ -269,6 +269,15 @@ export default function FundPage() {
 
   const openAdd = () => { resetAddForm(); setShowAddModal(true); };
 
+  // 選基金名稱時，帶入這檔基金最近一筆紀錄的幣別／代碼／銀行別名，避免忘記手動切換幣別
+  // 導致同一檔基金被記成不同幣別、算進錯的匯率換算（例如日圓避險基金被誤記成台幣）
+  const applyFundDefaults = (name: string) => {
+    const match = [...investments].reverse().find((i) => (i.name?.trim() || "") === name.trim());
+    setAddForm((f) => match
+      ? { ...f, name, currency: match.currency || f.currency, code: f.code || match.code || "", bankName: f.bankName || match.bankName || "" }
+      : { ...f, name });
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (nav <= 0 || units <= 0) {
@@ -635,7 +644,7 @@ export default function FundPage() {
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">基金名稱</label>
                 <Combobox
                   value={addForm.name}
-                  onChange={(v) => setAddForm({ ...addForm, name: v })}
+                  onChange={applyFundDefaults}
                   options={userFunds.map((f) => f.name)}
                   placeholder="搜尋或選擇基金，例如：富達環球高收益基金"
                 />
@@ -659,7 +668,7 @@ export default function FundPage() {
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {userFunds.map((f) => (
                       <span key={f.id} className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs pl-2 pr-1 py-1 rounded-full">
-                        <button type="button" onClick={() => setAddForm({ ...addForm, name: f.name })} className="hover:text-indigo-600">
+                        <button type="button" onClick={() => applyFundDefaults(f.name)} className="hover:text-indigo-600">
                           {f.name}
                         </button>
                         <button type="button" onClick={() => handleDeleteFundName(f.id)}

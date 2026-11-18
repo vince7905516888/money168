@@ -212,8 +212,8 @@ export default function AssistantPage() {
         <p className="text-slate-500 text-sm mt-1">可結合你的資產/收支資料做分析，也能回答投資知識問答，AI 回覆僅供參考，不構成正式理財建議</p>
       </div>
 
-      <div className="flex-1 flex gap-4 min-h-0">
-        <aside className="w-60 shrink-0 bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col sm:flex-row gap-4 min-h-0">
+        <aside className="w-full sm:w-60 shrink-0 bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col overflow-hidden max-h-40 sm:max-h-none">
           <div className="p-3 border-b border-slate-100 shrink-0">
             <button
               type="button"

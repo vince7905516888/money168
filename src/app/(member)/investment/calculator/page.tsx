@@ -510,14 +510,15 @@ export default function InvestmentCalculatorPage() {
       // 第一列的「起始持有金額」是直接指定那一列的推估總資產是多少（取代公式算出來的值，不是疊加上去），
       // 填 0 代表沒有手動指定、照公式用持有股數×價格＋預估剩餘未投入配息算。
       // TWSTOCK 從第二列開始，推估總資產＝上個月推估總資產＋這個月（計劃買進股數＋配息加碼股數）
-      // ×這個月買進價格＋這個月預估剩餘未投入配息「比上個月新增的部分」－這個月手續費，逐月累加
+      // ×這個月買進價格＋這個月預估剩餘未投入配息「比上個月新增的部分」，逐月累加
       // （預估剩餘未投入配息是餘額不是這個月才多出來的錢，只能算差額，不能整包加，否則沒花掉的餘額會被逐月重複累加而虛增總資產）
+      // 手續費不再從推估總資產扣除：買進股數×買進價格本來就沒有內含手續費，這裡再扣一次會讓總資產比實際多扣一次手續費
       let assetValue: number;
       if (mode === "TWSTOCK" || mode === "FUND") {
         if (idx === 0) {
           assetValue = startingAssetValue !== 0 ? startingAssetValue : (holdingShares * r.price + pendingDividendCash);
         } else {
-          assetValue = prevAssetValue + sharesBought * r.price + (pendingDividendCash - prevPendingDividendCash) - r.fee;
+          assetValue = prevAssetValue + sharesBought * r.price + (pendingDividendCash - prevPendingDividendCash);
         }
       } else {
         // 美股版維持原本「每一列都加上起始持有金額」的簡單寫法（美股版沒有被回報這個問題）
