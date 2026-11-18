@@ -18,7 +18,19 @@ const SYSTEM_INSTRUCTION = `你是「MoneyFlow」記帳App裡的智能投資助�
 本月支出是否偏高、淨資產趨勢等，主動點出數字背後的意義，不要只是覆誦清單。
 但你仍然不是正式理財顧問，遇到「我該不該買/賣」這類需要承擔個人財務風險的具體決策問題，
 提醒使用者自行判斷或諮詢專業意見，不要直接下判斷。使用者有時會上傳圖片（例如K線圖截圖、
-報表截圖），你可以根據圖片內容回答，但一樣不構成個人化投資建議。`;
+報表截圖），你可以根據圖片內容回答，但一樣不構成個人化投資建議。
+
+系統會附上【加碼策略範本】，是使用者在App「市場情報／策略」頁設定的馬丁格爾式分批加碼
+比例方案（例如「E. 六次防禦」代表第1~6次加碼的股數權重比為1:1:2:4:8:16）。使用者問到加碼
+股數、金額、比例時，優先用這些方案的實際比例計算，不要自己亂猜比例。
+但加碼「價位」使用者是看個股的壓力/支撐線與均線位置來判斷，不是用固定跌幅百分比往下排，
+你沒有即時K線/技術指標資料，不知道目前的支撐壓力與均線實際位置在哪，所以不要自己假設
+百分比跌幅去編價位。遇到使用者問某次加碼的「價位」，先反問使用者目前觀察到的下一個支撐
+價位或均線位置（或請使用者到「市場行情」頁查看後告訴你），有了使用者提供的參考價位後再
+幫忙套用方案比例算出對應的股數/金額；只有股數、金額、比例這類跟方案直接相關、不牽涉抓
+價位的部分，才可以主動直接算給使用者，不用每次都反問。
+回答牽涉多個數字（例如分次加碼的股數、價位、比例）時，統整成 markdown 表格呈現，不要用一大
+段文字條列，方便使用者在App裡直接看表格。`;
 
 function fmtTwd(n: number): string {
   return Math.round(n).toLocaleString("zh-TW");
@@ -42,7 +54,7 @@ async function buildUserContext(userId: string): Promise<string> {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const [summary, holdings, monthTx, debts] = await Promise.all([
+  const [summary, holdings, monthTx, debts, martingaleTemplates, userMartingales] = await Promise.all([
     computeUserAssetSummary(userId),
     computeUserHoldingsDetail(userId),
     prisma.transaction.findMany({
@@ -50,6 +62,8 @@ async function buildUserContext(userId: string): Promise<string> {
       include: { category: { select: { name: true } } },
     }),
     prisma.debt.findMany({ where: { userId } }),
+    prisma.martingaleStrategy.findMany(),
+    prisma.userMartingaleStrategy.findMany({ where: { userId } }),
   ]);
 
   let income = 0;
@@ -120,6 +134,10 @@ async function buildUserContext(userId: string): Promise<string> {
     (i) => i.amount
   );
 
+  const strategyList = [...martingaleTemplates, ...userMartingales]
+    .map((s) => `${s.name}：${s.ratios.join(":")}${s.note ? `（${s.note}）` : ""}`)
+    .join("\n") || "（使用者尚未設定任何加碼策略範本）";
+
   return `【使用者目前資產與收支資料，由系統自動帶入的真實數字，回答時可直接引用】
 淨資產：NT$${fmtTwd(summary.netWorth)}
 資產總計：NT$${fmtTwd(summary.positiveAssetsTotal)}（現金 NT$${fmtTwd(summary.cashBalance)}、銀行 NT$${fmtTwd(summary.bankTotal)}、股票 NT$${fmtTwd(summary.stockTotal)}、美股(折台幣) NT$${fmtTwd(summary.usstockTwdTotal)}、基金(折台幣) NT$${fmtTwd(summary.fundTwdTotal)}、外匯(折台幣) NT$${fmtTwd(summary.forexTwdTotal)}、虛擬貨幣 NT$${fmtTwd(summary.cryptoTotal)}、黃金 NT$${fmtTwd(summary.goldTotal)}、不動產 NT$${fmtTwd(summary.realestateTotal)}、保險 NT$${fmtTwd(summary.insuranceTotal)}）
@@ -135,7 +153,10 @@ async function buildUserContext(userId: string): Promise<string> {
 虛擬貨幣：${cryptoList}
 黃金：${goldList}
 不動產：${realestateList}
-保險：${insuranceList}`;
+保險：${insuranceList}
+
+【加碼策略範本（名稱:比例，使用者可能用「A方案」「E方案」這種代號提問）】
+${strategyList}`;
 }
 
 const MAX_HISTORY_MESSAGES = 20;
