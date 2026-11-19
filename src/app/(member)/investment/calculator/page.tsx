@@ -521,8 +521,12 @@ export default function InvestmentCalculatorPage() {
           assetValue = prevAssetValue + sharesBought * r.price + (pendingDividendCash - prevPendingDividendCash);
         }
       } else {
-        // 美股版維持原本「每一列都加上起始持有金額」的簡單寫法（美股版沒有被回報這個問題）
-        assetValue = holdingShares * r.price + cumulativeDividend + startingAssetValue;
+        // 美股版：持有股數用「持股均價」估值，不是用這個月的買進價格——買進價格只代表這個月
+        // 新買那幾股的成交價，拿它去幫全部持股（含之前月份用別的價格買的）重新估值會失真，
+        // 均價才是這個月持有部位實際的平均投入成本。不再額外加「起始資產」——
+        // holdingShares×均價已經含括起始部位的成本（起始均價會算進 cumulativeInvestment／avgPrice），
+        // 再加一次起始資產會重複計入
+        assetValue = holdingShares * avgPrice + cumulativeDividend;
       }
       prevAssetValue = assetValue;
       prevPendingDividendCash = pendingDividendCash;
