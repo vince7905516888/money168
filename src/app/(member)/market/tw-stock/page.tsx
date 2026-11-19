@@ -22,6 +22,7 @@ import {
 } from "recharts";
 
 import { computeStockPrediction } from "@/lib/stock-prediction";
+import type { StockNewsItem } from "@/lib/tw-stock-news";
 
 const SYNC_ID = "tw-stock-charts";
 
@@ -664,6 +665,9 @@ export default function TwStockPage() {
   const [institutional, setInstitutional] = useState<InstitutionalRow[]>([]);
   const [margin, setMargin] = useState<MarginRow[]>([]);
 
+  // 相關新聞：FinMind 新聞資料集，已過濾掉論壇貼文只留正規媒體，近14天、最多20則
+  const [stockNews, setStockNews] = useState<StockNewsItem[]>([]);
+
   // 法人買賣超趨勢圖：指標/區間可切換，資料來自逐日累積的快照表（見 flow-history API）
   const [flowMetric, setFlowMetric] = useState<FlowMetricKey>("totalNetLots");
   const [flowPeriod, setFlowPeriod] = useState<FlowPeriodKey>("1m");
@@ -1171,6 +1175,7 @@ export default function TwStockPage() {
     setMargin([]);
     setFundamentals(null);
     setProfile(null);
+    setStockNews([]);
     // 換股票時法人買賣超趨勢圖區間重置回1個月：避免補歷史的請求跟上面法人資料的請求同時打證交所，
     // 併發太高證交所會直接擋（實測回應 428），拆開來個別請求量都在安全範圍內。
     setFlowPeriod("1m");
@@ -1204,6 +1209,13 @@ export default function TwStockPage() {
         .then((r) => (r.ok ? r.json() : null))
         .then((body) => {
           if (body) setFundamentals(body);
+        })
+        .catch(() => {});
+
+      fetch(`/api/market/tw-stock/${code}/news`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((body) => {
+          if (body?.news) setStockNews(body.news);
         })
         .catch(() => {});
 
@@ -2312,6 +2324,33 @@ export default function TwStockPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* 相關新聞：FinMind 新聞資料集，只保留白名單裡的正規媒體來源（已濾掉CMoney論壇貼文），
+              只有標題/來源/時間，沒有內文，點了開新分頁到原網站 */}
+          {stockNews.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+              <h3 className="text-sm font-semibold text-slate-700 mb-4">相關新聞</h3>
+              <div className="divide-y divide-slate-50">
+                {stockNews.map((n) => (
+                  <a
+                    key={n.link}
+                    href={n.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start justify-between gap-3 py-2.5 group"
+                  >
+                    <span className="text-sm text-slate-700 group-hover:text-indigo-600 transition-colors">{n.title}</span>
+                    <span className="shrink-0 text-right text-[11px] text-slate-400 whitespace-nowrap">
+                      {n.source}
+                      <br />
+                      {n.date.slice(0, 16)}
+                    </span>
+                  </a>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">資料源：FinMind，僅列出正規媒體新聞，內容以原網站為準</p>
             </div>
           )}
 
