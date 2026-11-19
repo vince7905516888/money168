@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { lookupStockName, getStockDirectory } from "@/lib/tw-stock-directory";
 import { fetchLiveQuote } from "@/lib/shioaji-gateway";
+import { fetchFinMindDaily, type DailyQuote } from "@/lib/tw-stock-quotes";
 
 // K線週期對應的 Yahoo Finance interval/range：週期越大，抓的歷史範圍越長，
 // 方便搭配前端新增的縮放(Brush)功能回顧更長的歷史。
@@ -34,39 +35,6 @@ function formatBarDate(ts: number, intraday: boolean): string {
   return d.toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
 }
 
-interface DailyQuote {
-  date: string;
-  open: number | null;
-  high: number | null;
-  low: number | null;
-  close: number | null;
-  volume: number | null;
-}
-
-// FinMind 統一提供上市(TWSE)＋上櫃(TPEX)的官方日線資料，不用像 Yahoo 那樣先猜 .TW 再猜 .TWO，
-// 且是收盤後才會出現的正式收盤價，不會有「今天這筆 close 是 null」被前端過濾掉的問題。
-// 免費額度只到日線，沒有分鐘K，60分K仍走上面的 Yahoo Finance。
-async function fetchFinMindDaily(code: string, startDate: string): Promise<DailyQuote[] | null> {
-  const token = process.env.FINMIND_TOKEN;
-  const url = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=${code}&start_date=${startDate}${
-    token ? `&token=${token}` : ""
-  }`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) return null;
-  const json = await res.json();
-  if (json?.status !== 200 || !Array.isArray(json.data)) return null;
-
-  return json.data.map(
-    (row: { date: string; open: number | null; max: number | null; min: number | null; close: number | null; Trading_Volume: number | null }) => ({
-      date: row.date,
-      open: row.open,
-      high: row.max,
-      low: row.min,
-      close: row.close,
-      volume: row.Trading_Volume,
-    })
-  );
-}
 
 function finMindStartDate(interval: string): string {
   const now = new Date();

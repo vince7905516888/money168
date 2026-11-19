@@ -85,6 +85,30 @@ export async function lookupStockName(code: string): Promise<string | null> {
   return list.find((s) => s.code === code)?.name ?? null;
 }
 
+// 智能助理用：從使用者打的一段自然語言裡抓出有提到的股票（代碼或中文名稱都算），
+// 先抓代碼（4~6碼數字，允許尾碼一個英文字母，例如00722B），找不到代碼才退回掃描
+// 全部股票名稱是否出現在文字裡；避免兩種都抓導致同一句話誤判出一堆不相干的股票。
+export async function findMentionedStocks(text: string, limit = 2): Promise<StockDirEntry[]> {
+  const list = await getStockDirectory();
+  const codeMatches = text.match(/\b\d{4,6}[A-Z]?\b/g) ?? [];
+  const byCode: StockDirEntry[] = [];
+  for (const code of codeMatches) {
+    const hit = list.find((s) => s.code === code);
+    if (hit && !byCode.some((s) => s.code === hit.code)) byCode.push(hit);
+    if (byCode.length >= limit) break;
+  }
+  if (byCode.length > 0) return byCode;
+
+  const byName: StockDirEntry[] = [];
+  for (const s of list) {
+    if (s.name.length >= 2 && text.includes(s.name)) {
+      byName.push(s);
+      if (byName.length >= limit) break;
+    }
+  }
+  return byName;
+}
+
 export async function searchStocks(query: string, limit = 15): Promise<StockDirEntry[]> {
   const q = query.trim();
   if (!q) return [];

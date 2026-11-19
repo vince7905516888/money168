@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
   ReferenceLine,
+  ReferenceArea,
   Cell,
   Brush,
   useYAxisScale,
@@ -19,6 +20,8 @@ import {
   useYAxisInverseScale,
   usePlotArea,
 } from "recharts";
+
+import { computeStockPrediction } from "@/lib/stock-prediction";
 
 const SYNC_ID = "tw-stock-charts";
 
@@ -1250,6 +1253,45 @@ export default function TwStockPage() {
   // rows 一定要記憶化：陣列參照要穩定，否則 recharts 的 Brush 會誤判成「資料變了」而中斷拖曳手勢。
   const rows = useMemo(() => (data ? buildChartRows(data.quotes) : []), [data]);
 
+  // RSI 與 KD 同時低於 20：短線超賣訊號比較罕見也比較有參考性，用跑馬燈提醒，
+  // 只看最後一筆有完整數值的資料（K線最新一天可能當天還沒收盤，數值會是 null）
+  const oversoldAlert = useMemo(() => {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (r.rsi == null || r.k == null) continue;
+      if (r.rsi < 20 && r.k < 20) {
+        return { date: r.date, rsi: r.rsi, k: r.k };
+      }
+      return null; // 只看最新一筆有數值的資料，不往更久以前找
+    }
+    return null;
+  }, [rows]);
+
+  // 規則式技術面綜合評分：拿最新一筆（及前一筆，KDJ交叉判斷要用）指標值去跑固定規則，
+  // 不是機器學習、不保證準確，只是把現有技術指標的多空判讀整理成一個分數方便快速看
+  const prediction = useMemo(() => {
+    if (rows.length === 0) return null;
+    const last = rows[rows.length - 1];
+    const prev = rows.length > 1 ? rows[rows.length - 2] : null;
+    return computeStockPrediction({
+      close: last.close,
+      ma5: last.ma5,
+      ma20: last.ma20,
+      ma60: last.ma60,
+      rsi: last.rsi,
+      k: last.k,
+      d: last.d,
+      prevK: prev?.k ?? null,
+      prevD: prev?.d ?? null,
+      macdDif: last.macdDif,
+      macdDea: last.macdDea,
+      bias: last.bias6,
+      plusDI: last.plusDI,
+      minusDI: last.minusDI,
+      adx: last.adx,
+    });
+  }, [rows]);
+
   // K線Brush預設縮放區間：換股票／換週期時預設只顯示最近一段（約25%資料），
   // 不然一開始整個2年份K棒擠在一起看不清楚，使用者還是可以拖曳/滾輪調整回完整區間
   const [brushRange, setBrushRange] = useState<{ startIndex: number; endIndex: number } | null>(null);
@@ -2028,6 +2070,27 @@ export default function TwStockPage() {
               </ResponsiveContainer>
             </div>
 
+            {/* RSI 與 K 值同時跌破 20：短線超賣的罕見訊號，用跑馬燈提醒 */}
+            {oversoldAlert && (
+              <div className="mt-6 bg-red-600 rounded-2xl overflow-hidden shadow-sm">
+                <div className="flex items-center py-2.5">
+                  <span className="shrink-0 px-4 text-xs font-bold text-white/90 tracking-wider border-r border-white/20">超賣提醒</span>
+                  <div className="flex-1 overflow-hidden whitespace-nowrap">
+                    <div className="inline-block animate-marquee text-sm text-white font-medium" style={{ animationDuration: "18s" }}>
+                      <span className="pr-24">
+                        {oversoldAlert.date} RSI（{fmtNum(oversoldAlert.rsi)}）與 K 值（{fmtNum(oversoldAlert.k)}）同時跌破
+                        20，短線超賣訊號，僅供參考不構成投資建議
+                      </span>
+                      <span className="pr-24">
+                        {oversoldAlert.date} RSI（{fmtNum(oversoldAlert.rsi)}）與 K 值（{fmtNum(oversoldAlert.k)}）同時跌破
+                        20，短線超賣訊號，僅供參考不構成投資建議
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* 技術指標小窗口：跟上面K線、成交量共用同一個syncId同步游標，也合併進同一張卡片；
                 選單本身移到上方跟日K/週K切換放在一起，這裡只放實際勾選後顯示的子圖表 */}
             <div className="mt-6 pt-6 border-t border-slate-50">
@@ -2043,8 +2106,12 @@ export default function TwStockPage() {
                   <ComposedChart data={rows} syncId={SYNC_ID} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={30} />
-                    <YAxis tick={{ fontSize: 11 }} width={56} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={56} />
                     <Tooltip formatter={(value, name) => [fmtNum(Number(value)), String(name)]} />
+                    <ReferenceArea y1={80} y2={100} fill="#ef4444" fillOpacity={0.08} />
+                    <ReferenceArea y1={0} y2={20} fill="#22c55e" fillOpacity={0.08} />
+                    <ReferenceLine y={80} stroke="#fca5a5" strokeDasharray="4 3" />
+                    <ReferenceLine y={20} stroke="#86efac" strokeDasharray="4 3" />
                     <Line type="monotone" dataKey="k" stroke="#f59e0b" dot={false} strokeWidth={1.5} connectNulls />
                     <Line type="monotone" dataKey="d" stroke="#3b82f6" dot={false} strokeWidth={1.5} connectNulls />
                     <Line type="monotone" dataKey="j" stroke="#a855f7" dot={false} strokeWidth={1.5} connectNulls />
@@ -2146,6 +2213,47 @@ export default function TwStockPage() {
             )}
             </div>
           </div>
+
+          {/* 規則式技術面綜合評分：不是AI/機器學習預測，是把上面幾個技術指標的多空判讀
+              整理成固定規則算出的分數，列出每一項的理由方便檢視，僅供參考不構成投資建議 */}
+          {prediction && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-semibold text-slate-700">技術面綜合評分</h3>
+                <span
+                  className={`text-sm font-bold px-3 py-1 rounded-full ${
+                    prediction.score > 0
+                      ? "bg-red-50 text-red-600"
+                      : prediction.score < 0
+                      ? "bg-emerald-50 text-emerald-600"
+                      : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  {prediction.label}（{prediction.score > 0 ? "+" : ""}{prediction.score} / {prediction.maxScore}）
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mb-4">
+                規則式判讀，不是機器學習預測，股市難以預測，僅供參考、不構成投資建議
+              </p>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {prediction.signals.map((s) => (
+                  <div
+                    key={s.name}
+                    className={`flex items-start gap-2 text-xs rounded-xl px-3 py-2 ${
+                      s.verdict === "BULLISH"
+                        ? "bg-red-50 text-red-700"
+                        : s.verdict === "BEARISH"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-slate-50 text-slate-500"
+                    }`}
+                  >
+                    <span className="font-semibold shrink-0">{s.name}</span>
+                    <span className="flex-1">{s.detail}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 個股資訊（基本面）：營收/EPS(季)/本益比/殖利率為證交所公開資料真實數值，
               EPS(近4季)、ROE(近4季)靠系統逐季自動累積歷史 EPS 快照，累積滿4季後才會顯示數值 */}

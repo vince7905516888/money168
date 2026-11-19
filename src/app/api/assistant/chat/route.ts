@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { computeUserAssetSummary, computeUserHoldingsDetail } from "@/lib/user-asset-summary";
+import { findMentionedStocks } from "@/lib/tw-stock-directory";
+import { fetchFinMindDaily } from "@/lib/tw-stock-quotes";
+import { computeMA, computeRSI, computeKDJ, computeMACD, computeBIAS, computeDMI } from "@/lib/technical-indicators";
+import { computeStockPrediction } from "@/lib/stock-prediction";
 
 // gemini-2.5-flash 對新用戶已經被下架（呼叫會直接404，官方訊息指名改用這個），
 // 這裡固定用目前的正式版本，之後Google又下架的話要來這裡改。
@@ -10,8 +14,13 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
 
 const SYSTEM_INSTRUCTION = `你是「MoneyFlow」記帳App裡的智能投資助理，用繁體中文回答，語氣專業但親切、簡潔。
 你擅長回答投資相關知識問答：股票、ETF、基金、外匯、虛擬貨幣、貴金屬等名詞解釋、投資觀念、
-一般市場常識。你沒有即時行情資料，如果使用者問「現在」「今天」的股價/匯率/金價這類即時數字，
-不要憑空編造數字，提醒他們到App左側選單的「市場行情」查看即時K線圖。
+一般市場常識。你原則上沒有即時行情資料，如果使用者問「現在」「今天」的股價/匯率/金價這類
+即時數字，不要憑空編造數字，提醒他們到App左側選單的「市場行情」查看即時K線圖；但如果使用者
+這句話裡有提到台股股票（代碼或中文名稱），系統這時會在這段指示最後附上【使用者這句話提到的
+股票，即時技術面規則式評分】，裡面是當下真實抓到的均線/RSI/KD/MACD/乖離率/DMI數值跟一個
+規則式多空評分（不是AI/機器學習預測，是固定規則換算出來的分數），這個區塊有出現的話就直接
+引用裡面的真實數字回答，不用再提醒使用者去查K線圖；這個區塊沒出現，才代表沒偵測到股票或資料
+不足，這時才照原本的方式提醒使用者去「市場行情」查看。
 系統會在這段指示最後附上【使用者目前資產與收支資料】與【目前持有商品明細】，是從使用者
 自己在App裡記錄的收支、投資、負債資料即時計算出來的真實數字，包含具體持有哪些股票/基金/
 幣種及其數量與成本，你可以依據這些數字做個人化分析，例如資產配置是否集中在少數標的、
@@ -26,9 +35,10 @@ const SYSTEM_INSTRUCTION = `你是「MoneyFlow」記帳App裡的智能投資助�
 系統還會附上【個股實際加碼批次價位】，是使用者為自己關注的個股，在同一頁依照壓力支撐線
 與均線位置，親手訂出來的第1~6批實際加碼價位（跟畫面上「市場情報/策略」頁看到的數字完全
 同步）。使用者問某檔股票的加碼價格時，優先直接用這裡已經存好的批次價位回答，不要反問、
-也不要自己瞎猜；只有在那檔股票完全不在清單裡、或問的那一批價位還沒設定時，才反問使用者
-目前觀察到的下一個支撐價位或均線位置是多少（或請使用者先到「市場情報/策略」頁填好），絕
-對不要自己假設百分比跌幅去編價位。
+也不要自己瞎猜；如果那檔股票不在清單裡、或問的那一批價位還沒設定，且這句話有附上【即時
+技術面規則式評分】，可以參考裡面的均線位置當作抓支撐價的依據（並說明這是均線推算、不是
+使用者自己訂的價位）；兩邊都沒有資料時，才反問使用者目前觀察到的支撐價位或均線位置是多少
+（或請使用者先到「市場情報/策略」頁填好），絕對不要自己假設百分比跌幅去編價位。
 回答牽涉多個數字（例如分次加碼的股數、價位、比例）時，統整成 markdown 表格呈現，不要用一大
 段文字條列，方便使用者在App裡直接看表格。`;
 
@@ -186,6 +196,60 @@ ${strategyList}
 ${strategyEntryList}${strategyEntryNote}`;
 }
 
+// 從使用者這句話裡偵測有沒有提到台股股票（代碼或中文名稱），有的話即時抓日線資料算技術指標、
+// 跑規則式綜合評分，讓助理可以直接引用真實數字回答，不用每次都反問或提醒去查K線圖。
+// 只處理「這一句話」，不是整段對話歷史，避免每輪都重複抓一堆不相干的股票資料。
+async function buildStockPredictionContext(content: string): Promise<string> {
+  const stocks = await findMentionedStocks(content, 2);
+  if (stocks.length === 0) return "";
+
+  const startDate = new Date();
+  startDate.setFullYear(startDate.getFullYear() - 1);
+  const startDateStr = startDate.toISOString().slice(0, 10);
+
+  const blocks: string[] = [];
+  for (const stock of stocks) {
+    try {
+      const daily = await fetchFinMindDaily(stock.code, startDateStr);
+      const clean = (daily ?? []).filter((q) => q.close != null && q.high != null && q.low != null);
+      if (clean.length < 30) continue;
+
+      const closes = clean.map((q) => q.close!);
+      const candles = clean.map((q) => ({ high: q.high!, low: q.low!, close: q.close! }));
+      const ma5 = computeMA(closes, 5);
+      const ma20 = computeMA(closes, 20);
+      const ma60 = computeMA(closes, 60);
+      const rsi = computeRSI(closes);
+      const { k, d } = computeKDJ(candles);
+      const { dif, dea } = computeMACD(closes);
+      const bias6 = computeBIAS(closes, 6);
+      const { plusDI, minusDI, adx } = computeDMI(candles);
+
+      const i = closes.length - 1;
+      const prediction = computeStockPrediction({
+        close: closes[i],
+        ma5: ma5[i], ma20: ma20[i], ma60: ma60[i],
+        rsi: rsi[i],
+        k: k[i], d: d[i], prevK: i > 0 ? k[i - 1] : null, prevD: i > 0 ? d[i - 1] : null,
+        macdDif: dif[i], macdDea: dea[i],
+        bias: bias6[i],
+        plusDI: plusDI[i], minusDI: minusDI[i], adx: adx[i],
+      });
+
+      const verdictLabel = (v: string) => (v === "BULLISH" ? "偏多" : v === "BEARISH" ? "偏空" : "中性");
+      const signalLines = prediction.signals.map((s) => `- ${s.name}：${verdictLabel(s.verdict)}，${s.detail}`).join("\n");
+      blocks.push(
+        `${stock.name}(${stock.code})，最新收盤 ${closes[i]}（${clean[i].date}）\n` +
+          `綜合評分：${prediction.label}（${prediction.score > 0 ? "+" : ""}${prediction.score}/${prediction.maxScore}）\n${signalLines}`
+      );
+    } catch (e) {
+      console.error("assistant stock prediction failed:", stock.code, e);
+    }
+  }
+  if (blocks.length === 0) return "";
+  return `\n\n【使用者這句話提到的股票，即時技術面規則式評分（規則式判讀，不是AI/機器學習預測，股市難以預測，僅供參考不構成投資建議）】\n${blocks.join("\n\n")}`;
+}
+
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_MESSAGE_LENGTH = 4000;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // base64 解碼後上限 4MB
@@ -254,11 +318,17 @@ export async function POST(req: NextRequest) {
     return { role: m.role === "assistant" ? "model" : "user", parts };
   });
 
-  const userContext = await buildUserContext(session.user.id).catch((e) => {
-    console.error("assistant user context failed:", e);
-    return "";
-  });
-  const systemText = userContext ? `${SYSTEM_INSTRUCTION}\n\n${userContext}` : SYSTEM_INSTRUCTION;
+  const [userContext, stockPredictionContext] = await Promise.all([
+    buildUserContext(session.user.id).catch((e) => {
+      console.error("assistant user context failed:", e);
+      return "";
+    }),
+    buildStockPredictionContext(content).catch((e) => {
+      console.error("assistant stock prediction context failed:", e);
+      return "";
+    }),
+  ]);
+  const systemText = (userContext ? `${SYSTEM_INSTRUCTION}\n\n${userContext}` : SYSTEM_INSTRUCTION) + stockPredictionContext;
 
   try {
     const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
