@@ -26,10 +26,14 @@ export interface StockSignalInputs {
   plusDI: number | null;
   minusDI: number | null;
   adx: number | null;
+  // 外資籌碼背離：最近3個交易日的外資買賣超（張），由新到舊排序；搭配同一段期間的股價漲跌幅（%）
+  // 判斷「連買但價格沒漲」或「連賣但價格沒跌」這種籌碼與價格背離的狀況
+  foreignNetLotsRecent?: number[] | null;
+  priceChangePctRecent?: number | null;
 }
 
 export interface StockPrediction {
-  score: number; // -6 ~ +6，每項指標各貢獻 -1/0/+1
+  score: number; // -7 ~ +7，每項指標各貢獻 -1/0/+1
   maxScore: number; // 實際參與評分的指標數（資料不足的指標不計入，maxScore 會跟著變小）
   label: string;
   signals: SignalDetail[];
@@ -89,6 +93,35 @@ function evalDmi(plusDI: number | null, minusDI: number | null, adx: number | nu
   return { name: "DMI/ADX", verdict: "BEARISH", detail: `-DI > +DI 且 ADX ${adx.toFixed(1)}，空方趨勢動能較強` };
 }
 
+// 外資籌碼背離：連續買超但股價沒漲（或連續賣超但股價沒跌），常被解讀成籌碼偷偷換手、
+// 價格還沒反應，跟單純的技術指標比起來是比較少見、也比較有參考性的訊號。
+// priceChangePct 的正負1%當「持平」的緩衝區間，避免股價只是正常小幅波動就誤判成背離。
+function evalForeignFlowDivergence(
+  foreignNetLotsRecent: number[] | null | undefined,
+  priceChangePctRecent: number | null | undefined
+): SignalDetail | null {
+  if (!foreignNetLotsRecent || foreignNetLotsRecent.length < 3 || priceChangePctRecent == null) return null;
+  const recent3 = foreignNetLotsRecent.slice(0, 3);
+  const total = recent3.reduce((s, v) => s + v, 0);
+  const allBuy = recent3.every((v) => v > 0);
+  const allSell = recent3.every((v) => v < 0);
+  if (allBuy && priceChangePctRecent <= 1) {
+    return {
+      name: "外資籌碼背離",
+      verdict: "BULLISH",
+      detail: `外資連3日買超（合計${total.toLocaleString("zh-TW")}張），同期股價僅${priceChangePctRecent >= 0 ? "+" : ""}${priceChangePctRecent.toFixed(1)}%，籌碼與價格背離`,
+    };
+  }
+  if (allSell && priceChangePctRecent >= -1) {
+    return {
+      name: "外資籌碼背離",
+      verdict: "BEARISH",
+      detail: `外資連3日賣超（合計${total.toLocaleString("zh-TW")}張），同期股價僅${priceChangePctRecent >= 0 ? "+" : ""}${priceChangePctRecent.toFixed(1)}%，籌碼與價格背離`,
+    };
+  }
+  return null;
+}
+
 function labelForScore(score: number, maxScore: number): string {
   if (maxScore === 0) return "資料不足，無法評分";
   const ratio = score / maxScore;
@@ -107,6 +140,7 @@ export function computeStockPrediction(inputs: StockSignalInputs): StockPredicti
     evalMacd(inputs.macdDif, inputs.macdDea),
     evalBias(inputs.bias),
     evalDmi(inputs.plusDI, inputs.minusDI, inputs.adx),
+    evalForeignFlowDivergence(inputs.foreignNetLotsRecent, inputs.priceChangePctRecent),
   ].filter((s): s is SignalDetail => s != null);
 
   const score = signals.reduce((s, sig) => s + (sig.verdict === "BULLISH" ? 1 : sig.verdict === "BEARISH" ? -1 : 0), 0);

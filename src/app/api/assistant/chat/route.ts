@@ -226,6 +226,24 @@ async function buildStockPredictionContext(content: string): Promise<string> {
       const { plusDI, minusDI, adx } = computeDMI(candles);
 
       const i = closes.length - 1;
+
+      // 外資籌碼背離：直接讀股票頁逛過這檔股票時存下來的快照（stockInstitutionalSnapshot），
+      // 不在這裡即時爬證交所（T86要逐日查，爬20天太慢），沒有快照資料就跳過這項，不影響其他指標
+      let foreignNetLotsRecent: number[] | null = null;
+      let priceChangePctRecent: number | null = null;
+      const snapshots = await prisma.stockInstitutionalSnapshot.findMany({
+        where: { code: stock.code },
+        orderBy: { date: "desc" },
+        take: 3,
+      });
+      if (snapshots.length >= 3) {
+        foreignNetLotsRecent = snapshots.map((s) => s.foreignNetLots);
+        const startQuote = clean.find((q) => q.date === snapshots[2].date);
+        if (startQuote?.close && startQuote.close > 0) {
+          priceChangePctRecent = ((closes[i] - startQuote.close) / startQuote.close) * 100;
+        }
+      }
+
       const prediction = computeStockPrediction({
         close: closes[i],
         ma5: ma5[i], ma20: ma20[i], ma60: ma60[i],
@@ -234,6 +252,8 @@ async function buildStockPredictionContext(content: string): Promise<string> {
         macdDif: dif[i], macdDea: dea[i],
         bias: bias6[i],
         plusDI: plusDI[i], minusDI: minusDI[i], adx: adx[i],
+        foreignNetLotsRecent,
+        priceChangePctRecent,
       });
 
       const verdictLabel = (v: string) => (v === "BULLISH" ? "偏多" : v === "BEARISH" ? "偏空" : "中性");

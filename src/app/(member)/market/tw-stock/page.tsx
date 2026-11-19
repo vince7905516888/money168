@@ -1273,6 +1273,19 @@ export default function TwStockPage() {
     if (rows.length === 0) return null;
     const last = rows[rows.length - 1];
     const prev = rows.length > 1 ? rows[rows.length - 2] : null;
+
+    // 外資籌碼背離：institutional 是近20個交易日、新到舊排序；拿最近3天的買賣超，
+    // 配上同一段期間的股價漲跌幅（用institutional[2]那天對應的K棒收盤價當起點）
+    let foreignNetLotsRecent: number[] | null = null;
+    let priceChangePctRecent: number | null = null;
+    if (institutional.length >= 3) {
+      foreignNetLotsRecent = institutional.slice(0, 3).map((r) => r.foreignNetLots);
+      const startRow = rows.find((r) => r.date === institutional[2].date);
+      if (startRow && startRow.close > 0) {
+        priceChangePctRecent = ((last.close - startRow.close) / startRow.close) * 100;
+      }
+    }
+
     return computeStockPrediction({
       close: last.close,
       ma5: last.ma5,
@@ -1289,8 +1302,10 @@ export default function TwStockPage() {
       plusDI: last.plusDI,
       minusDI: last.minusDI,
       adx: last.adx,
+      foreignNetLotsRecent,
+      priceChangePctRecent,
     });
-  }, [rows]);
+  }, [rows, institutional]);
 
   // K線Brush預設縮放區間：換股票／換週期時預設只顯示最近一段（約25%資料），
   // 不然一開始整個2年份K棒擠在一起看不清楚，使用者還是可以拖曳/滾輪調整回完整區間
