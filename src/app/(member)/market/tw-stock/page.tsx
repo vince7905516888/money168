@@ -1053,10 +1053,34 @@ export default function TwStockPage() {
       .catch(() => {});
   }, [fetchWatchlist]);
 
+  // 觀察名單技術面綜合評分：跟股票頁同一套規則（computeStockPrediction），列表上直接看
+  // 每一檔的偏多/偏空跟關鍵理由，不用逐檔點開才知道。
+  interface WatchPrediction { label: string; score: number; maxScore: number; reason: string | null; error?: string }
+  const [watchPredictions, setWatchPredictions] = useState<Record<string, WatchPrediction>>({});
+  const [watchPredictionsLoading, setWatchPredictionsLoading] = useState(false);
+
+  const fetchWatchPredictions = useCallback(() => {
+    setWatchPredictionsLoading(true);
+    fetch("/api/market/tw-stock/watchlist/predictions")
+      .then((r) => (r.ok ? r.json() : { predictions: [] }))
+      .then((body) => {
+        const map: Record<string, WatchPrediction> = {};
+        for (const p of body.predictions ?? []) map[p.code] = p;
+        setWatchPredictions(map);
+      })
+      .catch(() => {})
+      .finally(() => setWatchPredictionsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (watchlistEnabled && watchlist.length > 0) fetchWatchPredictions();
+  }, [watchlistEnabled, watchlist.length, fetchWatchPredictions]);
+
   const handleSyncWatchlist = async () => {
     setSyncingWatchlist(true);
     await fetch("/api/market/tw-stock/watchlist/sync", { method: "POST" }).catch(() => {});
     fetchWatchlist();
+    fetchWatchPredictions();
     setSyncingWatchlist(false);
   };
 
@@ -1253,15 +1277,14 @@ export default function TwStockPage() {
   // rows 一定要記憶化：陣列參照要穩定，否則 recharts 的 Brush 會誤判成「資料變了」而中斷拖曳手勢。
   const rows = useMemo(() => (data ? buildChartRows(data.quotes) : []), [data]);
 
-  // RSI 與 KD 同時低於 20：短線超賣訊號比較罕見也比較有參考性，用跑馬燈提醒，
-  // 只看最後一筆有完整數值的資料（K線最新一天可能當天還沒收盤，數值會是 null）
-  const oversoldAlert = useMemo(() => {
+  // RSI 與 KD 同時低於20（超賣）或同時高於80（超買）：都是比較罕見、比較有參考性的極端訊號，
+  // 用跑馬燈提醒，只看最後一筆有完整數值的資料（K線最新一天可能當天還沒收盤，數值會是 null）
+  const extremeAlert = useMemo(() => {
     for (let i = rows.length - 1; i >= 0; i--) {
       const r = rows[i];
       if (r.rsi == null || r.k == null) continue;
-      if (r.rsi < 20 && r.k < 20) {
-        return { date: r.date, rsi: r.rsi, k: r.k };
-      }
+      if (r.rsi < 20 && r.k < 20) return { type: "oversold" as const, date: r.date, rsi: r.rsi, k: r.k };
+      if (r.rsi > 80 && r.k > 80) return { type: "overbought" as const, date: r.date, rsi: r.rsi, k: r.k };
       return null; // 只看最新一筆有數值的資料，不往更久以前找
     }
     return null;
@@ -1439,11 +1462,15 @@ export default function TwStockPage() {
         </button>
       </form>
 
-      {/* 股票觀察名單：列表式，點列可直接查詢；移除鍵預設不顯示、滑過整列才會淡入，避免手滑點到 */}
+      {/* 股票觀察名單：列表式，點列可直接查詢；移除鍵預設不顯示、滑過整列才會淡入，避免手滑點到。
+          每檔下面附一行技術面綜合評分（偏多/偏空＋關鍵理由），跟股票頁同一套規則式判讀，
+          不是AI/機器學習預測，僅供參考不構成投資建議 */}
       {watchlistEnabled && watchlist.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm mb-6 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-50">
-            <span className="text-xs text-slate-400">觀察名單</span>
+            <span className="text-xs text-slate-400">
+              觀察名單{watchPredictionsLoading ? "（評分計算中...）" : ""}
+            </span>
             <button
               type="button"
               onClick={handleSyncWatchlist}
@@ -1454,52 +1481,70 @@ export default function TwStockPage() {
             </button>
           </div>
           <div className="divide-y divide-slate-50">
-            {watchlist.map((w, i) => (
-              <div
-                key={w.id}
-                onClick={() => selectWatchStock(w.code)}
-                className={`group flex items-center justify-between px-4 py-2.5 cursor-pointer transition-colors ${
-                  data?.code === w.code ? "bg-indigo-50" : "hover:bg-slate-50"
-                }`}
-              >
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className={`text-sm shrink-0 ${data?.code === w.code ? "text-indigo-600 font-semibold" : "text-slate-700"}`}>
-                    {w.name ?? w.code}
-                  </span>
-                  <span className="text-xs text-slate-400 shrink-0">{w.code}</span>
-                  <span className="text-[11px] text-slate-300 truncate">
-                    {w.lastUpdated ? `最後更新 ${w.lastUpdated}` : "尚無資料"}
-                  </span>
+            {watchlist.map((w, i) => {
+              const pred = watchPredictions[w.code];
+              return (
+                <div
+                  key={w.id}
+                  onClick={() => selectWatchStock(w.code)}
+                  className={`group px-4 py-2.5 cursor-pointer transition-colors ${
+                    data?.code === w.code ? "bg-indigo-50" : "hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-baseline gap-2 min-w-0">
+                      <span className={`text-sm shrink-0 ${data?.code === w.code ? "text-indigo-600 font-semibold" : "text-slate-700"}`}>
+                        {w.name ?? w.code}
+                      </span>
+                      <span className="text-xs text-slate-400 shrink-0">{w.code}</span>
+                      <span className="text-[11px] text-slate-300 truncate">
+                        {w.lastUpdated ? `最後更新 ${w.lastUpdated}` : "尚無資料"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-6 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => moveWatchlistItem(i, -1, e)}
+                        disabled={i === 0}
+                        className="text-slate-300 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-300 text-xs leading-none px-1.5 py-1 transition-colors"
+                        title="上移"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => moveWatchlistItem(i, 1, e)}
+                        disabled={i === watchlist.length - 1}
+                        className="text-slate-300 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-300 text-xs leading-none px-1.5 py-1 transition-colors"
+                        title="下移"
+                      >
+                        ▼
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => removeFromWatchlist(w.code, e)}
+                        className="text-xs text-slate-300 hover:text-red-500 px-2.5 py-1 rounded-lg transition-colors"
+                      >
+                        移除
+                      </button>
+                    </div>
+                  </div>
+                  {pred && !pred.error && (
+                    <div className="flex items-start gap-2 mt-1.5">
+                      <span
+                        className={`shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                          pred.score > 0 ? "bg-red-50 text-red-600" : pred.score < 0 ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {pred.label}
+                      </span>
+                      {pred.reason && <span className="text-[11px] text-slate-400 truncate">{pred.reason}</span>}
+                    </div>
+                  )}
+                  {pred?.error && <div className="text-[11px] text-slate-300 mt-1.5">{pred.error}</div>}
                 </div>
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-6 shrink-0">
-                  <button
-                    type="button"
-                    onClick={(e) => moveWatchlistItem(i, -1, e)}
-                    disabled={i === 0}
-                    className="text-slate-300 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-300 text-xs leading-none px-1.5 py-1 transition-colors"
-                    title="上移"
-                  >
-                    ▲
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => moveWatchlistItem(i, 1, e)}
-                    disabled={i === watchlist.length - 1}
-                    className="text-slate-300 hover:text-indigo-600 disabled:opacity-20 disabled:hover:text-slate-300 text-xs leading-none px-1.5 py-1 transition-colors"
-                    title="下移"
-                  >
-                    ▼
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => removeFromWatchlist(w.code, e)}
-                    className="text-xs text-slate-300 hover:text-red-500 px-2.5 py-1 rounded-lg transition-colors"
-                  >
-                    移除
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -2085,21 +2130,21 @@ export default function TwStockPage() {
               </ResponsiveContainer>
             </div>
 
-            {/* RSI 與 K 值同時跌破 20：短線超賣的罕見訊號，用跑馬燈提醒 */}
-            {oversoldAlert && (
-              <div className="mt-6 bg-red-600 rounded-2xl overflow-hidden shadow-sm">
+            {/* RSI 與 K 值同時跌破20（超賣）或同時突破80（超買）：罕見訊號，用跑馬燈提醒 */}
+            {extremeAlert && (
+              <div className={`mt-6 rounded-2xl overflow-hidden shadow-sm ${extremeAlert.type === "oversold" ? "bg-red-600" : "bg-amber-600"}`}>
                 <div className="flex items-center py-2.5">
-                  <span className="shrink-0 px-4 text-xs font-bold text-white/90 tracking-wider border-r border-white/20">超賣提醒</span>
+                  <span className="shrink-0 px-4 text-xs font-bold text-white/90 tracking-wider border-r border-white/20">
+                    {extremeAlert.type === "oversold" ? "超賣提醒" : "超買提醒"}
+                  </span>
                   <div className="flex-1 overflow-hidden whitespace-nowrap">
                     <div className="inline-block animate-marquee text-sm text-white font-medium" style={{ animationDuration: "18s" }}>
-                      <span className="pr-24">
-                        {oversoldAlert.date} RSI（{fmtNum(oversoldAlert.rsi)}）與 K 值（{fmtNum(oversoldAlert.k)}）同時跌破
-                        20，短線超賣訊號，僅供參考不構成投資建議
-                      </span>
-                      <span className="pr-24">
-                        {oversoldAlert.date} RSI（{fmtNum(oversoldAlert.rsi)}）與 K 值（{fmtNum(oversoldAlert.k)}）同時跌破
-                        20，短線超賣訊號，僅供參考不構成投資建議
-                      </span>
+                      {[0, 1].map((n) => (
+                        <span key={n} className="pr-24">
+                          {extremeAlert.date} RSI（{fmtNum(extremeAlert.rsi)}）與 K 值（{fmtNum(extremeAlert.k)}）同時
+                          {extremeAlert.type === "oversold" ? "跌破 20，短線超賣訊號" : "突破 80，短線超買訊號"}，僅供參考不構成投資建議
+                        </span>
+                      ))}
                     </div>
                   </div>
                 </div>
