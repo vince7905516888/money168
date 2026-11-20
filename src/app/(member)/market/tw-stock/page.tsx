@@ -23,6 +23,7 @@ import {
 
 import { computeStockPrediction } from "@/lib/stock-prediction";
 import type { StockNewsItem } from "@/lib/tw-stock-news";
+import { findSwingLevels, type SwingLevel } from "@/lib/support-resistance";
 
 const SYNC_ID = "tw-stock-charts";
 
@@ -1302,6 +1303,17 @@ export default function TwStockPage() {
     return null;
   }, [rows]);
 
+  // 歷史轉折支撐壓力：當前這個K線週期（日/週/月）涵蓋的全部歷史資料裡，找前高(RSI>=80+爆量)
+  // 跟前低(RSI<=20+爆量)的轉折點當支撐壓力線，畫在K線圖上；只顯示最近6條避免太多線擠在一起
+  const [showSwingLevels, setShowSwingLevels] = useState(true);
+  const swingLevels = useMemo(() => {
+    const candles = rows.map((r) => ({ date: r.date, high: r.high, low: r.low, volume: r.volume }));
+    const rsiArr = rows.map((r) => r.rsi);
+    return findSwingLevels(candles, rsiArr)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 6);
+  }, [rows]);
+
   // 規則式技術面綜合評分：拿最新一筆（及前一筆，KDJ交叉判斷要用）指標值去跑固定規則，
   // 不是機器學習、不保證準確，只是把現有技術指標的多空判讀整理成一個分數方便快速看
   const prediction = useMemo(() => {
@@ -2045,6 +2057,18 @@ export default function TwStockPage() {
               {drawTool === "trend" && (
                 <span className="text-xs text-amber-500">{pendingTrendPoint ? "請在圖上點選第二個點" : "請在圖上點選起點"}</span>
               )}
+              {swingLevels.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowSwingLevels((v) => !v)}
+                  title="自動抓歷史轉折：前高/前低同時符合RSI>=80或<=20且成交量放大的點，規則式偵測，僅供參考"
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    showSwingLevels ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}
+                >
+                  歷史支撐壓力（{swingLevels.length}）
+                </button>
+              )}
             </div>
 
             {/* 游標資訊列：固定顯示在圖表上方，不用浮動tooltip（會擋住K棒），滑開圖表時顯示提示文字 */}
@@ -2096,6 +2120,22 @@ export default function TwStockPage() {
                 <Line type="monotone" dataKey="ma120" stroke="#94a3b8" dot={false} strokeWidth={1.5} connectNulls />
                 <Line type="monotone" dataKey="bbUpper" stroke="#c7d2fe" dot={false} strokeWidth={1} connectNulls strokeDasharray="4 3" />
                 <Line type="monotone" dataKey="bbLower" stroke="#c7d2fe" dot={false} strokeWidth={1} connectNulls strokeDasharray="4 3" />
+                {showSwingLevels &&
+                  swingLevels.map((lv) => (
+                    <ReferenceLine
+                      key={`${lv.type}-${lv.date}-${lv.price}`}
+                      y={lv.price}
+                      stroke={lv.type === "RESISTANCE" ? "#ef4444" : "#22c55e"}
+                      strokeDasharray="5 3"
+                      strokeWidth={1.25}
+                      label={{
+                        value: `${lv.type === "RESISTANCE" ? "壓" : "撐"} ${fmtNum(lv.price)}（${lv.date}）`,
+                        position: "insideRight",
+                        fontSize: 10,
+                        fill: lv.type === "RESISTANCE" ? "#ef4444" : "#22c55e",
+                      }}
+                    />
+                  ))}
                 <Brush
                   dataKey="date"
                   height={22}
