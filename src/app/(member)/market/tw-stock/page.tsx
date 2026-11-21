@@ -1303,6 +1303,19 @@ export default function TwStockPage() {
     return null;
   }, [rows]);
 
+  // 乖離率（跟6日均線比較）正負超過13%：股價偏離均線過多，用跑馬燈提醒，
+  // 正乖離過大＝漲多拉回機率較高（提醒留意賣點），負乖離過大＝跌多反彈機率較高（提醒留意買點）
+  const biasAlert = useMemo(() => {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (r.bias6 == null) continue;
+      if (r.bias6 >= 13) return { type: "high" as const, date: r.date, bias: r.bias6 };
+      if (r.bias6 <= -13) return { type: "low" as const, date: r.date, bias: r.bias6 };
+      return null; // 只看最新一筆有數值的資料，不往更久以前找
+    }
+    return null;
+  }, [rows]);
+
   // 歷史轉折支撐壓力：當前這個K線週期（日/週/月）涵蓋的全部歷史資料裡，找前高(RSI>=80+爆量)
   // 跟前低(RSI<=20+爆量)的轉折點，只列出價位文字、不畫在圖上；只顯示最近6個避免太多擠在一起
   const swingLevels = useMemo(() => {
@@ -2184,6 +2197,28 @@ export default function TwStockPage() {
                         <span key={n} className="pr-24">
                           {extremeAlert.date} RSI（{fmtNum(extremeAlert.rsi)}）與 K 值（{fmtNum(extremeAlert.k)}）同時
                           {extremeAlert.type === "oversold" ? "跌破 20，短線超賣訊號" : "突破 80，短線超買訊號"}，僅供參考不構成投資建議
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 乖離率（6日）正負超過13%：股價偏離均線過多，用跑馬燈提醒 */}
+            {biasAlert && (
+              <div className={`mt-6 rounded-2xl overflow-hidden shadow-sm ${biasAlert.type === "low" ? "bg-red-600" : "bg-amber-600"}`}>
+                <div className="flex items-center py-2.5">
+                  <span className="shrink-0 px-4 text-xs font-bold text-white/90 tracking-wider border-r border-white/20">
+                    乖離率提醒
+                  </span>
+                  <div className="flex-1 overflow-hidden whitespace-nowrap">
+                    <div className="inline-block animate-marquee text-sm text-white font-medium" style={{ animationDuration: "18s" }}>
+                      {[0, 1].map((n) => (
+                        <span key={n} className="pr-24">
+                          {biasAlert.date} 乖離率（6日）{biasAlert.bias >= 0 ? "+" : ""}
+                          {fmtNum(biasAlert.bias)}%，股價偏離均線過多，
+                          {biasAlert.type === "low" ? "跌多留意反彈機會" : "漲多留意拉回風險"}，僅供參考不構成投資建議
                         </span>
                       ))}
                     </div>
