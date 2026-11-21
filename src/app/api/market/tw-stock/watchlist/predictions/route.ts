@@ -86,6 +86,19 @@ export async function GET() {
       });
 
       const topSignal = pickTopSignal(prediction.signals, prediction.score);
+
+      // 跑馬燈用的極端訊號：跟股票頁同一套門檻（RSI/KD同時<20或>80、乖離率(6日)正負超過13%），
+      // 這裡只負責「偵測」，顯示交給前端的全站跑馬燈元件
+      const alerts: string[] = [];
+      if (rsi[i] != null && k[i] != null) {
+        if (rsi[i]! < 20 && k[i]! < 20) alerts.push("RSI/KD同時超賣（<20）");
+        else if (rsi[i]! > 80 && k[i]! > 80) alerts.push("RSI/KD同時超買（>80）");
+      }
+      if (bias6[i] != null) {
+        if (bias6[i]! >= 13) alerts.push(`乖離率+${bias6[i]!.toFixed(1)}%，漲多留意拉回`);
+        else if (bias6[i]! <= -13) alerts.push(`乖離率${bias6[i]!.toFixed(1)}%，跌多留意反彈`);
+      }
+
       return {
         code: w.code,
         name: w.name,
@@ -94,6 +107,7 @@ export async function GET() {
         score: prediction.score,
         maxScore: prediction.maxScore,
         reason: topSignal?.detail ?? null,
+        alerts,
       };
     } catch (e) {
       console.error("watchlist prediction failed:", w.code, e);

@@ -300,6 +300,10 @@ interface ConsecutiveFlowData {
   dates: string[];
   buyStreak: ConsecutiveFlowRow[];
   sellStreak: ConsecutiveFlowRow[];
+  reversalAvailable: boolean;
+  reversalDate: string | null;
+  sellToBuy: ConsecutiveFlowRow[];
+  buyToSell: ConsecutiveFlowRow[];
 }
 
 const CONSECUTIVE_DAYS_OPTIONS = [2, 3, 4, 5, 7, 10, 15, 20];
@@ -1130,7 +1134,7 @@ export default function TwStockPage() {
   // 連續N日三大法人買超／賣超：資料是「全市場買賣超」排行榜順手存的快照，天數用下拉選單選，
   // 選了就直接重打API（不像上面筆數輸入框要額外按套用，下拉選單選擇本身就是明確動作）
   const [consecutiveDays, setConsecutiveDays] = useState(3);
-  const [consecutiveMode, setConsecutiveMode] = useState<"buy" | "sell">("buy");
+  const [consecutiveMode, setConsecutiveMode] = useState<"buy" | "sell" | "sellToBuy" | "buyToSell">("buy");
   const [consecutiveFlow, setConsecutiveFlow] = useState<ConsecutiveFlowData | null>(null);
   const [consecutiveError, setConsecutiveError] = useState<string | null>(null);
   const [consecutiveLoading, setConsecutiveLoading] = useState(false);
@@ -2811,12 +2815,13 @@ export default function TwStockPage() {
         </div>
       )}
 
-      {/* 連續N日三大法人買超／賣超：同一檔股票近N個交易日買賣超方向要完全一致才算連續，
-          資料來源是上面「全市場買賣超」排行榜順手存的快照，不是即時全市場逐檔爬蟲 */}
+      {/* 連續N日三大法人買超／賣超、以及N日賣超轉買超（反轉）：同一檔股票近N個交易日買賣超
+          方向要完全一致才算連續；反轉則是「最近一天之前的N天都同一方向、最近一天翻到另一個
+          方向」。資料來源是上面「全市場買賣超」排行榜順手存的快照，不是即時全市場逐檔爬蟲 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mt-6">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg flex-wrap">
               <button
                 type="button"
                 onClick={() => setConsecutiveMode("buy")}
@@ -2834,6 +2839,24 @@ export default function TwStockPage() {
                 }`}
               >
                 連續賣超
+              </button>
+              <button
+                type="button"
+                onClick={() => setConsecutiveMode("sellToBuy")}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  consecutiveMode === "sellToBuy" ? "bg-white text-red-600 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                賣轉買
+              </button>
+              <button
+                type="button"
+                onClick={() => setConsecutiveMode("buyToSell")}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  consecutiveMode === "buyToSell" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                買轉賣
               </button>
             </div>
             <div className="flex items-center gap-1.5">
@@ -2855,11 +2878,21 @@ export default function TwStockPage() {
           <div className="py-10 text-center text-slate-400 text-sm">查詢中...</div>
         ) : consecutiveError ? (
           <div className="py-10 text-center text-slate-400 text-sm px-5">{consecutiveError}</div>
+        ) : (consecutiveMode === "sellToBuy" || consecutiveMode === "buyToSell") && consecutiveFlow && !consecutiveFlow.reversalAvailable ? (
+          <div className="py-10 text-center text-slate-400 text-sm px-5">
+            反轉偵測需要再多存 1 個交易日的快照才能比對，請晚點再試
+          </div>
         ) : (
           (() => {
-            const list = consecutiveMode === "buy" ? consecutiveFlow?.buyStreak : consecutiveFlow?.sellStreak;
+            const list =
+              consecutiveMode === "buy" ? consecutiveFlow?.buyStreak
+              : consecutiveMode === "sell" ? consecutiveFlow?.sellStreak
+              : consecutiveMode === "sellToBuy" ? consecutiveFlow?.sellToBuy
+              : consecutiveFlow?.buyToSell;
+            const isBuyLike = consecutiveMode === "buy" || consecutiveMode === "sellToBuy";
+            const modeLabel = consecutiveMode === "buy" ? "連續買超" : consecutiveMode === "sell" ? "連續賣超" : consecutiveMode === "sellToBuy" ? "賣轉買" : "買轉賣";
             if (!list || list.length === 0) {
-              return <div className="py-10 text-center text-slate-400 text-sm">近 {consecutiveDays} 天沒有符合連續{consecutiveMode === "buy" ? "買超" : "賣超"}的股票</div>;
+              return <div className="py-10 text-center text-slate-400 text-sm">近 {consecutiveDays} 天沒有符合{modeLabel}的股票</div>;
             }
             return (
               <div className="divide-y divide-slate-50 max-h-[480px] overflow-y-auto">
@@ -2875,7 +2908,7 @@ export default function TwStockPage() {
                       <span className="text-xs text-slate-400">{r.code}</span>
                       {r.closePrice != null && <span className="text-xs text-slate-400">@{fmtNum(r.closePrice)}</span>}
                     </span>
-                    <span className={`font-semibold ${consecutiveMode === "buy" ? "text-red-500" : "text-green-600"}`}>
+                    <span className={`font-semibold ${isBuyLike ? "text-red-500" : "text-green-600"}`}>
                       {r.totalNetLots > 0 ? "+" : ""}{r.totalNetLots.toLocaleString("zh-TW")}
                     </span>
                   </button>
@@ -2885,7 +2918,8 @@ export default function TwStockPage() {
           })()
         )}
         <p className="text-[11px] text-slate-400 px-5 py-2.5 border-t border-slate-50">
-          資料源：證交所 T86（僅涵蓋上市）累積快照；金額為近{consecutiveDays}天買賣超合計（張），點列可直接查詢該檔
+          資料源：證交所 T86（僅涵蓋上市）累積快照；連續買超/賣超金額為近{consecutiveDays}天合計，
+          賣轉買/買轉賣金額為「前{consecutiveDays}天＋反轉當天」合計（張），點列可直接查詢該檔
         </p>
       </div>
     </div>
