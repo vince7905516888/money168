@@ -288,6 +288,22 @@ interface MarketRanking {
   sellTop: MarketRankingRow[];
 }
 
+interface ConsecutiveFlowRow {
+  code: string;
+  name: string;
+  totalNetLots: number;
+  closePrice: number | null;
+}
+
+interface ConsecutiveFlowData {
+  days: number;
+  dates: string[];
+  buyStreak: ConsecutiveFlowRow[];
+  sellStreak: ConsecutiveFlowRow[];
+}
+
+const CONSECUTIVE_DAYS_OPTIONS = [2, 3, 4, 5, 7, 10, 15, 20];
+
 interface ChartRow extends Quote {
   range: [number, number];
   ma5: number | null;
@@ -1110,6 +1126,26 @@ export default function TwStockPage() {
     setRankingLimitInput(String(n));
     setRankingLimit(n);
   };
+
+  // 連續N日三大法人買超／賣超：資料是「全市場買賣超」排行榜順手存的快照，天數用下拉選單選，
+  // 選了就直接重打API（不像上面筆數輸入框要額外按套用，下拉選單選擇本身就是明確動作）
+  const [consecutiveDays, setConsecutiveDays] = useState(3);
+  const [consecutiveMode, setConsecutiveMode] = useState<"buy" | "sell">("buy");
+  const [consecutiveFlow, setConsecutiveFlow] = useState<ConsecutiveFlowData | null>(null);
+  const [consecutiveError, setConsecutiveError] = useState<string | null>(null);
+  const [consecutiveLoading, setConsecutiveLoading] = useState(false);
+  useEffect(() => {
+    setConsecutiveLoading(true);
+    setConsecutiveError(null);
+    fetch(`/api/market/tw-stock/consecutive-flow?days=${consecutiveDays}`)
+      .then(async (r) => {
+        const body = await r.json().catch(() => null);
+        if (!r.ok) { setConsecutiveError(body?.error || "查詢失敗"); setConsecutiveFlow(null); return; }
+        setConsecutiveFlow(body);
+      })
+      .catch(() => setConsecutiveError("查詢失敗"))
+      .finally(() => setConsecutiveLoading(false));
+  }, [consecutiveDays]);
 
   // 觀察名單按鈕一律顯示（不管會員層級），沒有權限的話點了顯示提示而不是直接隱藏功能
   const [showWatchlistLockedHint, setShowWatchlistLockedHint] = useState(false);
@@ -2774,6 +2810,84 @@ export default function TwStockPage() {
           <p className="text-[11px] text-slate-400 px-5 py-2.5 border-t border-slate-50">資料源：證交所 T86（僅涵蓋上市，依三大法人合計買賣超排序），點列可直接查詢該檔</p>
         </div>
       )}
+
+      {/* 連續N日三大法人買超／賣超：同一檔股票近N個交易日買賣超方向要完全一致才算連續，
+          資料來源是上面「全市場買賣超」排行榜順手存的快照，不是即時全市場逐檔爬蟲 */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mt-6">
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setConsecutiveMode("buy")}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  consecutiveMode === "buy" ? "bg-white text-red-600 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                連續買超
+              </button>
+              <button
+                type="button"
+                onClick={() => setConsecutiveMode("sell")}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  consecutiveMode === "sell" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                連續賣超
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-400">連續</span>
+              <select
+                value={consecutiveDays}
+                onChange={(e) => setConsecutiveDays(Number(e.target.value))}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:border-indigo-400 transition-colors"
+              >
+                {CONSECUTIVE_DAYS_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n} 天</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {consecutiveFlow && <span className="text-[11px] text-slate-400">{consecutiveFlow.dates[0]} ~ {consecutiveFlow.dates[consecutiveFlow.dates.length - 1]}</span>}
+        </div>
+        {consecutiveLoading ? (
+          <div className="py-10 text-center text-slate-400 text-sm">查詢中...</div>
+        ) : consecutiveError ? (
+          <div className="py-10 text-center text-slate-400 text-sm px-5">{consecutiveError}</div>
+        ) : (
+          (() => {
+            const list = consecutiveMode === "buy" ? consecutiveFlow?.buyStreak : consecutiveFlow?.sellStreak;
+            if (!list || list.length === 0) {
+              return <div className="py-10 text-center text-slate-400 text-sm">近 {consecutiveDays} 天沒有符合連續{consecutiveMode === "buy" ? "買超" : "賣超"}的股票</div>;
+            }
+            return (
+              <div className="divide-y divide-slate-50 max-h-[480px] overflow-y-auto">
+                {list.map((r) => (
+                  <button
+                    key={r.code}
+                    type="button"
+                    onClick={() => selectWatchStock(r.code)}
+                    className="w-full flex items-center justify-between px-5 py-2 text-sm hover:bg-slate-50 transition-colors text-left"
+                  >
+                    <span className="flex items-baseline gap-2">
+                      <span className="text-slate-700">{r.name}</span>
+                      <span className="text-xs text-slate-400">{r.code}</span>
+                      {r.closePrice != null && <span className="text-xs text-slate-400">@{fmtNum(r.closePrice)}</span>}
+                    </span>
+                    <span className={`font-semibold ${consecutiveMode === "buy" ? "text-red-500" : "text-green-600"}`}>
+                      {r.totalNetLots > 0 ? "+" : ""}{r.totalNetLots.toLocaleString("zh-TW")}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            );
+          })()
+        )}
+        <p className="text-[11px] text-slate-400 px-5 py-2.5 border-t border-slate-50">
+          資料源：證交所 T86（僅涵蓋上市）累積快照；金額為近{consecutiveDays}天買賣超合計（張），點列可直接查詢該檔
+        </p>
+      </div>
     </div>
   );
 }
