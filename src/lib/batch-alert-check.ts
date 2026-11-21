@@ -25,6 +25,10 @@ async function tick() {
           { batch4: { not: null } },
           { batch5: { not: null } },
           { batch6: { not: null } },
+          { batch7: { not: null } },
+          { batch8: { not: null } },
+          { batch9: { not: null } },
+          { batch10: { not: null } },
         ],
       },
       select: {
@@ -40,12 +44,20 @@ async function tick() {
         batch4: true,
         batch5: true,
         batch6: true,
+        batch7: true,
+        batch8: true,
+        batch9: true,
+        batch10: true,
         batch1NotifiedPrice: true,
         batch2NotifiedPrice: true,
         batch3NotifiedPrice: true,
         batch4NotifiedPrice: true,
         batch5NotifiedPrice: true,
         batch6NotifiedPrice: true,
+        batch7NotifiedPrice: true,
+        batch8NotifiedPrice: true,
+        batch9NotifiedPrice: true,
+        batch10NotifiedPrice: true,
         user: { select: { email: true, name: true } },
       },
     });
@@ -72,6 +84,10 @@ async function tick() {
         { target: e.batch4, notified: e.batch4NotifiedPrice, label: "第四次", field: "batch4NotifiedPrice" },
         { target: e.batch5, notified: e.batch5NotifiedPrice, label: "第五次", field: "batch5NotifiedPrice" },
         { target: e.batch6, notified: e.batch6NotifiedPrice, label: "第六次", field: "batch6NotifiedPrice" },
+        { target: e.batch7, notified: e.batch7NotifiedPrice, label: "第七次", field: "batch7NotifiedPrice" },
+        { target: e.batch8, notified: e.batch8NotifiedPrice, label: "第八次", field: "batch8NotifiedPrice" },
+        { target: e.batch9, notified: e.batch9NotifiedPrice, label: "第九次", field: "batch9NotifiedPrice" },
+        { target: e.batch10, notified: e.batch10NotifiedPrice, label: "第十次", field: "batch10NotifiedPrice" },
       ];
 
       for (const c of checks) {

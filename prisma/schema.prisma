@@ -348,6 +348,12 @@ model InvestmentStrategyEntry {
   batch4         Float?
   batch5         Float?
   batch6         Float?
+  // 加碼批次預設只開放6批，使用者手動按「新增一批」才會往下用到這幾個欄位（最多10批）；
+  // 寫死欄位是沿用既有batch1~6的做法，不是改成陣列，避免既有資料跟通知邏輯要大改
+  batch7         Float?
+  batch8         Float?
+  batch9         Float?
+  batch10        Float?
   // 記錄上次通知加碼信件時，該批的目標價是多少；跟目前 batchN 值相同代表已通知過，不用重複寄信，
   // 使用者改了目標價（值不同）就會被視為新目標，價格再次到價時會重新通知
   batch1NotifiedPrice Float?
@@ -356,6 +362,10 @@ model InvestmentStrategyEntry {
   batch4NotifiedPrice Float?
   batch5NotifiedPrice Float?
   batch6NotifiedPrice Float?
+  batch7NotifiedPrice Float?
+  batch8NotifiedPrice Float?
+  batch9NotifiedPrice Float?
+  batch10NotifiedPrice Float?
   order          Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

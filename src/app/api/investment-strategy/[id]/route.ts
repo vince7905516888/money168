@@ -3,7 +3,10 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const STRING_FIELDS = ["broker", "stockName", "stockCode", "plan", "dividendDate", "futureLow", "futureMid", "futureHigh"] as const;
-const NUMBER_FIELDS = ["shares", "avgPrice", "currentPrice", "dividendAmount", "discount", "batch1", "batch2", "batch3", "batch4", "batch5", "batch6"] as const;
+const NUMBER_FIELDS = [
+  "shares", "avgPrice", "currentPrice", "dividendAmount", "discount",
+  "batch1", "batch2", "batch3", "batch4", "batch5", "batch6", "batch7", "batch8", "batch9", "batch10",
+] as const;
 
 export async function PATCH(
   req: NextRequest,

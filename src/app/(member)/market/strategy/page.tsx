@@ -27,7 +27,15 @@ interface StrategyRow {
   batch4: string;
   batch5: string;
   batch6: string;
+  batch7: string;
+  batch8: string;
+  batch9: string;
+  batch10: string;
 }
+
+const MIN_BATCH_COUNT = 6;
+const MAX_BATCH_COUNT = 10;
+const BATCH_LABELS = ["第一次", "第二次", "第三次", "第四次", "第五次", "第六次", "第七次", "第八次", "第九次", "第十次"];
 
 type RawEntry = Record<string, string | number | null>;
 
@@ -77,8 +85,14 @@ function toRow(e: RawEntry): StrategyRow {
     batch4: s("batch4"),
     batch5: s("batch5"),
     batch6: s("batch6"),
+    batch7: s("batch7"),
+    batch8: s("batch8"),
+    batch9: s("batch9"),
+    batch10: s("batch10"),
   };
 }
+
+const BATCH_FIELDS = ["batch1", "batch2", "batch3", "batch4", "batch5", "batch6", "batch7", "batch8", "batch9", "batch10"] as const;
 
 function calcRow(row: StrategyRow, feeRate: number, syncedTotal: number | undefined) {
   const shares = parseFloat(row.shares) || 0;
@@ -119,6 +133,20 @@ export default function StrategyPage() {
   const [netAmountByCode, setNetAmountByCode] = useState<Record<string, number>>({});
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+
+  // 加碼批次欄位預設顯示6批，使用者可以手動「新增一批」最多開到10批；已經有資料填到第幾批
+  // 就至少顯示到那一批（避免重新整理後資料還在、欄位卻被收起來看不到）
+  const [extraBatchCount, setExtraBatchCount] = useState(0);
+  const dataDrivenBatchCount = (() => {
+    let max = MIN_BATCH_COUNT;
+    for (const row of rows) {
+      for (let i = BATCH_FIELDS.length - 1; i >= MIN_BATCH_COUNT; i--) {
+        if (row[BATCH_FIELDS[i]]) { max = Math.max(max, i + 1); break; }
+      }
+    }
+    return max;
+  })();
+  const visibleBatchCount = Math.min(MAX_BATCH_COUNT, Math.max(dataDrivenBatchCount, MIN_BATCH_COUNT + extraBatchCount));
 
   const [templates, setTemplates] = useState<MartingaleTemplate[]>([]);
   const [userStrategies, setUserStrategies] = useState<UserMartingale[]>([]);
@@ -562,12 +590,21 @@ export default function StrategyPage() {
                   <th className="px-2 py-2.5 text-right font-semibold">報酬率</th>
                   <th className="px-2 py-2.5 text-center font-semibold" colSpan={3}>未來可到價格</th>
                   <th className="px-2 py-2.5 text-right font-semibold">總額</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">第一次</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">第二次</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">第三次</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">第四次</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">第五次</th>
-                  <th className="px-2 py-2.5 text-right font-semibold">第六次</th>
+                  {BATCH_LABELS.slice(0, visibleBatchCount).map((label) => (
+                    <th key={label} className="px-2 py-2.5 text-right font-semibold whitespace-nowrap">{label}</th>
+                  ))}
+                  <th className="px-2 py-2.5 text-center font-semibold">
+                    {visibleBatchCount < MAX_BATCH_COUNT && (
+                      <button
+                        type="button"
+                        onClick={() => setExtraBatchCount((v) => v + 1)}
+                        title="再開放一批加碼欄位，最多10批"
+                        className="text-indigo-500 hover:text-indigo-700 text-xs font-medium whitespace-nowrap"
+                      >
+                        + 新增一批
+                      </button>
+                    )}
+                  </th>
                   <th className="px-2 py-2.5"></th>
                 </tr>
               </thead>
@@ -629,12 +666,20 @@ export default function StrategyPage() {
                       <td className="px-2 py-2 text-right text-slate-500 whitespace-nowrap">
                         {calc.totalAmount == null ? "—" : fmt(calc.totalAmount)}
                       </td>
-                      {numCol(row, "batch1", "-", "w-20")}
-                      {numCol(row, "batch2", "-", "w-20")}
-                      {numCol(row, "batch3", "-", "w-20")}
-                      {numCol(row, "batch4", "-", "w-20")}
-                      {numCol(row, "batch5", "-", "w-20")}
-                      {numCol(row, "batch6", "-", "w-20")}
+                      {BATCH_FIELDS.slice(0, visibleBatchCount).map((field) => (
+                        <td key={field} className="px-0.5 py-0.5 border-b border-slate-50">
+                          <input
+                            type="number"
+                            step="any"
+                            value={row[field]}
+                            placeholder="-"
+                            onChange={(e) => handleChange(row.id, field, e.target.value)}
+                            onBlur={() => handleBlur(row.id, field)}
+                            className={`${inputCls} w-20 text-right`}
+                          />
+                        </td>
+                      ))}
+                      <td className="px-2 py-2 border-b border-slate-50"></td>
                       <td className="px-2 py-2">
                         <button
                           onClick={() => handleDelete(row.id)}

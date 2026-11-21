@@ -149,7 +149,7 @@ async function buildUserContext(userId: string): Promise<string> {
     .map((s) => `${s.name}：${s.ratios.join(":")}${s.note ? `（${s.note}）` : ""}`)
     .join("\n") || "（使用者尚未設定任何加碼策略範本）";
 
-  // 使用者自己在「市場情報/策略」頁為個股存好的實際加碼批次價位（batch1~6，他依支撐/均線
+  // 使用者自己在「市場情報/策略」頁為個股存好的實際加碼批次價位（batch1~10，他依支撐/均線
   // 自行判斷訂出來的真實價位，不是套公式算的），有存的話直接拿來回答，跟畫面上數字才會同步
   const STRATEGY_ENTRY_LIMIT = 30;
   const strategyEntryList = strategyEntries
@@ -157,7 +157,7 @@ async function buildUserContext(userId: string): Promise<string> {
     .map((e) => {
       const label = e.stockName || e.stockCode || "(未命名)";
       const currency = e.assetType === "USSTOCK" ? "USD" : "TWD";
-      const batches = [e.batch1, e.batch2, e.batch3, e.batch4, e.batch5, e.batch6]
+      const batches = [e.batch1, e.batch2, e.batch3, e.batch4, e.batch5, e.batch6, e.batch7, e.batch8, e.batch9, e.batch10]
         .map((b, i) => (b != null ? `第${i + 1}批${fmtNum(b)}` : null))
         .filter(Boolean)
         .join("、") || "尚未設定批次價位";
