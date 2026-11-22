@@ -1,32 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-interface PredictionAlert {
-  code: string;
-  name: string;
-  alerts: string[];
-}
+import { usePathname } from "next/navigation";
+import { useWatchlistAlerts } from "@/lib/use-watchlist-alerts";
 
 // 全站跑馬燈：進APP就掃一次觀察名單裡每一檔的RSI/KD/乖離率，有任何一檔符合極端條件
-// （RSI與KD同時超賣<20或超買>80、乖離率(6日)正負超過13%）就在側邊欄旁邊跳出來，
-// 不管使用者停在哪一頁都看得到；只在打開APP當下掃一次，不是背景持續輪詢即時更新。
+// 就在側邊欄旁邊跳出來，不管使用者停在哪一頁都看得到；只在打開APP當下掃一次，不是
+// 背景持續輪詢即時更新。「台灣股市」頁自己有清單式的完整顯示，這裡就不重複跳跑馬燈。
 export default function WatchlistAlertMarquee() {
-  const [items, setItems] = useState<PredictionAlert[]>([]);
+  const pathname = usePathname();
+  const items = useWatchlistAlerts();
 
-  useEffect(() => {
-    fetch("/api/market/tw-stock/watchlist/predictions")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body) => {
-        const predictions: Array<{ code: string; name: string; alerts?: string[] }> = body?.predictions ?? [];
-        const withAlerts = predictions
-          .filter((p) => Array.isArray(p.alerts) && p.alerts.length > 0)
-          .map((p) => ({ code: p.code, name: p.name, alerts: p.alerts! }));
-        setItems(withAlerts);
-      })
-      .catch(() => {});
-  }, []);
-
+  if (pathname?.startsWith("/market/tw-stock")) return null;
   if (items.length === 0) return null;
 
   const text = items.map((it) => `${it.name}（${it.code}）${it.alerts.join("、")}`).join("　　◆　　");

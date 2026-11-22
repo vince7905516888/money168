@@ -24,6 +24,7 @@ import {
 import { computeStockPrediction } from "@/lib/stock-prediction";
 import type { StockNewsItem } from "@/lib/tw-stock-news";
 import { findSwingLevels, type SwingLevel } from "@/lib/support-resistance";
+import { useWatchlistAlerts } from "@/lib/use-watchlist-alerts";
 
 const SYNC_ID = "tw-stock-charts";
 
@@ -668,6 +669,7 @@ function DrawingLayer(props: {
 }
 
 export default function TwStockPage() {
+  const watchlistAlerts = useWatchlistAlerts();
   const [codeInput, setCodeInput] = useState("2330");
   const [data, setData] = useState<StockData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1498,6 +1500,30 @@ export default function TwStockPage() {
         <h1 className="text-2xl font-bold text-slate-900">台灣股市</h1>
         <p className="text-slate-500 text-sm mt-1">K線、均線、布林通道與成交量（資料源：Yahoo Finance，可能延遲，僅供參考）</p>
       </div>
+
+      {watchlistAlerts.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
+          <div className="px-5 py-2.5 border-b border-slate-100 bg-red-50">
+            <h3 className="text-xs font-bold text-red-600 tracking-wider">觀察名單提醒</h3>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {watchlistAlerts.map((it) => (
+              <button
+                key={it.code}
+                type="button"
+                onClick={() => selectWatchStock(it.code)}
+                className="w-full flex items-center justify-between gap-3 px-5 py-2.5 text-sm hover:bg-slate-50 transition-colors text-left"
+              >
+                <span className="flex items-baseline gap-2 shrink-0">
+                  <span className="text-slate-700">{it.name}</span>
+                  <span className="text-xs text-slate-400">{it.code}</span>
+                </span>
+                <span className="text-xs text-red-600 text-right">{it.alerts.join("、")}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSearch} className="flex gap-2 mb-6">
         <div className="relative w-56">
