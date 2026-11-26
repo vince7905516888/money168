@@ -65,6 +65,8 @@ const EMPTY_ADD_FORM = {
   costAdjustSource: "",
   note: "",
   noRealize: false,
+  syncAdjust: false,
+  syncAdjustTarget: "",
 };
 
 // 台股交割日：成交日 + 2 個工作天（跳過週六、週日；國定假日請自行調整）
@@ -339,6 +341,11 @@ export default function StockPage() {
   const calcSubtotal = addForm.action === "BUY" ? principal + fee : principal - fee - tax;
   // 調帳金額：如果填了就以此為準（實際扣款/入帳金額可能與試算有落差），否則採自動試算結果
   const subtotal = addForm.adjustAmount !== "" ? (parseFloat(addForm.adjustAmount) || 0) : calcSubtotal;
+  // 這筆賣出的預估已實現損益：賣出淨額 − 賣出股數×目前均價（均價估算，不是逐批FIFO精算），
+  // 用來判斷要不要顯示「同步調帳到其他持股」的選項，以及預先帶入調整金額
+  const sellingHolding = addForm.mode === "TRADE" && addForm.action === "SELL" ? holdings.find((h) => h.code === addForm.code) : undefined;
+  const estimatedSellProfit = sellingHolding ? subtotal - quantity * sellingHolding.avgPrice : 0;
+  const syncAdjustTargets = holdings.filter((h) => h.code !== addForm.code);
 
   const resetAddForm = () => {
     setAddForm((f) => ({ ...EMPTY_ADD_FORM, date: getTodayTW(), feeRate: f.feeRate }));
@@ -421,6 +428,28 @@ export default function StockPage() {
           : addForm.note,
       }),
     });
+    // 同步調帳：這筆賣出有獲利，使用者選了要攤平成本的另一檔持股，就照「成本調整」分頁同一套
+    // 做法再補一筆調整記錄（action:SELL、amount:負的獲利金額），不動被攤平那檔的股數
+    if (invRes.ok && addForm.action === "SELL" && addForm.syncAdjust && addForm.syncAdjustTarget && estimatedSellProfit > 0) {
+      const target = holdings.find((h) => h.code === addForm.syncAdjustTarget);
+      if (target) {
+        const sourceLabel = addForm.name || addForm.code;
+        const adjustRes = await authFetch("/api/investments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "STOCK",
+            name: target.name,
+            code: target.code,
+            date: addForm.date,
+            action: "SELL",
+            amount: -Math.round(estimatedSellProfit),
+            note: `成本調整（用${sourceLabel}賣出獲利攤平此檔成本），獲利來源：${sourceLabel}`,
+          }),
+        });
+        if (!adjustRes.ok) alert(`${sourceLabel}賣出紀錄已儲存，但同步調帳到${target.name}失敗，請到「成本調整」分頁手動補一筆`);
+      }
+    }
     // 同步到銀行資金管理：買進記銀行支出、賣出記銀行收入（格式同手動記帳：分類「銀行」、備註放銀行名稱）
     if (invRes.ok && settleBank) {
       const isBuy = addForm.action === "BUY";
@@ -1169,6 +1198,34 @@ export default function StockPage() {
                           <span className="text-[11px] text-slate-400">適合同一檔股票「買低賣高」調降均價的操作：股數照常扣減，但這筆的損益會加回/扣掉剩餘持股的成本抵銷掉（持有成本不受影響），也不會算進「已實現損益明細」與總計</span>
                         </span>
                       </label>
+
+                      {estimatedSellProfit > 0 && (
+                        <div className="bg-slate-50 rounded-lg px-3.5 py-2.5 space-y-2">
+                          <label className="flex items-start gap-2 text-sm cursor-pointer">
+                            <input type="checkbox" checked={addForm.syncAdjust}
+                              onChange={(e) => setAddForm({ ...addForm, syncAdjust: e.target.checked })}
+                              className="mt-0.5" />
+                            <span>
+                              <span className="font-medium text-slate-700">同步調帳：用這筆獲利攤平其他持股成本</span>
+                              <br />
+                              <span className="text-[11px] text-slate-400">預估這筆賣出獲利約 {fmt(estimatedSellProfit)}（賣出淨額－賣出股數×目前均價，非逐批精算），勾選後選擇要調整哪一檔持股，會自動在「成本調整」補一筆調整記錄</span>
+                            </span>
+                          </label>
+                          {addForm.syncAdjust && (
+                            <select
+                              required
+                              value={addForm.syncAdjustTarget}
+                              onChange={(e) => setAddForm({ ...addForm, syncAdjustTarget: e.target.value })}
+                              className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors"
+                            >
+                              <option value="">請選擇要調整成本的持股</option>
+                              {syncAdjustTargets.map((h) => (
+                                <option key={h.code} value={h.code}>{h.name}（{h.code}）· 目前成本 {fmt(h.cost)}</option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      )}
                     </>
                   )}
                 </>
