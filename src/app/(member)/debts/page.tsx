@@ -60,6 +60,8 @@ export default function DebtsPage() {
   const [addCategoryOpen, setAddCategoryOpen] = useState(false);
   const [addCategoryLoading, setAddCategoryLoading] = useState(false);
 
+  // 還款同步到銀行資金管理：扣款分類沿用「銀行」這個系統分類（跟股票投資頁買賣同步用同一套）
+  const [bankExpenseCategoryId, setBankExpenseCategoryId] = useState<string | undefined>(undefined);
   const [userBanks, setUserBanks] = useState<UserBank[]>([]);
   const [addBankInput, setAddBankInput] = useState("");
   const [addBankOpen, setAddBankOpen] = useState(false);
@@ -70,15 +72,18 @@ export default function DebtsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [debtRes, catRes, bankRes] = await Promise.all([
+    const [debtRes, catRes, bankRes, txCatRes] = await Promise.all([
       fetch("/api/debts"),
       fetch("/api/user-debt-categories"),
       fetch("/api/user-banks"),
+      fetch("/api/categories"),
     ]);
-    const [debtData, catData, bankData] = await Promise.all([debtRes.json(), catRes.json(), bankRes.json()]);
+    const [debtData, catData, bankData, txCatData] = await Promise.all([debtRes.json(), catRes.json(), bankRes.json(), txCatRes.json().catch(() => [])]);
     setDebts(Array.isArray(debtData) ? debtData : []);
     setCategories(Array.isArray(catData) ? catData : []);
     setUserBanks(Array.isArray(bankData) ? bankData : []);
+    const txCats: { id: string; name: string; type: string }[] = Array.isArray(txCatData) ? txCatData : [];
+    setBankExpenseCategoryId(txCats.find((c) => c.name === "銀行" && c.type === "EXPENSE")?.id);
     setPage(1);
     setLoading(false);
   }, []);
@@ -177,12 +182,31 @@ export default function DebtsPage() {
         note: addForm.note,
       }),
     });
-    setAddSaving(false);
     if (!res.ok) {
+      setAddSaving(false);
       const err = await res.json().catch(() => null);
       alert(err?.error || "儲存失敗，請稍後再試");
       return;
     }
+    // 還款（減少）且有填銀行名：同步在銀行資金管理記一筆扣款，格式比照股票投資頁買賣同步
+    if (isDecrease && addForm.bankName) {
+      const bankRes = await authFetch("/api/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `${addForm.category}還款`,
+          amount: amountInput,
+          type: "EXPENSE",
+          date: addForm.date,
+          categoryId: bankExpenseCategoryId ?? "",
+          note: addForm.bankName,
+          source: "BANK",
+          currency: "TWD",
+        }),
+      });
+      if (!bankRes.ok) alert(`負債記錄已儲存，但銀行記錄新增失敗，請到銀行資金管理手動補一筆支出 ${Math.round(amountInput)}`);
+    }
+    setAddSaving(false);
     setShowAddModal(false);
     fetchAll();
   };
@@ -435,6 +459,11 @@ export default function DebtsPage() {
                     className="mt-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline">
                     + 找不到？申請新增銀行
                   </button>
+                )}
+                {isDecrease && addForm.bankName && (
+                  <p className="text-[11px] text-indigo-500 mt-1.5">
+                    會同時在「銀行資金管理」記一筆：{addForm.bankName} 支出 {amountInput > 0 ? fmt(amountInput) : "—"}
+                  </p>
                 )}
               </div>
 
