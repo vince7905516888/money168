@@ -101,6 +101,15 @@ export default function ReceiptPage() {
   const [savedRates, setSavedRates] = useState<Record<string, number>>({});
   const [fx, setFx] = useState({ rate: "", feePct: "1.5", twd: "" });
   const [dups, setDups] = useState<Record<number, Dups>>({});
+  // 手機瀏覽器（尤其是加到主畫面的PWA模式）常常不會彈出 window.confirm/alert，
+  // 點了按鈕完全沒反應，改用站內的確認視窗跟提示訊息，不依賴瀏覽器原生對話框
+  const [confirmState, setConfirmState] = useState<{ message: string; action: () => void | Promise<void> } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const loadOptions = useCallback(async () => {
     const [debtCatRes, debtRes, bankRes, catRes, rateRes] = await Promise.all([
@@ -150,31 +159,39 @@ export default function ReceiptPage() {
   const dupCountOf = (o: Order) => dupsOf(o).transactions.length + dupsOf(o).debts.length;
 
   // 更正原本的記錄（單筆）：只改名稱／品項，不動付款方式、金額、日期與分類（備註裡可能存著付款方式或銀行名稱）
-  const correctTx = async (o: Order, t: DupTx) => {
+  const correctTx = (o: Order, t: DupTx) => {
     const title = recordTitle(o);
-    if (!confirm(`更正原本的記錄？\n\n名稱：${t.title} → ${title}\n（付款方式、金額、日期不變）`)) return;
-    setSaving(true);
-    const res = await authFetch(`/api/transactions/${t.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, amount: t.amount, type: t.type, date: t.date, note: t.note, categoryId: t.categoryId, currency: t.currency ?? "TWD" }),
+    setConfirmState({
+      message: `更正原本的記錄？\n\n名稱：${t.title} → ${title}\n（付款方式、金額、日期不變）`,
+      action: async () => {
+        setSaving(true);
+        const res = await authFetch(`/api/transactions/${t.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, amount: t.amount, type: t.type, date: t.date, note: t.note, categoryId: t.categoryId, currency: t.currency ?? "TWD" }),
+        });
+        setSaving(false);
+        if (!res.ok) { setToast("更正失敗，請稍後再試"); return; }
+        setDone(t.source === "BANK" ? { dest: "銀行資金管理（已更正原本的記錄）", href: "/banks", count: 1 } : { dest: "收支記錄（已更正原本的記錄）", href: "/transactions", count: 1 });
+      },
     });
-    setSaving(false);
-    if (!res.ok) { alert("更正失敗，請稍後再試"); return; }
-    setDone(t.source === "BANK" ? { dest: "銀行資金管理（已更正原本的記錄）", href: "/banks", count: 1 } : { dest: "收支記錄（已更正原本的記錄）", href: "/transactions", count: 1 });
   };
-  const correctDebt = async (o: Order, d: DupDebt) => {
+  const correctDebt = (o: Order, d: DupDebt) => {
     const note = recordTitle(o);
-    if (!confirm(`更正原本的記錄？\n\n${d.category} 的備註：${d.note ?? "（空白）"} → ${note}\n（金額、日期不變）`)) return;
-    setSaving(true);
-    const res = await authFetch(`/api/debts/${d.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note }),
+    setConfirmState({
+      message: `更正原本的記錄？\n\n${d.category} 的備註：${d.note ?? "（空白）"} → ${note}\n（金額、日期不變）`,
+      action: async () => {
+        setSaving(true);
+        const res = await authFetch(`/api/debts/${d.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ note }),
+        });
+        setSaving(false);
+        if (!res.ok) { setToast("更正失敗，請稍後再試"); return; }
+        setDone({ dest: "負債表（已更正原本的記錄）", href: "/debts", count: 1 });
+      },
     });
-    setSaving(false);
-    if (!res.ok) { alert("更正失敗，請稍後再試"); return; }
-    setDone({ dest: "負債表（已更正原本的記錄）", href: "/debts", count: 1 });
   };
 
   const reset = () => {
@@ -269,40 +286,44 @@ export default function ReceiptPage() {
     (!foreignCard || (records.length === 1 && cardTwd > 0));
   const dupWarnCount = orders.filter((o) => (!multi || o.checked) && dupCountOf(o) > 0).length;
 
-  const save = async () => {
+  const save = () => {
     if (!canSave || !payType) return;
-    if (dupWarnCount > 0 && !confirm(`有 ${dupWarnCount} 筆可能已經記過了（同一天同金額或同單號）。\n確定還是要新增嗎？`)) return;
     const lines = records.map((r) => `${r.date}　${r.title}　${r.currency} ${r.amount.toLocaleString()}`).join("\n");
-    if (!confirm(`確認記帳 ${records.length} 筆？\n\n${lines}${foreignCard ? `\n（記台幣 ${cardTwd.toLocaleString()}${twdActual > 0 ? "" : "，估算"}）` : ""}\n\n付款：${PAY_LABEL[payType].label}${account ? `（${account}）` : ""}\n記到：${PAY_LABEL[payType].dest}`)) return;
-    setSaving(true);
-    let ok = 0;
-    for (const r of records) {
-      const categoryId = categories.find((c) => c.name === r.category)?.id ?? "";
-      const res = payType === "CARD"
-        ? await authFetch("/api/debts", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              category: account, amount: foreignCard ? cardTwd : r.amount, bankName: cardBank[account] ?? "", date: r.date,
-              note: [r.title, foreignCard ? (twdActual > 0
-                ? `原幣 ${r.amount} ${r.currency}，實際台幣（帳單／通知）`
-                : `原幣 ${r.amount} ${r.currency}，估算台幣（匯率 ${fxRate}、手續費 ${fxFee}%，請以帳單更正）`) : ""].filter(Boolean).join("・"),
-            }),
-          })
-        : await authFetch("/api/transactions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title: r.title, amount: r.amount, type: "EXPENSE", date: r.date, categoryId, currency: r.currency,
-              note: payType === "BANK" ? `支付:銀行:${account}` : "支付:現金",
-              source: payType === "BANK" ? "BANK" : "CASH",
-            }),
-          });
-      if (res.ok) ok++;
-    }
-    setSaving(false);
-    if (ok < records.length) alert(`有 ${records.length - ok} 筆記帳失敗，請到${PAY_LABEL[payType].dest}確認`);
-    if (ok > 0) setDone({ dest: PAY_LABEL[payType].dest, href: PAY_LABEL[payType].href, count: ok });
+    const dupNote = dupWarnCount > 0 ? `⚠️ 有 ${dupWarnCount} 筆可能已經記過了（同一天同金額或同單號）。\n\n` : "";
+    setConfirmState({
+      message: `${dupNote}確認記帳 ${records.length} 筆？\n\n${lines}${foreignCard ? `\n（記台幣 ${cardTwd.toLocaleString()}${twdActual > 0 ? "" : "，估算"}）` : ""}\n\n付款：${PAY_LABEL[payType].label}${account ? `（${account}）` : ""}\n記到：${PAY_LABEL[payType].dest}`,
+      action: async () => {
+        setSaving(true);
+        let ok = 0;
+        for (const r of records) {
+          const categoryId = categories.find((c) => c.name === r.category)?.id ?? "";
+          const res = payType === "CARD"
+            ? await authFetch("/api/debts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  category: account, amount: foreignCard ? cardTwd : r.amount, bankName: cardBank[account] ?? "", date: r.date,
+                  note: [r.title, foreignCard ? (twdActual > 0
+                    ? `原幣 ${r.amount} ${r.currency}，實際台幣（帳單／通知）`
+                    : `原幣 ${r.amount} ${r.currency}，估算台幣（匯率 ${fxRate}、手續費 ${fxFee}%，請以帳單更正）`) : ""].filter(Boolean).join("・"),
+                }),
+              })
+            : await authFetch("/api/transactions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: r.title, amount: r.amount, type: "EXPENSE", date: r.date, categoryId, currency: r.currency,
+                  note: payType === "BANK" ? `支付:銀行:${account}` : "支付:現金",
+                  source: payType === "BANK" ? "BANK" : "CASH",
+                }),
+              });
+          if (res.ok) ok++;
+        }
+        setSaving(false);
+        if (ok < records.length) setToast(`有 ${records.length - ok} 筆記帳失敗，請到${PAY_LABEL[payType].dest}確認`);
+        if (ok > 0) setDone({ dest: PAY_LABEL[payType].dest, href: PAY_LABEL[payType].href, count: ok });
+      },
+    });
   };
 
   const input = "w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm focus:border-indigo-400 transition-colors";
@@ -538,6 +559,42 @@ export default function ReceiptPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* 站內確認視窗：取代 window.confirm，手機瀏覽器（尤其是PWA模式）不保證會彈出原生對話框 */}
+      {confirmState && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setConfirmState(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm text-slate-700 whitespace-pre-wrap mb-5">{confirmState.message}</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setConfirmState(null)}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50">
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const action = confirmState.action;
+                  setConfirmState(null);
+                  action();
+                }}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                確認
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 站內提示訊息：取代 window.alert */}
+      {toast && (
+        <div
+          onClick={() => setToast(null)}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg max-w-[90vw] text-center cursor-pointer"
+        >
+          {toast}
         </div>
       )}
     </div>
